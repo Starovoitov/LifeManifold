@@ -429,7 +429,7 @@ wheels = [
 ]
 
 [[package]]
-name = "godmode-project"
+name = "lifemanifold"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
