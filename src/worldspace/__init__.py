@@ -1,18 +1,23 @@
-"""MVP world-space toolkit: generators -> simulation -> metrics -> embedding."""
+"""MVP world-space toolkit: generators -> simulation -> metrics -> streaming JSONL."""
 
-from .metrics import WorldMetrics, compute_metrics
-from .pipeline import SpacePoint, explore_world_space, points_to_dicts, save_points_jsonl
+from .metrics import WorldMetrics, metrics_vector_to_dict
+from .pipeline import stream_world_space_to_jsonl
 from .simulator import SimulationResult, run_world
 from .spec import WorldSpec
+from .viz import (
+    plot_simulation_final_grid,
+    plot_world_embedding,
+    plot_world_embedding_from_jsonl,
+)
 
 __all__ = [
     "WorldSpec",
     "SimulationResult",
     "WorldMetrics",
-    "SpacePoint",
     "run_world",
-    "compute_metrics",
-    "explore_world_space",
-    "points_to_dicts",
-    "save_points_jsonl",
+    "metrics_vector_to_dict",
+    "stream_world_space_to_jsonl",
+    "plot_world_embedding",
+    "plot_world_embedding_from_jsonl",
+    "plot_simulation_final_grid",
 ]

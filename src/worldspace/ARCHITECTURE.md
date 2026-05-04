@@ -63,12 +63,8 @@ Simulation model:
 - Predation deaths
 - Resource regeneration and feed bonus
 
-Outputs time-series and history needed for analysis:
-
-- density per step
-- alive cells per step
-- death ages
-- frame history
+Returns `SimulationResult` with **`metrics: WorldMetrics`** and **`final_life`** for optional plotting.  
+Inside the loop there are **no growing Python lists** of per-step grids or full density series: online statistics, a bounded density window for oscillation, and one final grid snapshot.
 
 ### Math helpers
 
@@ -80,35 +76,34 @@ Shared numeric routines used by the simulator, metrics, and pipeline (neighbor c
 
 File: `src/worldspace/metrics.py`
 
-`compute_metrics(result) -> WorldMetrics` returns:
+`WorldMetrics` holds the six behavioral coordinates (filled by `run_world` today):
 
-- `entropy`
-- `stability`
-- `average_lifespan`
-- `density_mean`
-- `oscillation_score`
-- `diversity`
+- `entropy`, `stability`, `average_lifespan`, `density_mean`, `oscillation_score`, `diversity`
 
-These 6 values are the behavioral coordinates of a world.
-
-### Space Construction
+### Space Construction (streaming)
 
 File: `src/worldspace/pipeline.py`
 
-`explore_world_space(generator, n_worlds, k_clusters)`:
+`stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=...)`:
 
-1. Generate world specs.
-2. Simulate each world.
-3. Compute metric vectors.
-4. Reduce to 2D via PCA (`math.pca_2d` in `src/worldspace/math.py`).
-5. Group similar worlds with simple k-means (`math.kmeans`).
+1. **Pass 1 — streaming over worlds:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world`, write the 6-vector to a **temporary float32 memmap** row, and update PCA sufficient statistics (`sum_x`, `sum_xx`) in **O(1)** extra RAM.
+2. Fit PCA mean + 2D basis from sufficient statistics (`math.pca_mean_and_basis_2d`).
+3. Run Lloyd k-means **row-wise** on the memmap (centroids are `k × 6`, labels on a separate memmap).
+4. **Pass 2 — streaming again:** same `iter_worlds` order, read each metrics row from disk, project to 2D, assign `cluster_id`, **append one JSON line** to the output file (and optionally print it).
 
-Output: `list[SpacePoint]` where each point contains:
+No Python list of all worlds or all `SpacePoint` objects is kept. RAM vs. batch size is **O(1)** (plus fixed small buffers and k-means state); disk holds the temporary `(n × 6)` metrics file only until the function returns.
 
-- original `world`
-- computed `metrics`
-- `embedding_2d`
-- `cluster_id`
+### Visualization (matplotlib)
+
+File: `src/worldspace/viz.py`
+
+Matplotlib is confined to this submodule and uses the **`Agg`** backend (file output only).
+
+- `plot_world_embedding(points, path, ...)` — scatter from in-memory point-like objects (`embedding_2d`, `cluster_id`).
+- `plot_world_embedding_from_jsonl(jsonl_path, path, ...)` — scatter from a saved JSONL run (used by the CLI).
+- `plot_simulation_final_grid(result, path, ...)` — heatmap of `result.final_life`.
+
+CLI: `--plot` requires `--output`; it reads the JSONL file and does not replay the simulation.
 
 ## CLI and Output Artifacts
 
@@ -122,7 +117,15 @@ Optional persistence (JSONL only, one JSON object per line):
 
 - `--output results/world_space.jsonl`
 
-The CLI always prints a JSON array to stdout and can additionally write the same records as JSONL to a file.
+Optional copy of each line to stdout while writing a file:
+
+- `--echo-lines`
+
+Optional figure (requires `--output` first):
+
+- `--plot results/world_space_map.png`
+
+If `--output` is omitted, each JSON record is printed as one line to stdout (JSONL on stdout) with the same streaming memory profile.
 
 ## Separation from Legacy Stack
 

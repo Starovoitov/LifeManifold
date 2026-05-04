@@ -4,9 +4,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import math as ws_math
-from .simulator import SimulationResult
-
 
 @dataclass
 class WorldMetrics:
@@ -34,20 +31,14 @@ class WorldMetrics:
         )
 
 
-def compute_metrics(result: SimulationResult) -> WorldMetrics:
-    """Compute the six core world metrics from simulation results."""
-    density = np.array(result.density_series, dtype=float)
-    density_mean = float(density.mean()) if density.size else 0.0
-    entropy = ws_math.binary_entropy(density_mean)
-    stability = float(np.clip(1.0 - (density.std() / (density_mean + 1e-6)), 0.0, 1.0))
-    avg_lifespan = float(np.mean(result.death_ages)) if result.death_ages else 0.0
-    oscillation = ws_math.oscillation(density)
-    diversity = ws_math.pattern_diversity(result.history)
-    return WorldMetrics(
-        entropy=entropy,
-        stability=stability,
-        average_lifespan=avg_lifespan,
-        density_mean=density_mean,
-        oscillation_score=oscillation,
-        diversity=diversity,
+def metrics_vector_to_dict(v: np.ndarray) -> dict[str, float]:
+    """Map a 6-vector back to named metric fields for JSON export."""
+    keys = (
+        "entropy",
+        "stability",
+        "average_lifespan",
+        "density_mean",
+        "oscillation_score",
+        "diversity",
     )
+    return {k: float(v[i]) for i, k in enumerate(keys)}

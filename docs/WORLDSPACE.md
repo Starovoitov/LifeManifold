@@ -23,23 +23,20 @@ flowchart LR
     CLU["k-means"]
   end
   subgraph out["Выход"]
-    PT["SpacePoint"]
-    FILE["JSONL файл (опционально)"]
+    FILE["JSONL (файл или stdout)"]
   end
   G --> WS
   WS --> SIM
   SIM --> MET
   MET --> EMB
   MET --> CLU
-  EMB --> PT
-  CLU --> PT
-  PT --> FILE
+  EMB --> FILE
+  CLU --> FILE
 ```
 
 - **`WorldSpec`** — статическое описание одного мира (правила и числовые параметры).
-- **`run_world`** — динамика: как меняется поле во времени при данных правилах.
-- **`compute_metrics`** — свёртка траектории в фиксированный вектор из шести чисел.
-- **`explore_world_space`** — массовый прогон + PCA + кластеризация.
+- **`run_world`** — динамика поля и **сразу** шестимерные метрики (без длинных списков по шагам).
+- **`stream_world_space_to_jsonl`** — двухпроходный прогон: PCA/k-means по memmap, запись JSONL **потоково**, память по числу миров **O(1)**.
 
 Пакет **не зависит** от legacy-слоёв приложения (`celery`, `redis`, веб-сокеты и т.д.) и задуман как автономный исследовательский пайплайн.
 
@@ -54,8 +51,8 @@ flowchart TB
     gen["generators.py — генераторы траекторий в пространстве миров"]
     wmath["math.py — соседи, PCA, k-means, формулы метрик"]
     sim["simulator.py — run_world"]
-    met["metrics.py — compute_metrics"]
-    pipe["pipeline.py — explore_world_space, сохранение"]
+    met["metrics.py — WorldMetrics"]
+    pipe["pipeline.py — stream_world_space_to_jsonl"]
     cli["cli.py — точка входа CLI"]
     main["__main__.py — python -m src.worldspace"]
   end
@@ -74,10 +71,10 @@ flowchart TB
 |--------|------------|
 | `spec.py` | Датакласс мира + сериализация JSON |
 | `generators.py` | Случайные миры, random walk, цепи Маркова, заглушки NN/LLM |
-| `math.py` | Численные вспомогательные функции: `neighbor_count`, `pca_2d`, `kmeans`, `binary_entropy`, `oscillation`, `pattern_diversity` (импортируется как `from . import math as ws_math`, чтобы не путать со стандартным модулем `math`) |
-| `simulator.py` | Один шаг CA за итерацию времени, сбор траектории |
-| `metrics.py` | Шестимерный вектор поведения |
-| `pipeline.py` | Оркестрация, вызов `math` для PCA/k-means, экспорт JSONL |
+| `math.py` | `neighbor_count`, PCA по достаточным статистикам (`pca_mean_and_basis_2d`, `project_pca_2d`), `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
+| `simulator.py` | CA по шагам; онлайн-метрики и один финальный снимок сетки |
+| `metrics.py` | Датакласс метрик и сериализация вектора в JSON |
+| `pipeline.py` | Потоковый пайплайн: memmap метрик, PCA по достаточным статистикам, k-means по строкам, JSONL |
 | `cli.py` / `__main__.py` | Запуск из командной строки |
 
 Краткая архитектурная заметка также есть в `src/worldspace/ARCHITECTURE.md`; этот файл (**`docs/WORLDSPACE.md`**) глубже раскрывает семантику параметров и метрик.
@@ -215,16 +212,17 @@ $$
 
 ### 4.6 Гибель и возраст
 
-- Если клетка была жива (`life == 1`) и стала мёртвой (`next_life == 0`), её **`ages`** попадает в список **`death_ages`**.
+- Если клетка была жива (`life == 1`) и стала мёртвой (`next_life == 0`), возрасты гибелей **суммируются** в счётчиках (без списка всех `death_ages`).
 - Для живых: `ages := ages + 1 + feed_bonus`; для мёртвых: `ages := 0`.
 
-### 4.7 Сбор результатов каждого шага
+### 4.7 Сбор статистики без длинных списков
 
-На каждом шаге сохраняются:
+Вместо списков на все шаги используется:
 
-- **`density_series`** — средняя доля живых клеток \(\mathrm{mean}(\text{life})\).
-- **`alive_series`** — число живых клеток.
-- **`history`** — копия поля `life` (для метрик паттернов).
+- **онлайн-среднее и дисперсия** плотности (Welford) → `density_mean`, `stability`;
+- **сумма и число** возрастов при гибели → `average_lifespan`;
+- **deque фиксированной длины** (512 последних значений плотности) → `oscillation_score` (оценка автокорреляции по окну, а не по всей длине ряда);
+- **одна копия** финального поля `life` → `diversity` через `pattern_diversity_from_frame`.
 
 ```mermaid
 sequenceDiagram
@@ -234,24 +232,23 @@ sequenceDiagram
   L->>L: noise flip
   L->>L: predation deaths
   L->>L: food regen + feeding
-  L->>L: death_ages update
-  L->>L: density, history append
+  L->>L: online death-age / density stats
 ```
 
 ---
 
 ## 5. Метрики: вектор \(M(\text{world}) \in \mathbb{R}^6\)
 
-Функция **`compute_metrics(result)`** строит **`WorldMetrics`**. Все шесть значений берутся из **реальной траектории** симуляции.
+Метрики **`WorldMetrics`** вычисляются **внутри `run_world`** по онлайн-накопителям (см. §4.7). Отдельной функции `compute_metrics` нет.
 
 | Имя | Как считается в коде | Пояснение |
 |-----|----------------------|-----------|
 | **`entropy`** | Бинарная энтропия Шеннона для **`density_mean`**: \(H(p)\) при \(p = \overline{\rho_t}\) | Не энтропия поля по паттернам, а энтропия «средней занятости во времени» как случайной бернуллиевской доли |
 | **`stability`** | \(\mathrm{clip}(1 - \sigma(\rho)/(\mu(\rho)+\varepsilon), 0, 1)\) | Низкая дисперсия плотности во времени → выше стабильность |
-| **`average_lifespan`** | Среднее по **`death_ages`** (пустой список → `0`) | Среднее число шагов до гибели для тех клеток, что умерли |
-| **`density_mean`** | \(\mathrm{mean}(\text{density\_series})\) | Средняя заполненность поля живыми за прогон |
-| **`oscillation_score`** | Максимум по лагам нормированной автокорреляции ряда плотности | Насколько ряд \(\rho_t\) похож на колеблющийся (периодика без явного FFT) |
-| **`diversity`** | Доля уникальных подписей среди **`sample_size`** случайных патчей \(3\times3\) на **последнем кадре** | Грубая оценка «сколько разных локальных паттернов» |
+| **`average_lifespan`** | `death_age_sum / death_count` (нет гибелей → `0`) | Среднее число шагов до гибели по умершим клеткам |
+| **`density_mean`** | Онлайн-среднее плотности по шагам | Средняя заполненность поля живыми за прогон |
+| **`oscillation_score`** | Автокорреляция по **окну** из последних 512 значений плотности | Приближение к «есть ли циклы» без хранения всего ряда |
+| **`diversity`** | Доля уникальных подписей среди **`sample_size`** случайных патчей \(3\times3\) на **финальном** поле `life` | Грубая оценка «сколько разных локальных паттернов» |
 
 Фиксированный порядок вектора задаётся методом **`WorldMetrics.as_vector()`**:
 
@@ -261,10 +258,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  subgraph traj["Траектория"]
-    DS["density_series"]
-    HA["history[-1]"]
-    DA["death_ages"]
+  subgraph traj["Поток по шагам"]
+    DS["онлайн mean/var плотности"]
+    WIN["окно плотности"]
+    DA["сумма возрастов гибелей"]
+    HA["финальный life"]
   end
   subgraph M["WorldMetrics"]
     e["entropy"]
@@ -277,7 +275,7 @@ flowchart LR
   DS --> e
   DS --> s
   DS --> dm
-  DS --> os
+  WIN --> os
   DA --> al
   HA --> dv
 ```
@@ -286,15 +284,14 @@ flowchart LR
 
 ## 6. Пространство миров: PCA и кластеры
 
-Функция **`explore_world_space(generator, n_worlds, k_clusters)`**:
+Функция **`stream_world_space_to_jsonl(generator, n_worlds, path, ...)`** (`src/worldspace/pipeline.py`):
 
-1. Генерирует **`n_worlds`** экземпляров **`WorldSpec`**.
-2. Для каждого вызывает **`run_world`** → **`compute_metrics`**.
-3. Строит матрицу размера **`n_worlds × 6`** из **`metrics.as_vector()`**.
-4. **`math.pca_2d`** (`src/worldspace/math.py`): центрирование по столбцам, **SVD**, проекция на первые две главные компоненты → **`embedding_2d`** (координаты на плоскости для визуализации или экспорта).
-5. **`math.kmeans`**: простой **k-means** по полному 6D-вектору → **`cluster_id`**.
+1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** (без списка всех миров в памяти) — **`run_world`**, вектор метрик пишется в **временный memmap** `(n × 6)` и обновляются суммы для PCA (**`sum_x`**, **`sum_xx`**).
+2. По достаточным статистикам: **`math.pca_mean_and_basis_2d`** → среднее и базис **2D**.
+3. **k-means Lloyd** по строкам memmap (центроиды **`k×6`**, метки в отдельном memmap).
+4. **Проход 2:** снова **`iter_worlds(n)`** (тот же порядок, детерминированные генераторы), чтение строки memmap, проекция **`math.project_pca_2d`**, запись **одной JSON-строки** в файл (и опционально в stdout).
 
-Итоговая запись **`SpacePoint`** содержит исходный мир, метрики, 2D-точку и номер кластера.
+Итоговая строка JSON содержит `world`, `metrics`, `embedding_2d`, `cluster_id`. Память по числу миров **не растёт** с размером батча (временный файл на диске для столбцов метрик).
 
 ```mermaid
 flowchart TB
@@ -357,13 +354,15 @@ flowchart TB
 python -m src.worldspace --generator random --worlds 30 --steps 200 --grid 40
 ```
 
-Сохранение в файл — только **JSONL** (одна JSON-строка на запись; родительская директория создаётся автоматически):
+Запись в файл — **JSONL** (одна JSON-строка на мир; память по числу миров **O(1)**):
 
 ```bash
 python -m src.worldspace --output results/run.jsonl
 ```
 
-В stdout всегда печатается полный **JSON-массив** записей (удобно для быстрого просмотра); каждая запись содержит `world`, `metrics`, `embedding_2d`, `cluster_id`.
+Без **`--output`** те же строки идут в **stdout** (по одной JSON-строке на строку). Флаг **`--echo-lines`** дублирует строки в stdout при записи в файл.
+
+Визуализация: **`src/worldspace/viz.py`**. **`--plot`** требует **`--output`**: график строится из JSONL через **`plot_world_embedding_from_jsonl`** (повторная симуляция не нужна). **`plot_simulation_final_grid`** использует **`result.final_life`**.
 
 ---
 
