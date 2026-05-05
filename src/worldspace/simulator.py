@@ -156,6 +156,9 @@ def _metrics_from_final_state(
     osc_series = np.asarray(density_tail, dtype=float)
     oscillation = ws_math.oscillation(osc_series)
     diversity = ws_math.pattern_diversity_from_frame(life.copy())
+    final_density = float(life.mean())
+    extinction_penalty = float(np.clip(1.0 - final_density, 0.0, 1.0))
+    interestingness = float(entropy + stability + diversity - extinction_penalty)
     return WorldMetrics(
         entropy=entropy,
         stability=stability,
@@ -163,4 +166,5 @@ def _metrics_from_final_state(
         density_mean=density_mean_val,
         oscillation_score=oscillation,
         diversity=diversity,
+        interestingness=interestingness,
     )

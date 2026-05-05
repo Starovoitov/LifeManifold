@@ -76,9 +76,12 @@ Shared numeric routines used by the simulator, metrics, and pipeline (neighbor c
 
 File: `src/worldspace/metrics.py`
 
-`WorldMetrics` holds the six behavioral coordinates (filled by `run_world` today):
+`WorldMetrics` holds the behavioral coordinates (filled by `run_world`). There are **`METRICS_VECTOR_DIM` (= 7)** entries in `as_vector()` / JSON metrics:
 
 - `entropy`, `stability`, `average_lifespan`, `density_mean`, `oscillation_score`, `diversity`
+- `interestingness` — favors high entropy, stability, and diversity; subtracts **extinction penalty** `clamp(1 - final_density, 0, 1)` (empty final grid ⇒ penalty 1).
+
+Constants and vector layout live in `metrics.py` (`METRICS_VECTOR_DIM`).
 
 ### Space Construction (streaming)
 
@@ -86,12 +89,12 @@ File: `src/worldspace/pipeline.py`
 
 `stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=...)`:
 
-1. **Pass 1 — streaming over worlds:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world`, write the 6-vector to a **temporary float32 memmap** row, and update PCA sufficient statistics (`sum_x`, `sum_xx`) in **O(1)** extra RAM.
+1. **Pass 1 — streaming over worlds:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world`, write the metrics vector (`METRICS_VECTOR_DIM` floats) to a **temporary float32 memmap** row, and update PCA sufficient statistics (`sum_x`, `sum_xx`) in **O(1)** extra RAM.
 2. Fit PCA mean + 2D basis from sufficient statistics (`math.pca_mean_and_basis_2d`).
-3. Run Lloyd k-means **row-wise** on the memmap (centroids are `k × 6`, labels on a separate memmap).
+3. Run Lloyd k-means **row-wise** on the memmap (centroids are `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
 4. **Pass 2 — streaming again:** same `iter_worlds` order, read each metrics row from disk, project to 2D, assign `cluster_id`, **append one JSON line** to the output file (and optionally print it).
 
-No Python list of all worlds or all `SpacePoint` objects is kept. RAM vs. batch size is **O(1)** (plus fixed small buffers and k-means state); disk holds the temporary `(n × 6)` metrics file only until the function returns.
+No Python list of all worlds or all `SpacePoint` objects is kept. RAM vs. batch size is **O(1)** (plus fixed small buffers and k-means state); disk holds the temporary `(n × METRICS_VECTOR_DIM)` metrics file only until the function returns.
 
 ### Visualization (matplotlib)
 

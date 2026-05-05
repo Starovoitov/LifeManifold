@@ -1,6 +1,6 @@
 """MVP world-space toolkit: generators -> simulation -> metrics -> streaming JSONL."""
 
-from .metrics import WorldMetrics, metrics_vector_to_dict
+from .metrics import METRICS_VECTOR_DIM, WorldMetrics, metrics_vector_to_dict
 from .pipeline import stream_world_space_to_jsonl
 from .simulator import SimulationResult, run_world
 from .spec import WorldSpec
@@ -13,6 +13,7 @@ from .viz import (
 __all__ = [
     "WorldSpec",
     "SimulationResult",
+    "METRICS_VECTOR_DIM",
     "WorldMetrics",
     "run_world",
     "metrics_vector_to_dict",

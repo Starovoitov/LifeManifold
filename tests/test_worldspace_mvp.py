@@ -28,6 +28,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             st = row["metrics"]["stability"]
             self.assertGreaterEqual(st, 0.0)
             self.assertLessEqual(st, 1.0)
+            self.assertIn("interestingness", row["metrics"])
         finally:
             os.unlink(path)
 

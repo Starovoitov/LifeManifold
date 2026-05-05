@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# Length of ``WorldMetrics.as_vector()`` — keep mmap / PCA / k-means in sync.
+METRICS_VECTOR_DIM = 7
+
 
 @dataclass
 class WorldMetrics:
@@ -15,6 +18,7 @@ class WorldMetrics:
     density_mean: float
     oscillation_score: float
     diversity: float
+    interestingness: float
 
     def as_vector(self) -> np.ndarray:
         """Return metrics as a fixed-order numeric vector."""
@@ -26,13 +30,14 @@ class WorldMetrics:
                 self.density_mean,
                 self.oscillation_score,
                 self.diversity,
+                self.interestingness,
             ],
             dtype=float,
         )
 
 
 def metrics_vector_to_dict(v: np.ndarray) -> dict[str, float]:
-    """Map a 6-vector back to named metric fields for JSON export."""
+    """Map a metrics vector back to named fields for JSON export."""
     keys = (
         "entropy",
         "stability",
@@ -40,5 +45,6 @@ def metrics_vector_to_dict(v: np.ndarray) -> dict[str, float]:
         "density_mean",
         "oscillation_score",
         "diversity",
+        "interestingness",
     )
     return {k: float(v[i]) for i, k in enumerate(keys)}

@@ -12,7 +12,7 @@ import numpy as np
 
 from . import math as ws_math
 from .generators import WorldGenerator
-from .metrics import metrics_vector_to_dict
+from .metrics import METRICS_VECTOR_DIM, metrics_vector_to_dict
 from .simulator import run_world
 from .spec import WorldSpec
 
@@ -24,7 +24,9 @@ def memmap_workspace(n: int) -> Iterator[tuple[np.memmap, np.memmap]]:
     mm: np.memmap | None = None
     labels: np.memmap | None = None
     try:
-        mm = np.memmap(tmp_metrics, dtype=np.float32, mode="w+", shape=(n, 6))
+        mm = np.memmap(
+            tmp_metrics, dtype=np.float32, mode="w+", shape=(n, METRICS_VECTOR_DIM)
+        )
         labels = np.memmap(tmp_labels, dtype=np.int32, mode="w+", shape=(n,))
         labels[:] = 0
         yield mm, labels
@@ -90,8 +92,9 @@ def _accumulate_metrics_memmap(
     mm: np.memmap,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Simulate each world, write float32 rows to ``mm``, return PCA sufficient statistics."""
-    sum_x = np.zeros(6, dtype=np.float64)
-    sum_xx = np.zeros((6, 6), dtype=np.float64)
+    d = METRICS_VECTOR_DIM
+    sum_x = np.zeros(d, dtype=np.float64)
+    sum_xx = np.zeros((d, d), dtype=np.float64)
     for i, world in enumerate(generator.iter_worlds(n)):
         vec = run_world(world).metrics.as_vector()
         v64 = vec.astype(np.float64)
@@ -139,32 +142,6 @@ def _release_memmaps(mm: np.memmap | None, labels: np.memmap | None) -> None:
         del mm
     if labels is not None:
         del labels
-
-
-def _space_point_row(
-    world: WorldSpec,
-    vec: np.ndarray,
-    mean: np.ndarray,
-    basis: np.ndarray,
-    label: int,
-) -> dict:
-    """Build one JSON-serializable record (world + metrics + 2D embedding + cluster)."""
-    emb = ws_math.project_pca_2d(vec, mean, basis)
-    return {
-        "world": world.to_json_dict(),
-        "metrics": metrics_vector_to_dict(vec),
-        "embedding_2d": [emb[0], emb[1]],
-        "cluster_id": label,
-    }
-
-
-def _memmap_temp_paths() -> tuple[str, str]:
-    """Create two empty temp files and return their paths (file descriptors closed)."""
-    fd_m, tmp_metrics = tempfile.mkstemp(suffix=".metrics.f32")
-    fd_l, tmp_labels = tempfile.mkstemp(suffix=".labels.i4")
-    os.close(fd_m)
-    os.close(fd_l)
-    return tmp_metrics, tmp_labels
 
 
 def _space_point_row(

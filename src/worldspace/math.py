@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .metrics import METRICS_VECTOR_DIM
+
 # Trailing mean-density samples kept for oscillation autocorrelation (O(1) vs. step count).
 OSCILLATION_DENSITY_WINDOW = 512
 
@@ -82,7 +84,7 @@ def kmeans_lloyd_on_memmap(
             if cnt[j] > 0:
                 centroids[j] /= cnt[j]
             else:
-                centroids[j] = rng.standard_normal(6) * 0.01
+                centroids[j] = rng.standard_normal(METRICS_VECTOR_DIM) * 0.01
         if not changed:
             break
 
@@ -136,12 +138,13 @@ def pca_mean_and_basis_2d(
     sum_x: np.ndarray, sum_xx: np.ndarray, n: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fit PCA mean and first two loadings from sufficient statistics only (O(1) memory in n)."""
+    d = METRICS_VECTOR_DIM
     if n <= 0:
-        z = np.zeros(6, dtype=float)
-        return z, np.zeros((6, 2), dtype=float)
+        z = np.zeros(d, dtype=float)
+        return z, np.zeros((d, 2), dtype=float)
     mean = sum_x / float(n)
     if n == 1:
-        return mean, np.zeros((6, 2), dtype=float)
+        return mean, np.zeros((d, 2), dtype=float)
     cov = (sum_xx - np.outer(sum_x, sum_x) / float(n)) / float(n - 1)
     cov = 0.5 * (cov + cov.T)
     evals, evecs = np.linalg.eigh(cov)
@@ -153,6 +156,6 @@ def pca_mean_and_basis_2d(
 def project_pca_2d(
     vec: np.ndarray, mean: np.ndarray, basis: np.ndarray
 ) -> tuple[float, float]:
-    """Project a 6-vector to 2D given batch PCA mean and 6x2 basis."""
+    """Project a metrics vector to 2D given batch PCA mean and basis (``METRICS_VECTOR_DIM`` × 2)."""
     xy = basis.T @ (vec - mean)
     return float(xy[0]), float(xy[1])
