@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import tempfile
 from pathlib import Path
 
 from .generators import (
@@ -55,7 +57,7 @@ def main() -> None:
         "--plot",
         type=str,
         default="",
-        help="Optional path to save PCA embedding scatter (requires --output).",
+        help="Path to save PCA embedding scatter. If set without --output, JSONL is written to a temp file then removed.",
     )
     args = parser.parse_args()
 
@@ -75,29 +77,43 @@ def main() -> None:
         dev_kw = None if args.device == "auto" else args.device
         generator = NeuralWorldGenerator(spec_path=spec_path, device=dev_kw)
 
-    out_path = args.output or None
-    echo_stdout = (out_path is None) or args.echo_lines
-    stream_world_space_to_jsonl(
-        generator,
-        args.worlds,
-        out_path,
-        k_clusters=4,
-        echo_stdout=echo_stdout,
-    )
+    out_arg = args.output.strip()
+    temp_jsonl: Path | None = None
+    if args.plot.strip() and not out_arg:
+        fd, tmp = tempfile.mkstemp(suffix=".jsonl", prefix="worldspace-")
+        os.close(fd)
+        temp_jsonl = Path(tmp)
+        out_path: str | Path | None = temp_jsonl
+        echo_stdout = args.echo_lines
+    else:
+        out_path = out_arg or None
+        echo_stdout = (out_path is None) or args.echo_lines
 
-    if args.plot:
-        if not args.output:
-            parser.error(
-                "--plot requires --output (plot is built from the JSONL file)."
-            )
-        title_parts = [f"generator={args.generator}", f"worlds={args.worlds}"]
-        if args.generator == "neural":
-            title_parts.append(f"device={args.device}")
-        plot_world_embedding_from_jsonl(
-            args.output,
-            args.plot,
-            title=", ".join(title_parts),
+    try:
+        stream_world_space_to_jsonl(
+            generator,
+            args.worlds,
+            out_path,
+            k_clusters=4,
+            echo_stdout=echo_stdout,
         )
+
+        if args.plot.strip():
+            jsonl_src = out_arg if out_arg else str(temp_jsonl)
+            title_parts = [f"generator={args.generator}", f"worlds={args.worlds}"]
+            if args.generator == "neural":
+                title_parts.append(f"device={args.device}")
+            plot_world_embedding_from_jsonl(
+                jsonl_src,
+                args.plot.strip(),
+                title=", ".join(title_parts),
+            )
+    finally:
+        if temp_jsonl is not None:
+            try:
+                temp_jsonl.unlink()
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ Matplotlib is confined to this submodule and uses the **`Agg`** backend (file ou
 - `plot_world_embedding_from_jsonl(jsonl_path, path, ...)` — scatter from a saved JSONL run (used by the CLI).
 - `plot_simulation_final_grid(result, path, ...)` — heatmap of `result.final_life`.
 
-CLI: `--plot` requires `--output`; it reads the JSONL file and does not replay the simulation.
+CLI: `--plot` reads JSONL from `--output`, or from a temporary JSONL if `--output` is omitted (file removed after plotting).
 
 ## CLI and Output Artifacts
 

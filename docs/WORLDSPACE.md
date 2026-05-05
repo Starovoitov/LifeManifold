@@ -362,7 +362,7 @@ python -m src.worldspace --output results/run.jsonl
 
 Без **`--output`** те же строки идут в **stdout** (по одной JSON-строке на строку). Флаг **`--echo-lines`** дублирует строки в stdout при записи в файл.
 
-Визуализация: **`src/worldspace/viz.py`**. **`--plot`** требует **`--output`**: график строится из JSONL через **`plot_world_embedding_from_jsonl`** (повторная симуляция не нужна). **`plot_simulation_final_grid`** использует **`result.final_life`**.
+Визуализация: **`src/worldspace/viz.py`**. **`--plot`** строит график из JSONL: либо из **`--output`**, либо из временного JSONL, если **`--output`** не задан (файл удаляется после построения графика). **`plot_simulation_final_grid`** использует **`result.final_life`**.
 
 ---
 
