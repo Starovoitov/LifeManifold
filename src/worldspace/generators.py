@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import replace
+from typing import Any
 
 import numpy as np
 
@@ -42,6 +43,15 @@ class RandomWorldGenerator(WorldGenerator):
         self.grid_size = grid_size
         self.steps = steps
 
+    def generate(self, n_worlds: int) -> list[WorldSpec]:
+        """Generate independent random worlds."""
+        return [self._make_world(seed=i) for i in range(n_worlds)]
+
+    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
+        """Yield worlds without allocating the full list."""
+        for i in range(n_worlds):
+            yield self._make_world(seed=i)
+
     def _make_world(self, seed: int) -> WorldSpec:
         """Create one random world with bounded parameters (reproducible for ``seed``)."""
         rng = np.random.default_rng(seed)
@@ -63,15 +73,6 @@ class RandomWorldGenerator(WorldGenerator):
             seed=seed,
         )
 
-    def generate(self, n_worlds: int) -> list[WorldSpec]:
-        """Generate independent random worlds."""
-        return [self._make_world(seed=i) for i in range(n_worlds)]
-
-    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
-        """Yield worlds without allocating the full list."""
-        for i in range(n_worlds):
-            yield self._make_world(seed=i)
-
 
 class RandomWalkWorldGenerator(WorldGenerator):
     def __init__(self, start_world: WorldSpec, scale: float = 0.02):
@@ -79,16 +80,17 @@ class RandomWalkWorldGenerator(WorldGenerator):
         self.start_world = start_world
         self.scale = scale
 
-    def _mutate_rule_set(
-        self, rule_set: list[int], rng: np.random.Generator
-    ) -> list[int]:
-        """Randomly add or remove one rule value in 0..8."""
-        values = set(rule_set)
-        if rng.random() < 0.5 and len(values) > 1:
-            values.discard(int(rng.choice(list(values))))
-        else:
-            values.add(int(rng.integers(0, 9)))
-        return sorted(values)
+    def generate(self, n_worlds: int) -> list[WorldSpec]:
+        """Generate a local trajectory through world space."""
+        return list(self.iter_worlds(n_worlds))
+
+    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
+        """Walk from ``start_world`` without storing the full trajectory."""
+        current = self.start_world
+        yield current
+        for seed in range(1, n_worlds):
+            current = self._step(current, seed)
+            yield current
 
     def _step(self, world: WorldSpec, seed: int) -> WorldSpec:
         """Apply one random-walk mutation step to a world."""
@@ -103,17 +105,16 @@ class RandomWalkWorldGenerator(WorldGenerator):
             seed=seed,
         )
 
-    def generate(self, n_worlds: int) -> list[WorldSpec]:
-        """Generate a local trajectory through world space."""
-        return list(self.iter_worlds(n_worlds))
-
-    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
-        """Walk from ``start_world`` without storing the full trajectory."""
-        current = self.start_world
-        yield current
-        for seed in range(1, n_worlds):
-            current = self._step(current, seed)
-            yield current
+    def _mutate_rule_set(
+        self, rule_set: list[int], rng: np.random.Generator
+    ) -> list[int]:
+        """Randomly add or remove one rule value in 0..8."""
+        values = set(rule_set)
+        if rng.random() < 0.5 and len(values) > 1:
+            values.discard(int(rng.choice(list(values))))
+        else:
+            values.add(int(rng.integers(0, 9)))
+        return sorted(values)
 
 
 class MarkovWorldGenerator(WorldGenerator, ABC):
@@ -190,19 +191,18 @@ class RuleBiasMarkovGenerator(MarkovWorldGenerator):
         return next_world, next_state
 
 
-class NeuralWorldGenerator(WorldGenerator):
-    """Future placeholder: NN-driven generator."""
-
-    def generate(self, n_worlds: int) -> list[WorldSpec]:
-        """Placeholder for future neural generator implementation."""
-        raise NotImplementedError(
-            "NeuralWorldGenerator is a placeholder for future work"
-        )
-
-
 class LLMWorldGenerator(WorldGenerator):
     """Future placeholder: LLM-driven generator."""
 
     def generate(self, n_worlds: int) -> list[WorldSpec]:
         """Placeholder for future LLM generator implementation."""
         raise NotImplementedError("LLMWorldGenerator is a placeholder for future work")
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy import so PyTorch is only pulled in when accessing ``NeuralWorldGenerator``."""
+    if name == "NeuralWorldGenerator":
+        from .neural_world import NeuralWorldGenerator as _NWG
+
+        return _NWG
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

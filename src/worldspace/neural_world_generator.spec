@@ -1,0 +1,38 @@
+# Default neural world generator: small MLP (latent → birth/survival logits + floats) → WorldSpec.
+# Override: NeuralWorldGenerator(spec_path=...) or CLI --neural-spec.
+
+version: 1
+
+torch:
+  dtype: float32
+  # auto | cpu | cuda | cuda:N — CLI --device overrides when set (non-auto).
+  device: auto
+
+model:
+  latent_dim: 16
+  hidden: [48, 32]
+  activation: relu
+  dropout: 0.0
+
+decoder:
+  birth:
+    min_count: 1
+    max_count: 4
+    threshold: 0.42
+  survival:
+    min_count: 2
+    max_count: 5
+    threshold: 0.42
+  scales:
+    noise: 0.08
+    resource_regen: 0.2
+    predation: 0.5
+
+world_defaults:
+  grid_size: 50
+  steps: 300
+  cell_types: ["empty", "life", "food"]
+  neighborhood: moore
+
+weights_path: null
+base_seed: 0

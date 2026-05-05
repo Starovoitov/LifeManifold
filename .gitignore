@@ -16,6 +16,8 @@ dist/
 build/
 *.manifest
 *.spec
+# Bundled YAML for worldspace (name ends in .spec; not a PyInstaller specfile)
+!src/worldspace/neural_world_generator.spec
 
 # Test / type / lint caches
 .pytest_cache/

@@ -121,7 +121,6 @@ def _iter_space_json_lines(
         yield json.dumps(row, ensure_ascii=True)
 
 
-
 def _write_jsonl_to_path(
     target: Path,
     lines: Iterator[str],
@@ -133,7 +132,6 @@ def _write_jsonl_to_path(
             out.write(line + "\n")
             if echo_stdout:
                 print(line, flush=True)
-
 
 
 def _release_memmaps(mm: np.memmap | None, labels: np.memmap | None) -> None:

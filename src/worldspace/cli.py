@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from .generators import (
     RandomWalkWorldGenerator,
@@ -21,8 +22,20 @@ def main() -> None:
     )
     parser.add_argument(
         "--generator",
-        choices=["random", "random_walk", "markov_noise", "markov_rules"],
+        choices=["random", "random_walk", "markov_noise", "markov_rules", "neural"],
         default="random",
+    )
+    parser.add_argument(
+        "--neural-spec",
+        type=str,
+        default="",
+        help="YAML spec for --generator neural (default: bundled neural_world_generator.spec).",
+    )
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Torch device for --generator neural (overrides YAML torch.device).",
     )
     parser.add_argument("--worlds", type=int, default=30)
     parser.add_argument("--steps", type=int, default=200)
@@ -53,8 +66,14 @@ def main() -> None:
         generator = RandomWalkWorldGenerator(start_world=base, scale=0.02)
     elif args.generator == "markov_noise":
         generator = TwoStateNoiseMarkovGenerator(start_world=base)
-    else:
+    elif args.generator == "markov_rules":
         generator = RuleBiasMarkovGenerator(start_world=base)
+    else:
+        from .neural_world import NeuralWorldGenerator
+
+        spec_path = Path(args.neural_spec) if args.neural_spec.strip() else None
+        dev_kw = None if args.device == "auto" else args.device
+        generator = NeuralWorldGenerator(spec_path=spec_path, device=dev_kw)
 
     out_path = args.output or None
     echo_stdout = (out_path is None) or args.echo_lines
@@ -71,10 +90,13 @@ def main() -> None:
             parser.error(
                 "--plot requires --output (plot is built from the JSONL file)."
             )
+        title_parts = [f"generator={args.generator}", f"worlds={args.worlds}"]
+        if args.generator == "neural":
+            title_parts.append(f"device={args.device}")
         plot_world_embedding_from_jsonl(
             args.output,
             args.plot,
-            title=f"generator={args.generator}, worlds={args.worlds}",
+            title=", ".join(title_parts),
         )
 
 
