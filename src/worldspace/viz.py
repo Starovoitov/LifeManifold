@@ -1,9 +1,9 @@
 """Matplotlib figures for world-space exploration (kept inside ``worldspace`` only).
 
-Scatter ``embedding_2d`` matches ``pipeline.stream_world_space_to_jsonl``: **x** is
-``average_lifespan`` minus the batch mean (not a PCA axis); **y** is sklearn's first PC
-on the **raw** six non-lifespan metrics (sklearn centers those columns once in
-``fit``/``transform``) — not a 7D PCA decomposition and not PC2 of a full PCA.
+Scatter ``embedding_2d`` matches ``pipeline.stream_world_space_to_jsonl``: **x** is the
+dominant (highest-variance) metric minus batch mean; **y** is sklearn's first PC on the
+other six metrics (sklearn centers those columns once in ``fit``/``transform``) —
+not a 7D PCA decomposition and not PC2 of a full PCA.
 """
 
 from __future__ import annotations
@@ -33,7 +33,18 @@ def plot_world_embedding(
     xs = np.array([p.embedding_2d[0] for p in points], dtype=float)
     ys = np.array([p.embedding_2d[1] for p in points], dtype=float)
     clusters = np.array([p.cluster_id for p in points], dtype=int)
-    _scatter_embedding(xs, ys, clusters, path, title=title, figsize=figsize, dpi=dpi)
+    x_label, y_label = _axis_labels_from_points(points)
+    _scatter_embedding(
+        xs,
+        ys,
+        clusters,
+        path,
+        title=title,
+        figsize=figsize,
+        dpi=dpi,
+        x_label=x_label,
+        y_label=y_label,
+    )
 
 
 def plot_world_embedding_from_jsonl(
@@ -48,6 +59,8 @@ def plot_world_embedding_from_jsonl(
     xs: list[float] = []
     ys: list[float] = []
     cs: list[int] = []
+    x_label = "Δ metric (unknown)"
+    y_label = "PC1 of 6 metrics (excluding selected metric)"
     with Path(jsonl_path).open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -58,6 +71,15 @@ def plot_world_embedding_from_jsonl(
             xs.append(float(emb[0]))
             ys.append(float(emb[1]))
             cs.append(int(row["cluster_id"]))
+            axes = row.get("embedding_axes")
+            if isinstance(axes, dict):
+                x_metric = axes.get("x_metric")
+                if x_metric:
+                    x_label = f"Δ {x_metric}"
+                    y_label = f"PC1 of 6 metrics (excluding {x_metric})"
+                else:
+                    x_label = str(axes.get("x_label", x_label))
+                    y_label = str(axes.get("y_label", y_label))
     if not xs:
         _scatter_embedding(
             np.array([]),
@@ -67,6 +89,8 @@ def plot_world_embedding_from_jsonl(
             title=title,
             figsize=figsize,
             dpi=dpi,
+            x_label=x_label,
+            y_label=y_label,
         )
         return
     _scatter_embedding(
@@ -77,6 +101,8 @@ def plot_world_embedding_from_jsonl(
         title=title,
         figsize=figsize,
         dpi=dpi,
+        x_label=x_label,
+        y_label=y_label,
     )
 
 
@@ -122,6 +148,8 @@ def _scatter_embedding(
     title: str | None,
     figsize: tuple[float, float],
     dpi: int,
+    x_label: str = "Δ metric (unknown)",
+    y_label: str = "PC1 of 6 metrics (excluding selected metric)",
 ) -> None:
     """Render scatter of ``xs``/``ys`` colored by ``clusters``; write empty-state figure if no points."""
     target = Path(path)
@@ -152,12 +180,36 @@ def _scatter_embedding(
             linewidths=0.35,
             s=40,
         )
-    ax.set_xlabel("Δ average lifespan")
-    ax.set_ylabel("PC1 of 6 metrics (excluding lifespan)")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
     ax.set_title(
-        title or "World space: Δ lifespan vs PC₁ of other metrics (k-means color)"
+        title or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
     )
     ax.legend(title="k-means", loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
     fig.savefig(target, bbox_inches="tight")
     plt.close(fig)
+
+
+def _axis_labels_from_points(points: list) -> tuple[str, str]:
+    """Try to derive axis labels from point metadata; fallback to generic labels."""
+    default_x = "Δ metric (unknown)"
+    default_y = "PC1 of 6 metrics (excluding selected metric)"
+    if not points:
+        return default_x, default_y
+
+    first = points[0]
+    axes = getattr(first, "embedding_axes", None)
+    if isinstance(axes, dict):
+        x_metric = axes.get("x_metric")
+        if x_metric:
+            return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+        return (
+            str(axes.get("x_label", default_x)),
+            str(axes.get("y_label", default_y)),
+        )
+
+    x_metric = getattr(first, "x_metric", None)
+    if x_metric:
+        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+    return default_x, default_y

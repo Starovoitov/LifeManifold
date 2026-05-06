@@ -6,9 +6,15 @@ import numpy as np
 
 # Length of ``WorldMetrics.as_vector()`` — keep mmap / PCA / k-means in sync.
 METRICS_VECTOR_DIM = 7
-
-# Index of ``average_lifespan`` in ``WorldMetrics.as_vector()`` (embedding axis 1).
-METRIC_INDEX_AVERAGE_LIFESPAN = 2
+METRIC_KEYS = (
+    "entropy",
+    "stability",
+    "average_lifespan",
+    "density_mean",
+    "oscillation_score",
+    "diversity",
+    "interestingness",
+)
 
 
 @dataclass
@@ -41,13 +47,4 @@ class WorldMetrics:
 
 def metrics_vector_to_dict(v: np.ndarray) -> dict[str, float]:
     """Map a metrics vector back to named fields for JSON export."""
-    keys = (
-        "entropy",
-        "stability",
-        "average_lifespan",
-        "density_mean",
-        "oscillation_score",
-        "diversity",
-        "interestingness",
-    )
-    return {k: float(v[i]) for i, k in enumerate(keys)}
+    return {k: float(v[i]) for i, k in enumerate(METRIC_KEYS)}

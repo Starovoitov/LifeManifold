@@ -14,7 +14,7 @@ from sklearn.decomposition import PCA
 from . import math as ws_math
 from .generators import WorldGenerator
 from .metrics import (
-    METRIC_INDEX_AVERAGE_LIFESPAN,
+    METRIC_KEYS,
     METRICS_VECTOR_DIM,
     metrics_vector_to_dict,
 )
@@ -51,10 +51,10 @@ def stream_world_space_to_jsonl(
     """
     Run generator → simulate → metrics → 2D embedding → k-means with **O(1) RAM** vs. batch size.
 
-    The 2D embedding is **not** plain PCA on all seven metrics: horizontal axis is
-    ``average_lifespan`` minus batch mean; vertical axis is the first sklearn PCA
-    component of the raw six non-lifespan metrics (single internal centering;
-    ``_fit_lifespan_orthogonal_pca``).
+    The 2D embedding uses the most variable metric in the batch as horizontal axis:
+    ``metric - batch_mean(metric)``. Vertical axis is the first sklearn PCA component
+    of the remaining six metrics (single internal centering;
+    ``_fit_dominant_metric_orthogonal_pca``).
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
@@ -77,11 +77,11 @@ def stream_world_space_to_jsonl(
         labels.flush()
 
         x = np.asarray(mm[:n], dtype=np.float64)
-        mean, lifespan_idx, pca = _fit_lifespan_orthogonal_pca(x)
+        mean, dominant_idx, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
         ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
 
         lines = _iter_space_json_lines(
-            generator, n, mm, labels, mean, lifespan_idx, pca
+            generator, n, mm, labels, mean, dominant_idx, axis_name, pca
         )
         if file_write and target is not None:
             _write_jsonl_to_path(target, lines, echo_stdout)
@@ -128,37 +128,41 @@ def _accumulate_metrics_memmap(
     mm.flush()
 
 
-def _fit_lifespan_orthogonal_pca(X: np.ndarray) -> tuple[np.ndarray, int, PCA | None]:
+def _fit_dominant_metric_orthogonal_pca(
+    X: np.ndarray,
+) -> tuple[np.ndarray, int, str, PCA | None]:
     """
-    Horizontal axis: ``average_lifespan`` minus batch mean.
+    Horizontal axis: most variable metric in the batch minus its mean.
 
     Vertical axis: ``sklearn.decomposition.PCA(n_components=1)`` on the **raw** six
-    non-lifespan columns of ``X``. sklearn centers those columns internally
-    (``mean_`` equals the column means, i.e. ``mean`` with the lifespan entry removed);
+    remaining columns of ``X``. sklearn centers those columns internally
+    (``mean_`` equals their column means);
     training rows are **not** pre-centered so centering happens only inside PCA.
     """
     mean = X.mean(axis=0, dtype=np.float64)
-    j = METRIC_INDEX_AVERAGE_LIFESPAN
+    var = X.var(axis=0, dtype=np.float64)
+    j = int(np.argmax(var))
+    axis_name = METRIC_KEYS[j]
     n = int(X.shape[0])
     if n < 2:
-        return mean, j, None
+        return mean, j, axis_name, None
     x_rest = np.delete(X, j, axis=1)
     pca = PCA(n_components=1, svd_solver="full")
     pca.fit(x_rest)
-    return mean, j, pca
+    return mean, j, axis_name, pca
 
 
-def _project_lifespan_orthogonal(
+def _project_dominant_metric_orthogonal(
     vec: np.ndarray,
     mean: np.ndarray,
-    lifespan_index: int,
+    dominant_index: int,
     pca: PCA | None,
 ) -> tuple[float, float]:
     v = vec.astype(np.float64)
-    x = float(v[lifespan_index] - mean[lifespan_index])
+    x = float(v[dominant_index] - mean[dominant_index])
     if pca is None:
         return x, 0.0
-    v_rest = np.delete(v, lifespan_index)
+    v_rest = np.delete(v, dominant_index)
     y = float(pca.transform(v_rest.reshape(1, -1))[0, 0])
     return x, y
 
@@ -167,16 +171,22 @@ def _space_point_row(
     world: WorldSpec,
     vec: np.ndarray,
     mean: np.ndarray,
-    lifespan_index: int,
+    dominant_index: int,
+    x_axis_metric: str,
     pca: PCA | None,
     label: int,
 ) -> dict:
     """Build one JSON-serializable record (world + metrics + 2D embedding + cluster)."""
-    emb = _project_lifespan_orthogonal(vec, mean, lifespan_index, pca)
+    emb = _project_dominant_metric_orthogonal(vec, mean, dominant_index, pca)
     return {
         "world": world.to_json_dict(),
         "metrics": metrics_vector_to_dict(vec),
         "embedding_2d": [emb[0], emb[1]],
+        "embedding_axes": {
+            "x_metric": x_axis_metric,
+            "x_label": f"Δ {x_axis_metric}",
+            "y_label": f"PC1 of 6 metrics (excluding {x_axis_metric})",
+        },
         "cluster_id": label,
     }
 
@@ -187,14 +197,15 @@ def _iter_space_json_lines(
     mm: np.memmap,
     labels: np.memmap,
     mean: np.ndarray,
-    lifespan_index: int,
+    dominant_index: int,
+    x_axis_metric: str,
     pca: PCA | None,
 ) -> Iterator[str]:
     """Yield JSON lines for each world using metrics rows and k-means labels from mmap."""
     for i, world in enumerate(generator.iter_worlds(n)):
         vec = mm[i].astype(np.float64)
         lab = int(labels[i])
-        row = _space_point_row(world, vec, mean, lifespan_index, pca, lab)
+        row = _space_point_row(world, vec, mean, dominant_index, x_axis_metric, pca, lab)
         yield json.dumps(row, ensure_ascii=True)
 
 

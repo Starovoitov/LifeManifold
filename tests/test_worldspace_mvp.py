@@ -6,10 +6,10 @@ import unittest
 import numpy as np
 
 from src.worldspace.generators import RandomWorldGenerator
-from src.worldspace.metrics import METRIC_INDEX_AVERAGE_LIFESPAN, METRICS_VECTOR_DIM
+from src.worldspace.metrics import METRIC_KEYS, METRICS_VECTOR_DIM
 from src.worldspace.pipeline import (
-    _fit_lifespan_orthogonal_pca,
-    _project_lifespan_orthogonal,
+    _fit_dominant_metric_orthogonal_pca,
+    _project_dominant_metric_orthogonal,
     stream_world_space_to_jsonl,
 )
 
@@ -31,6 +31,8 @@ class TestWorldSpaceMVP(unittest.TestCase):
             self.assertIn("metrics", row)
             self.assertIn("embedding_2d", row)
             self.assertEqual(len(row["embedding_2d"]), 2)
+            self.assertIn("embedding_axes", row)
+            self.assertIn("x_metric", row["embedding_axes"])
             self.assertIn("cluster_id", row)
             st = row["metrics"]["stability"]
             self.assertGreaterEqual(st, 0.0)
@@ -39,20 +41,21 @@ class TestWorldSpaceMVP(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_lifespan_orthogonal_embedding_axes(self):
+    def test_dominant_metric_embedding_axes(self):
         rng = np.random.default_rng(0)
         n, d = 50, METRICS_VECTOR_DIM
         x = rng.standard_normal((n, d))
-        x[:, METRIC_INDEX_AVERAGE_LIFESPAN] *= 40.0
-        j = METRIC_INDEX_AVERAGE_LIFESPAN
+        x[:, 4] *= 30.0
+        j = 4
         mean_exp = x.mean(axis=0)
-        mean, j_fit, pca = _fit_lifespan_orthogonal_pca(x)
+        mean, j_fit, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
         self.assertEqual(j_fit, j)
+        self.assertEqual(axis_name, METRIC_KEYS[j])
         np.testing.assert_allclose(mean, mean_exp)
         self.assertIsNotNone(pca)
         np.testing.assert_allclose(pca.mean_, np.delete(mean_exp, j), rtol=0, atol=1e-9)
         vec = x[3]
-        emb = _project_lifespan_orthogonal(vec, mean, j, pca)
+        emb = _project_dominant_metric_orthogonal(vec, mean, j, pca)
         self.assertAlmostEqual(emb[0], vec[j] - mean[j])
         self.assertFalse(np.isnan(emb[1]))
 
