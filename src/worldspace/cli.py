@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from .generators import (
+    GeneticWorldGenerator,
     RandomWalkWorldGenerator,
     RandomWorldGenerator,
     RuleBiasMarkovGenerator,
@@ -24,7 +25,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--generator",
-        choices=["random", "random_walk", "markov_noise", "markov_rules", "neural"],
+        choices=[
+            "random",
+            "random_walk",
+            "markov_noise",
+            "markov_rules",
+            "genetic",
+            "neural",
+        ],
         default="random",
     )
     parser.add_argument(
@@ -42,6 +50,30 @@ def main() -> None:
     parser.add_argument("--worlds", type=int, default=30)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--grid", type=int, default=40)
+    parser.add_argument(
+        "--ga-population",
+        type=int,
+        default=12,
+        help="Population size for --generator genetic.",
+    )
+    parser.add_argument(
+        "--ga-elite",
+        type=int,
+        default=3,
+        help="Elite survivors per generation for --generator genetic.",
+    )
+    parser.add_argument(
+        "--ga-mutation-scale",
+        type=float,
+        default=0.02,
+        help="Gaussian mutation scale for --generator genetic.",
+    )
+    parser.add_argument(
+        "--ga-seed",
+        type=int,
+        default=0,
+        help="RNG seed for --generator genetic.",
+    )
     parser.add_argument(
         "--output",
         type=str,
@@ -70,6 +102,15 @@ def main() -> None:
         generator = TwoStateNoiseMarkovGenerator(start_world=base)
     elif args.generator == "markov_rules":
         generator = RuleBiasMarkovGenerator(start_world=base)
+    elif args.generator == "genetic":
+        generator = GeneticWorldGenerator(
+            grid_size=args.grid,
+            steps=args.steps,
+            population_size=args.ga_population,
+            elite_count=args.ga_elite,
+            mutation_scale=args.ga_mutation_scale,
+            seed=args.ga_seed,
+        )
     else:
         from .neural_world import NeuralWorldGenerator
 

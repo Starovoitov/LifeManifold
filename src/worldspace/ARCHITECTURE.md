@@ -44,7 +44,8 @@ Implemented generator levels:
    - `MarkovWorldGenerator` (base class)
    - `TwoStateNoiseMarkovGenerator` (calm/chaos switching)
    - `RuleBiasMarkovGenerator` (survival/reproduction bias)
-5. Future stubs:
+5. `GeneticWorldGenerator` (selection + mutation on `interestingness` fitness)
+6. Future stubs:
    - `NeuralWorldGenerator` (placeholder)
    - `LLMWorldGenerator` (placeholder)
 
