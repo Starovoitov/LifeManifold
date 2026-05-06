@@ -41,7 +41,7 @@ def main() -> None:
         "--neural-spec",
         type=str,
         default="",
-        help="YAML spec for --generator neural (default: bundled neural_world_generator.spec).",
+        help="YAML spec for --generator neural (default: bundled neural_world_generator.yaml).",
     )
     parser.add_argument(
         "--device",
