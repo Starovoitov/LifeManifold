@@ -1,4 +1,10 @@
-"""Matplotlib figures for world-space exploration (kept inside ``worldspace`` only)."""
+"""Matplotlib figures for world-space exploration (kept inside ``worldspace`` only).
+
+Scatter ``embedding_2d`` matches ``pipeline.stream_world_space_to_jsonl``: **x** is
+``average_lifespan`` minus the batch mean (not a PCA axis); **y** is sklearn's first PC
+on the **raw** six non-lifespan metrics (sklearn centers those columns once in
+``fit``/``transform``) — not a 7D PCA decomposition and not PC2 of a full PCA.
+"""
 
 from __future__ import annotations
 
@@ -146,9 +152,11 @@ def _scatter_embedding(
             linewidths=0.35,
             s=40,
         )
-    ax.set_xlabel("average lifespan − batch mean")
-    ax.set_ylabel("max-variance axis ⊥ lifespan (other metrics)")
-    ax.set_title(title or "World space (lifespan + orthogonal spread, colored by cluster)")
+    ax.set_xlabel("Δ average lifespan")
+    ax.set_ylabel("PC1 of 6 metrics (excluding lifespan)")
+    ax.set_title(
+        title or "World space: Δ lifespan vs PC₁ of other metrics (k-means color)"
+    )
     ax.legend(title="k-means", loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
     fig.savefig(target, bbox_inches="tight")

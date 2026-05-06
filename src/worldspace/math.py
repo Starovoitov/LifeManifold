@@ -1,10 +1,10 @@
-"""Numeric helpers for worldspace (PCA, k-means, metrics, neighborhood counts)."""
+"""Numeric helpers for worldspace (k-means, metrics, neighborhood counts)."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from .metrics import METRIC_INDEX_AVERAGE_LIFESPAN, METRICS_VECTOR_DIM
+from .metrics import METRICS_VECTOR_DIM
 
 # Trailing mean-density samples kept for oscillation autocorrelation (O(1) vs. step count).
 OSCILLATION_DENSITY_WINDOW = 512
@@ -19,37 +19,6 @@ def neighbor_count(grid: np.ndarray) -> np.ndarray:
                 continue
             total += np.roll(np.roll(grid, dx, axis=0), dy, axis=1)
     return total
-
-
-def pca_2d(matrix: np.ndarray) -> np.ndarray:
-    """Project row vectors to 2D using SVD-based PCA."""
-    if matrix.shape[0] <= 1:
-        return np.zeros((matrix.shape[0], 2), dtype=float)
-    centered = matrix - matrix.mean(axis=0, keepdims=True)
-    _, _, vt = np.linalg.svd(centered, full_matrices=False)
-    basis = vt[:2].T
-    return centered @ basis
-
-
-def kmeans(matrix: np.ndarray, k: int = 4, max_iter: int = 30) -> np.ndarray:
-    """Cluster row vectors using a compact in-module k-means."""
-    if len(matrix) == 0:
-        return np.array([], dtype=int)
-    k = max(1, min(k, len(matrix)))
-    rng = np.random.default_rng(42)
-    centroids = matrix[rng.choice(len(matrix), size=k, replace=False)]
-    labels = np.zeros(len(matrix), dtype=int)
-    for _ in range(max_iter):
-        distances = ((matrix[:, None, :] - centroids[None, :, :]) ** 2).sum(axis=2)
-        new_labels = distances.argmin(axis=1)
-        if np.array_equal(labels, new_labels):
-            break
-        labels = new_labels
-        for idx in range(k):
-            members = matrix[labels == idx]
-            if len(members) > 0:
-                centroids[idx] = members.mean(axis=0)
-    return labels
 
 
 def kmeans_lloyd_on_memmap(
@@ -132,75 +101,3 @@ def pattern_diversity(history: list[np.ndarray], sample_size: int = 128) -> floa
     if not history:
         return 0.0
     return pattern_diversity_from_frame(history[-1], sample_size=sample_size)
-
-
-def lifespan_orthogonal_mean_and_basis_2d(
-    sum_x: np.ndarray,
-    sum_xx: np.ndarray,
-    n: int,
-    lifespan_index: int = METRIC_INDEX_AVERAGE_LIFESPAN,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Mean plus an orthonormal 2D basis for world-space plots:
-
-    - **Axis 1:** unit vector along ``average_lifespan`` (raw scale); projection is
-      ``lifespan - mean_lifespan``.
-    - **Axis 2:** unit vector orthogonal to axis 1 that captures the **largest** batch
-      variance among the remaining metrics (top eigenvector of the covariance submatrix
-      with the lifespan row/column removed).
-
-    This avoids a single high-variance coordinate (lifespan) from absorbing all of PCA.
-    """
-    d = METRICS_VECTOR_DIM
-    mean = sum_x / float(n)
-    u = np.zeros(d, dtype=float)
-    u[lifespan_index] = 1.0
-    if n <= 1:
-        w = np.zeros(d, dtype=float)
-        w[(lifespan_index + 1) % d] = 1.0
-        return mean, np.column_stack([u, w])
-
-    cov = (sum_xx - np.outer(sum_x, sum_x) / float(n)) / float(n - 1)
-    cov = 0.5 * (cov + cov.T)
-    keep = [i for i in range(d) if i != lifespan_index]
-    c_red = cov[np.ix_(keep, keep)]
-    evals, evecs = np.linalg.eigh(c_red)
-    order = np.argsort(evals)[::-1]
-    v = evecs[:, order[0]]
-    w = np.zeros(d, dtype=float)
-    for k, i in enumerate(keep):
-        w[i] = v[k]
-    nrm = np.linalg.norm(w)
-    if nrm < 1e-12:
-        w = np.zeros(d, dtype=float)
-        w[keep[0]] = 1.0
-    else:
-        w /= nrm
-    return mean, np.column_stack([u, w])
-
-
-def pca_mean_and_basis_2d(
-    sum_x: np.ndarray, sum_xx: np.ndarray, n: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Fit PCA mean and first two loadings from sufficient statistics only (O(1) memory in n)."""
-    d = METRICS_VECTOR_DIM
-    if n <= 0:
-        z = np.zeros(d, dtype=float)
-        return z, np.zeros((d, 2), dtype=float)
-    mean = sum_x / float(n)
-    if n == 1:
-        return mean, np.zeros((d, 2), dtype=float)
-    cov = (sum_xx - np.outer(sum_x, sum_x) / float(n)) / float(n - 1)
-    cov = 0.5 * (cov + cov.T)
-    evals, evecs = np.linalg.eigh(cov)
-    order = np.argsort(evals)[::-1]
-    basis = evecs[:, order[:2]]
-    return mean, basis
-
-
-def project_pca_2d(
-    vec: np.ndarray, mean: np.ndarray, basis: np.ndarray
-) -> tuple[float, float]:
-    """Project a metrics vector to 2D given batch PCA mean and basis (``METRICS_VECTOR_DIM`` × 2)."""
-    xy = basis.T @ (vec - mean)
-    return float(xy[0]), float(xy[1])

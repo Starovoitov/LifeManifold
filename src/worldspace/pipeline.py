@@ -9,10 +9,15 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+from sklearn.decomposition import PCA
 
 from . import math as ws_math
 from .generators import WorldGenerator
-from .metrics import METRICS_VECTOR_DIM, metrics_vector_to_dict
+from .metrics import (
+    METRIC_INDEX_AVERAGE_LIFESPAN,
+    METRICS_VECTOR_DIM,
+    metrics_vector_to_dict,
+)
 from .simulator import run_world
 from .spec import WorldSpec
 
@@ -47,8 +52,9 @@ def stream_world_space_to_jsonl(
     Run generator → simulate → metrics → 2D embedding → k-means with **O(1) RAM** vs. batch size.
 
     The 2D embedding is **not** plain PCA on all seven metrics: horizontal axis is
-    ``average_lifespan`` minus batch mean; vertical axis is the direction of maximum
-    variance orthogonal to lifespan (see ``math.lifespan_orthogonal_mean_and_basis_2d``).
+    ``average_lifespan`` minus batch mean; vertical axis is the first sklearn PCA
+    component of the raw six non-lifespan metrics (single internal centering;
+    ``_fit_lifespan_orthogonal_pca``).
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
@@ -67,13 +73,16 @@ def stream_world_space_to_jsonl(
         echo_stdout = True
 
     with memmap_workspace(n) as (mm, labels):
-        sum_x, sum_xx = _accumulate_metrics_memmap(generator, n, mm)
+        _accumulate_metrics_memmap(generator, n, mm)
         labels.flush()
 
-        mean, basis = ws_math.lifespan_orthogonal_mean_and_basis_2d(sum_x, sum_xx, n)
+        x = np.asarray(mm[:n], dtype=np.float64)
+        mean, lifespan_idx, pca = _fit_lifespan_orthogonal_pca(x)
         ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
 
-        lines = _iter_space_json_lines(generator, n, mm, labels, mean, basis)
+        lines = _iter_space_json_lines(
+            generator, n, mm, labels, mean, lifespan_idx, pca
+        )
         if file_write and target is not None:
             _write_jsonl_to_path(target, lines, echo_stdout)
         else:
@@ -90,23 +99,86 @@ def _unlink_quiet(paths: tuple[str, ...]) -> None:
             pass
 
 
+def _release_memmaps(mm: np.memmap | None, labels: np.memmap | None) -> None:
+    """Drop mmap references so the backing files can be unlinked on Windows and elsewhere."""
+    if mm is not None:
+        del mm
+    if labels is not None:
+        del labels
+
+
+def _memmap_temp_paths() -> tuple[str, str]:
+    """Create two empty temp files and return their paths (file descriptors closed)."""
+    fd_m, tmp_metrics = tempfile.mkstemp(suffix=".metrics.f32")
+    fd_l, tmp_labels = tempfile.mkstemp(suffix=".labels.i4")
+    os.close(fd_m)
+    os.close(fd_l)
+    return tmp_metrics, tmp_labels
+
+
 def _accumulate_metrics_memmap(
     generator: WorldGenerator,
     n: int,
     mm: np.memmap,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Simulate each world, write float32 rows to ``mm``, return PCA sufficient statistics."""
-    d = METRICS_VECTOR_DIM
-    sum_x = np.zeros(d, dtype=np.float64)
-    sum_xx = np.zeros((d, d), dtype=np.float64)
+) -> None:
+    """Simulate each world and write float32 metric rows to ``mm``."""
     for i, world in enumerate(generator.iter_worlds(n)):
         vec = run_world(world).metrics.as_vector()
-        v64 = vec.astype(np.float64)
         mm[i] = vec.astype(np.float32)
-        sum_x += v64
-        sum_xx += np.outer(v64, v64)
     mm.flush()
-    return sum_x, sum_xx
+
+
+def _fit_lifespan_orthogonal_pca(X: np.ndarray) -> tuple[np.ndarray, int, PCA | None]:
+    """
+    Horizontal axis: ``average_lifespan`` minus batch mean.
+
+    Vertical axis: ``sklearn.decomposition.PCA(n_components=1)`` on the **raw** six
+    non-lifespan columns of ``X``. sklearn centers those columns internally
+    (``mean_`` equals the column means, i.e. ``mean`` with the lifespan entry removed);
+    training rows are **not** pre-centered so centering happens only inside PCA.
+    """
+    mean = X.mean(axis=0, dtype=np.float64)
+    j = METRIC_INDEX_AVERAGE_LIFESPAN
+    n = int(X.shape[0])
+    if n < 2:
+        return mean, j, None
+    x_rest = np.delete(X, j, axis=1)
+    pca = PCA(n_components=1, svd_solver="full")
+    pca.fit(x_rest)
+    return mean, j, pca
+
+
+def _project_lifespan_orthogonal(
+    vec: np.ndarray,
+    mean: np.ndarray,
+    lifespan_index: int,
+    pca: PCA | None,
+) -> tuple[float, float]:
+    v = vec.astype(np.float64)
+    x = float(v[lifespan_index] - mean[lifespan_index])
+    if pca is None:
+        return x, 0.0
+    v_rest = np.delete(v, lifespan_index)
+    y = float(pca.transform(v_rest.reshape(1, -1))[0, 0])
+    return x, y
+
+
+def _space_point_row(
+    world: WorldSpec,
+    vec: np.ndarray,
+    mean: np.ndarray,
+    lifespan_index: int,
+    pca: PCA | None,
+    label: int,
+) -> dict:
+    """Build one JSON-serializable record (world + metrics + 2D embedding + cluster)."""
+    emb = _project_lifespan_orthogonal(vec, mean, lifespan_index, pca)
+    return {
+        "world": world.to_json_dict(),
+        "metrics": metrics_vector_to_dict(vec),
+        "embedding_2d": [emb[0], emb[1]],
+        "cluster_id": label,
+    }
 
 
 def _iter_space_json_lines(
@@ -115,13 +187,14 @@ def _iter_space_json_lines(
     mm: np.memmap,
     labels: np.memmap,
     mean: np.ndarray,
-    basis: np.ndarray,
+    lifespan_index: int,
+    pca: PCA | None,
 ) -> Iterator[str]:
     """Yield JSON lines for each world using metrics rows and k-means labels from mmap."""
     for i, world in enumerate(generator.iter_worlds(n)):
         vec = mm[i].astype(np.float64)
         lab = int(labels[i])
-        row = _space_point_row(world, vec, mean, basis, lab)
+        row = _space_point_row(world, vec, mean, lifespan_index, pca, lab)
         yield json.dumps(row, ensure_ascii=True)
 
 
@@ -136,37 +209,3 @@ def _write_jsonl_to_path(
             out.write(line + "\n")
             if echo_stdout:
                 print(line, flush=True)
-
-
-def _release_memmaps(mm: np.memmap | None, labels: np.memmap | None) -> None:
-    """Drop mmap references so the backing files can be unlinked on Windows and elsewhere."""
-    if mm is not None:
-        del mm
-    if labels is not None:
-        del labels
-
-
-def _space_point_row(
-    world: WorldSpec,
-    vec: np.ndarray,
-    mean: np.ndarray,
-    basis: np.ndarray,
-    label: int,
-) -> dict:
-    """Build one JSON-serializable record (world + metrics + 2D embedding + cluster)."""
-    emb = ws_math.project_pca_2d(vec, mean, basis)
-    return {
-        "world": world.to_json_dict(),
-        "metrics": metrics_vector_to_dict(vec),
-        "embedding_2d": [emb[0], emb[1]],
-        "cluster_id": label,
-    }
-
-
-def _memmap_temp_paths() -> tuple[str, str]:
-    """Create two empty temp files and return their paths (file descriptors closed)."""
-    fd_m, tmp_metrics = tempfile.mkstemp(suffix=".metrics.f32")
-    fd_l, tmp_labels = tempfile.mkstemp(suffix=".labels.i4")
-    os.close(fd_m)
-    os.close(fd_l)
-    return tmp_metrics, tmp_labels
