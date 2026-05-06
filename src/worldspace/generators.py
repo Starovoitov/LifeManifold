@@ -18,6 +18,7 @@ from .spec import WorldSpec
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
 _DEFAULT_GENETIC_SPEC_PATH = Path(__file__).with_name("genetic_world_generator.yaml")
 _DEFAULT_LLM_SPEC_PATH = Path(__file__).with_name("llm_world_generator.yaml")
+_DEFAULT_HYBRID_SPEC_PATH = Path(__file__).with_name("hybrid_world_generator.yaml")
 
 
 def random_walk(
@@ -485,24 +486,170 @@ class LLMWorldGenerator(WorldGenerator):
     def _apply_world_patch(
         self, world: WorldSpec, patch: dict[str, Any], generation: int
     ) -> WorldSpec:
-        birth = _normalize_rule_list(patch.get("birth"), world.birth)
-        survival = _normalize_rule_list(patch.get("survival"), world.survival)
-        noise = _clip_float(patch.get("noise"), world.noise, 0.0, 0.2)
-        resource_regen = _clip_float(
-            patch.get("resource_regen"),
-            world.resource_regen,
-            0.0,
-            0.5,
-        )
-        predation = _clip_float(patch.get("predation"), world.predation, 0.0, 1.0)
+        return _apply_world_patch(world, patch, seed=self.seed + generation)
+
+
+class HybridGALlmWorldGenerator(WorldGenerator):
+    """Population-based hybrid: GA random mutation + LLM-guided mutation."""
+
+    def __init__(
+        self,
+        grid_size: int = 50,
+        steps: int = 300,
+        seed: int = 0,
+        spec_path: str | Path | None = None,
+    ):
+        cfg = load_hybrid_generator_yaml(spec_path or _DEFAULT_HYBRID_SPEC_PATH)
+        evo = cfg["evolution"]
+        llm_cfg = cfg["llm"]
+        self.grid_size = grid_size
+        self.steps = steps
+        self.seed = seed
+        self.population_size = int(evo["population_size"])
+        self.select_top_k = int(evo["select_top_k"])
+        self.select_random_k = int(evo["select_random_k"])
+        self.elite_keep = int(evo["elite_keep"])
+        self.random_mutations = int(evo["random_mutations"])
+        self.llm_mutations = int(evo["llm_mutations"])
+        self.mutation_scale = float(evo.get("mutation_scale", 0.02))
+        self.llm_top_fraction = float(evo.get("llm_top_fraction", 0.2))
+
+        self.mode = str(llm_cfg["mode"]).strip().lower()
+        self.active_provider = str(llm_cfg["active_provider"]).strip()
+        self.providers = dict(llm_cfg["providers"])
+        self.temperature = float(llm_cfg.get("temperature", 0.2))
+        self.max_tokens = int(llm_cfg.get("max_tokens", 350))
+
+    def generate(self, n_worlds: int) -> list[WorldSpec]:
+        return list(self.iter_worlds(n_worlds))
+
+    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
+        if n_worlds <= 0:
+            return
+        rng = np.random.default_rng(self.seed)
+        base_gen = RandomWorldGenerator(self.grid_size, self.steps)
+        population = [
+            base_gen._make_world(seed=self.seed + i)
+            for i in range(self.population_size)
+        ]
+        for generation in range(n_worlds):
+            scored = self._score_population(population)
+            best_world = replace(scored[0][0], seed=self.seed + generation)
+            yield best_world
+
+            selected = self._select_with_diversity(scored, rng)
+            llm_pool_size = max(1, int(np.ceil(len(selected) * self.llm_top_fraction)))
+            llm_pool = selected[:llm_pool_size]
+
+            next_population: list[WorldSpec] = [
+                replace(w, seed=self.seed + generation * 1000 + i)
+                for i, (w, _) in enumerate(scored[: self.elite_keep])
+            ]
+            seed_counter = self.seed + generation * 10_000
+
+            for _ in range(self.random_mutations):
+                parent = selected[int(rng.integers(0, len(selected)))][0]
+                next_population.append(
+                    self._random_mutate(parent, rng, seed=seed_counter)
+                )
+                seed_counter += 1
+
+            for _ in range(self.llm_mutations):
+                parent, metrics = llm_pool[int(rng.integers(0, len(llm_pool)))]
+                child = self._llm_mutate(parent, metrics, generation, seed_counter, rng)
+                next_population.append(child)
+                seed_counter += 1
+
+            while len(next_population) < self.population_size:
+                parent = selected[int(rng.integers(0, len(selected)))][0]
+                next_population.append(
+                    self._random_mutate(parent, rng, seed=seed_counter)
+                )
+                seed_counter += 1
+            population = next_population[: self.population_size]
+
+    def _score_population(
+        self, population: list[WorldSpec]
+    ) -> list[tuple[WorldSpec, Any]]:
+        scored: list[tuple[WorldSpec, Any]] = []
+        for world in population:
+            metrics = run_world(world).metrics
+            scored.append((world, metrics))
+        scored.sort(key=lambda x: float(x[1].interestingness), reverse=True)
+        return scored
+
+    def _select_with_diversity(
+        self, scored: list[tuple[WorldSpec, Any]], rng: np.random.Generator
+    ) -> list[tuple[WorldSpec, Any]]:
+        top = scored[: min(self.select_top_k, len(scored))]
+        rest = scored[len(top) :]
+        if not rest:
+            return top
+        k_rand = min(self.select_random_k, len(rest))
+        rand_idx = rng.choice(np.arange(len(rest)), size=k_rand, replace=False).tolist()
+        sampled = [rest[int(i)] for i in rand_idx]
+        return top + sampled
+
+    def _random_mutate(
+        self, world: WorldSpec, rng: np.random.Generator, seed: int
+    ) -> WorldSpec:
         return replace(
             world,
-            birth=birth,
-            survival=survival,
-            noise=noise,
-            resource_regen=resource_regen,
-            predation=predation,
-            seed=self.seed + generation,
+            birth=_mutate_rule_set(world.birth, rng),
+            survival=_mutate_rule_set(world.survival, rng),
+            noise=random_walk(world.noise, self.mutation_scale, rng, 0.0, 0.2),
+            resource_regen=random_walk(
+                world.resource_regen, self.mutation_scale, rng, 0.0, 0.5
+            ),
+            predation=random_walk(world.predation, self.mutation_scale, rng, 0.0, 1.0),
+            seed=seed,
+        )
+
+    def _llm_mutate(
+        self,
+        parent: WorldSpec,
+        metrics: Any,
+        generation: int,
+        seed: int,
+        rng: np.random.Generator,
+    ) -> WorldSpec:
+        prompt = self._build_prompt(parent, metrics)
+        try:
+            response = call_llm(
+                mode=self.mode,
+                provider_name=self.active_provider,
+                providers=self.providers,
+                prompt=prompt,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+            patch = _extract_world_patch_from_text(response)
+        except RuntimeError:
+            patch = None
+        if patch is None:
+            return self._random_mutate(parent, rng, seed=seed)
+        return _apply_world_patch(parent, patch, seed=seed)
+
+    def _build_prompt(self, world: WorldSpec, metrics: Any) -> str:
+        return (
+            "You are improving a cellular automaton world.\n\n"
+            "Goal: increase interestingness.\n\n"
+            f"Current world:\n{json.dumps(world.to_json_dict(), ensure_ascii=True)}\n\n"
+            "Metrics:\n"
+            f"density: {float(metrics.density_mean):.6f}\n"
+            f"entropy: {float(metrics.entropy):.6f}\n"
+            f"dynamics: {float(metrics.oscillation_score):.6f}\n"
+            f"stability: {float(metrics.stability):.6f}\n"
+            f"survival: {float(metrics.average_lifespan):.6f}\n"
+            f"diversity: {float(metrics.diversity):.6f}\n"
+            f"oscillation: {float(metrics.oscillation_score):.6f}\n"
+            f"score: {float(metrics.interestingness):.6f}\n\n"
+            "Suggest a slightly improved version.\n\n"
+            "Rules:\n"
+            "- change at most 2 parameters\n"
+            "- keep system stable (avoid extinction or explosion)\n"
+            "- aim for balance between order and chaos\n\n"
+            "Output ONLY JSON."
         )
 
 
@@ -598,6 +745,43 @@ def load_llm_generator_yaml(path: str | Path) -> dict[str, Any]:
     return raw
 
 
+def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:
+    """Load and validate hybrid GA+LLM generator YAML."""
+    src = Path(path)
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"Hybrid generator YAML not found: {src.resolve()}. "
+            "Pass --hybrid-spec in CLI or place default hybrid_world_generator.yaml next to generators.py."
+        )
+    raw = yaml.safe_load(src.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"YAML root must be a mapping: {src}")
+    if raw.get("version") != 1:
+        raise ValueError(f"{src}: expected version: 1")
+    if "evolution" not in raw or "llm" not in raw:
+        raise ValueError(f"{src}: expected top-level keys 'evolution' and 'llm'")
+    evo = raw["evolution"]
+    llm = raw["llm"]
+    if not isinstance(evo, dict):
+        raise ValueError(f"{src}: evolution must be a mapping")
+    if not isinstance(llm, dict):
+        raise ValueError(f"{src}: llm must be a mapping")
+    for key in (
+        "population_size",
+        "select_top_k",
+        "select_random_k",
+        "elite_keep",
+        "random_mutations",
+        "llm_mutations",
+    ):
+        if key not in evo:
+            raise ValueError(f"{src}: evolution.{key} is required")
+    for key in ("mode", "active_provider", "providers"):
+        if key not in llm:
+            raise ValueError(f"{src}: llm.{key} is required")
+    return raw
+
+
 def _extract_world_patch_from_text(text: str) -> dict[str, Any] | None:
     """Extract a JSON object from model output and return it as dict."""
     stripped = text.strip()
@@ -641,6 +825,37 @@ def _clip_float(value: Any, fallback: float, low: float, high: float) -> float:
     except (TypeError, ValueError):
         return float(fallback)
     return float(np.clip(f, low, high))
+
+
+def _mutate_rule_set(rule_set: list[int], rng: np.random.Generator) -> list[int]:
+    values = set(rule_set)
+    if rng.random() < 0.5 and len(values) > 1:
+        values.discard(int(rng.choice(list(values))))
+    else:
+        values.add(int(rng.integers(0, 9)))
+    return sorted(values)
+
+
+def _apply_world_patch(world: WorldSpec, patch: dict[str, Any], seed: int) -> WorldSpec:
+    birth = _normalize_rule_list(patch.get("birth"), world.birth)
+    survival = _normalize_rule_list(patch.get("survival"), world.survival)
+    noise = _clip_float(patch.get("noise"), world.noise, 0.0, 0.2)
+    resource_regen = _clip_float(
+        patch.get("resource_regen"),
+        world.resource_regen,
+        0.0,
+        0.5,
+    )
+    predation = _clip_float(patch.get("predation"), world.predation, 0.0, 1.0)
+    return replace(
+        world,
+        birth=birth,
+        survival=survival,
+        noise=noise,
+        resource_regen=resource_regen,
+        predation=predation,
+        seed=seed,
+    )
 
 
 def __getattr__(name: str) -> Any:

@@ -44,10 +44,19 @@ Implemented generator levels:
    - `MarkovWorldGenerator` (base class)
    - `TwoStateNoiseMarkovGenerator` (calm/chaos switching)
    - `RuleBiasMarkovGenerator` (survival/reproduction bias)
-5. `GeneticWorldGenerator` (selection + mutation on `interestingness` fitness)
-6. Future stubs:
-   - `NeuralWorldGenerator` (placeholder)
-   - `LLMWorldGenerator` (placeholder)
+5. `GeneticWorldGenerator` (PyGAD-backed evolution on `interestingness`)
+   - chromosome encoding: rule masks + scalar params
+   - YAML-driven GA knobs via `genetic_world_generator.yaml`
+6. `LLMWorldGenerator` (iterative LLM-guided local search)
+   - loop: simulate → score → ask LLM for slight patch → validate/clamp → next world
+   - local/remote provider routing via `llm_world_generator.yaml`
+   - robust fallback to random-walk mutation if LLM response is invalid
+7. `HybridGALlmWorldGenerator` (population evolution with mixed mutations)
+   - selection: top-k plus random diversity sample
+   - offspring mix: random GA mutation + LLM-guided mutation
+   - LLM branch sees top fraction of selected worlds (`llm_top_fraction`)
+   - configured via `hybrid_world_generator.yaml`
+8. `NeuralWorldGenerator` (YAML-driven latent MLP policy)
 
 ### Simulator
 
@@ -109,6 +118,17 @@ Matplotlib is confined to this submodule and uses the **`Agg`** backend (file ou
 
 CLI: `--plot` reads JSONL from `--output`, or from a temporary JSONL if `--output` is omitted (file removed after plotting).
 
+### Generator Configs (YAML)
+
+Files:
+
+- `src/worldspace/genetic_world_generator.yaml`
+- `src/worldspace/llm_world_generator.yaml`
+- `src/worldspace/hybrid_world_generator.yaml`
+- `src/worldspace/neural_world_generator.yaml`
+
+These files define default generator behavior and provider/model routing; CLI flags can override paths to these configs.
+
 ## CLI and Output Artifacts
 
 Files: `src/worldspace/cli.py`, `src/worldspace/__main__.py`
@@ -116,6 +136,13 @@ Files: `src/worldspace/cli.py`, `src/worldspace/__main__.py`
 Run:
 
 `python -m src.worldspace --generator random --worlds 30 --steps 200 --grid 40`
+
+Other generator modes:
+
+- `--generator genetic --genetic-spec ...`
+- `--generator llm --llm-spec ...`
+- `--generator hybrid --hybrid-spec ...`
+- `--generator neural --neural-spec ...`
 
 Optional persistence (JSONL only, one JSON object per line):
 

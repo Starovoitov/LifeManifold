@@ -70,7 +70,7 @@ flowchart TB
 | Модуль | Назначение |
 |--------|------------|
 | `spec.py` | Датакласс мира + сериализация JSON |
-| `generators.py` | Случайные миры, random walk, цепи Маркова, заглушки NN/LLM |
+| `generators.py` | Случайные/марковские/генетические/LLM/гибридные генераторы миров + YAML-конфиги |
 | `math.py` | `neighbor_count`, PCA по достаточным статистикам (`pca_mean_and_basis_2d`, `project_pca_2d`), `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
 | `simulator.py` | CA по шагам; онлайн-метрики и один финальный снимок сетки |
 | `metrics.py` | Датакласс метрик и сериализация вектора в JSON |
@@ -237,7 +237,7 @@ sequenceDiagram
 
 ---
 
-## 5. Метрики: вектор \(M(\text{world}) \in \mathbb{R}^6\)
+## 5. Метрики: вектор \(M(\text{world}) \in \mathbb{R}^7\)
 
 Метрики **`WorldMetrics`** вычисляются **внутри `run_world`** по онлайн-накопителям (см. §4.7). Отдельной функции `compute_metrics` нет.
 
@@ -249,11 +249,12 @@ sequenceDiagram
 | **`density_mean`** | Онлайн-среднее плотности по шагам | Средняя заполненность поля живыми за прогон |
 | **`oscillation_score`** | Автокорреляция по **окну** из последних 512 значений плотности | Приближение к «есть ли циклы» без хранения всего ряда |
 | **`diversity`** | Доля уникальных подписей среди **`sample_size`** случайных патчей \(3\times3\) на **финальном** поле `life` | Грубая оценка «сколько разных локальных паттернов» |
+| **`interestingness`** | `entropy + stability + diversity - extinction_penalty` | Целевая скалярная оценка для GA/LLM/Hybrid-поиска |
 
 Фиксированный порядок вектора задаётся методом **`WorldMetrics.as_vector()`**:
 
 ```text
-[entropy, stability, average_lifespan, density_mean, oscillation_score, diversity]
+[entropy, stability, average_lifespan, density_mean, oscillation_score, diversity, interestingness]
 ```
 
 ```mermaid
@@ -286,9 +287,9 @@ flowchart LR
 
 Функция **`stream_world_space_to_jsonl(generator, n_worlds, path, ...)`** (`src/worldspace/pipeline.py`):
 
-1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** (без списка всех миров в памяти) — **`run_world`**, вектор метрик пишется в **временный memmap** `(n × 6)` и обновляются суммы для PCA (**`sum_x`**, **`sum_xx`**).
+1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** (без списка всех миров в памяти) — **`run_world`**, вектор метрик пишется в **временный memmap** `(n × 7)` и обновляются суммы для PCA (**`sum_x`**, **`sum_xx`**).
 2. По достаточным статистикам: **`math.pca_mean_and_basis_2d`** → среднее и базис **2D**.
-3. **k-means Lloyd** по строкам memmap (центроиды **`k×6`**, метки в отдельном memmap).
+3. **k-means Lloyd** по строкам memmap (центроиды **`k×7`**, метки в отдельном memmap).
 4. **Проход 2:** снова **`iter_worlds(n)`** (тот же порядок, детерминированные генераторы), чтение строки memmap, проекция **`math.project_pca_2d`**, запись **одной JSON-строки** в файл (и опционально в stdout).
 
 Итоговая строка JSON содержит `world`, `metrics`, `embedding_2d`, `cluster_id`. Память по числу миров **не растёт** с размером батча (временный файл на диске для столбцов метрик).
@@ -299,7 +300,7 @@ flowchart TB
     W1["WorldSpec 1"]
     WN["WorldSpec N"]
   end
-  subgraph metrics_mat["Матрица N×6"]
+  subgraph metrics_mat["Матрица N×7"]
     MROW["каждая строка — as_vector(metrics)"]
   end
   subgraph proj["Проекция и группы"]
@@ -328,19 +329,36 @@ flowchart TB
   MW["MarkovWorldGenerator"]
   TS["TwoStateNoiseMarkovGenerator"]
   RB["RuleBiasMarkovGenerator"]
-  NN["NeuralWorldGenerator — заглушка"]
-  LLM["LLMWorldGenerator — заглушка"]
+  GA["GeneticWorldGenerator (PyGAD)"]
+  LLM["LLMWorldGenerator (итеративный поиск)"]
+  HBR["HybridGALlmWorldGenerator (population + mixed mutation)"]
+  NN["NeuralWorldGenerator (YAML MLP)"]
   RW --> RWW
   RWG --> RWW
   MW --> TS
   MW --> RB
+  RWG --> GA
+  GA --> HBR
+  LLM --> HBR
 ```
 
 - **`RandomWorldGenerator`** — независимые случайные правила и параметры.
 - **`RandomWalkWorldGenerator`** — последовательность миров: небольшие случайные изменения от стартового.
 - **`TwoStateNoiseMarkovGenerator`** — скрытое состояние «спокойный / хаотичный» меняет масштаб шума.
 - **`RuleBiasMarkovGenerator`** — смещение множеств `birth`/`survival`.
-- **`NeuralWorldGenerator`**, **`LLMWorldGenerator`** — пока только **`NotImplementedError`** как место расширения.
+- **`GeneticWorldGenerator`** — эволюция миров через PyGAD по фитнесу `interestingness` (хромосома = правила + скаляры).
+- **`LLMWorldGenerator`** — цикл `simulate -> score -> LLM patch -> validate/clamp -> next`.
+- **`HybridGALlmWorldGenerator`** — популяционная схема: отбор (top-k + random diversity), затем `random mutation` + `LLM-guided mutation`; LLM видит верхнюю долю лучших миров.
+- **`NeuralWorldGenerator`** — генерация через латентный MLP с YAML-спекой.
+
+### 7.1 YAML-конфиги генераторов
+
+- `src/worldspace/genetic_world_generator.yaml`
+- `src/worldspace/llm_world_generator.yaml`
+- `src/worldspace/hybrid_world_generator.yaml`
+- `src/worldspace/neural_world_generator.yaml`
+
+CLI поддерживает переопределение путей к этим файлам через `--genetic-spec`, `--llm-spec`, `--hybrid-spec`, `--neural-spec`.
 
 ---
 
@@ -352,6 +370,15 @@ flowchart TB
 
 ```bash
 python -m src.worldspace --generator random --worlds 30 --steps 200 --grid 40
+```
+
+Другие режимы генератора:
+
+```bash
+python -m src.worldspace --generator genetic --genetic-spec src/worldspace/genetic_world_generator.yaml
+python -m src.worldspace --generator llm --llm-spec src/worldspace/llm_world_generator.yaml
+python -m src.worldspace --generator hybrid --hybrid-spec src/worldspace/hybrid_world_generator.yaml
+python -m src.worldspace --generator neural --neural-spec src/worldspace/neural_world_generator.yaml
 ```
 
 Запись в файл — **JSONL** (одна JSON-строка на мир; память по числу миров **O(1)**):

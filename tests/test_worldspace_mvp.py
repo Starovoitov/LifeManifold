@@ -8,6 +8,7 @@ import numpy as np
 
 from src.worldspace.generators import (
     GeneticWorldGenerator,
+    HybridGALlmWorldGenerator,
     LLMWorldGenerator,
     RandomWorldGenerator,
 )
@@ -151,6 +152,50 @@ class TestWorldSpaceMVP(unittest.TestCase):
         self.assertAlmostEqual(worlds[1].noise, 0.07)
         self.assertAlmostEqual(worlds[1].resource_regen, 0.12)
         self.assertAlmostEqual(worlds[1].predation, 0.31)
+
+    def test_hybrid_generator_emits_world_per_generation(self):
+        response = json.dumps(
+            {
+                "birth": [3, 4],
+                "survival": [2, 3, 4],
+                "noise": 0.06,
+                "resource_regen": 0.11,
+                "predation": 0.25,
+            }
+        )
+        with patch("src.worldspace.generators.call_llm", return_value=response):
+            generator = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=2)
+            worlds = generator.generate(4)
+        self.assertEqual(len(worlds), 4)
+        for w in worlds:
+            self.assertGreaterEqual(w.noise, 0.0)
+            self.assertLessEqual(w.noise, 0.2)
+            self.assertGreaterEqual(w.resource_regen, 0.0)
+            self.assertLessEqual(w.resource_regen, 0.5)
+            self.assertGreaterEqual(w.predation, 0.0)
+            self.assertLessEqual(w.predation, 1.0)
+
+    def test_hybrid_initial_population_depends_on_seed(self):
+        with patch("src.worldspace.generators.call_llm", return_value="{}"):
+            g0 = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=0)
+            g1 = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=101)
+            w0 = g0.generate(1)[0]
+            w1 = g1.generate(1)[0]
+        sig0 = (
+            tuple(w0.birth),
+            tuple(w0.survival),
+            round(w0.noise, 6),
+            round(w0.resource_regen, 6),
+            round(w0.predation, 6),
+        )
+        sig1 = (
+            tuple(w1.birth),
+            tuple(w1.survival),
+            round(w1.noise, 6),
+            round(w1.resource_regen, 6),
+            round(w1.predation, 6),
+        )
+        self.assertNotEqual(sig0, sig1)
 
 
 if __name__ == "__main__":

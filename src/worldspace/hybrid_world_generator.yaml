@@ -1,0 +1,38 @@
+version: 1
+
+evolution:
+  population_size: 100
+  select_top_k: 30
+  select_random_k: 8
+  elite_keep: 10
+  random_mutations: 50
+  llm_mutations: 20
+  llm_top_fraction: 0.2
+  mutation_scale: 0.02
+
+llm:
+  mode: local
+  active_provider: ollama
+  temperature: 0.2
+  max_tokens: 350
+  providers:
+    openai:
+      provider: openai
+      model: gpt-4o-mini
+      api_base: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+    gigachat:
+      provider: gigachat
+      model: GigaChat-Pro
+      api_base: https://api.gigachat.ru/v1/chat/completions
+      api_key_env: GIGACHAT_API_KEY
+    ollama:
+      provider: openai
+      model: Lexi-Llama-3-8B-Uncensored_Q4_K_M
+      api_base: http://127.0.0.1:1337/v1/chat/completions
+      api_key_env: OLLAMA_API_KEY
+    qwen:
+      provider: openai
+      model: qwen-plus
+      api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+      api_key_env: QWEN_API_KEY

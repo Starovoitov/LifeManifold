@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .generators import (
     GeneticWorldGenerator,
+    HybridGALlmWorldGenerator,
     LLMWorldGenerator,
     RandomWalkWorldGenerator,
     RandomWorldGenerator,
@@ -32,6 +33,7 @@ def main() -> None:
             "markov_noise",
             "markov_rules",
             "genetic",
+            "hybrid",
             "llm",
             "neural",
         ],
@@ -89,6 +91,12 @@ def main() -> None:
         help="YAML spec for --generator llm (default: bundled llm_world_generator.yaml).",
     )
     parser.add_argument(
+        "--hybrid-spec",
+        type=str,
+        default="",
+        help="YAML spec for --generator hybrid (default: bundled hybrid_world_generator.yaml).",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default="",
@@ -134,6 +142,14 @@ def main() -> None:
             steps=args.steps,
             seed=args.ga_seed,
             spec_path=llm_spec,
+        )
+    elif args.generator == "hybrid":
+        hybrid_spec = Path(args.hybrid_spec) if args.hybrid_spec.strip() else None
+        generator = HybridGALlmWorldGenerator(
+            grid_size=args.grid,
+            steps=args.steps,
+            seed=args.ga_seed,
+            spec_path=hybrid_spec,
         )
     else:
         from .neural_world import NeuralWorldGenerator
