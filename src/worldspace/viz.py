@@ -183,7 +183,8 @@ def _scatter_embedding(
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(
-        title or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
+        title
+        or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
     )
     ax.legend(title="k-means", loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)

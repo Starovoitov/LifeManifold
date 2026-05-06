@@ -75,6 +75,12 @@ def main() -> None:
         help="RNG seed for --generator genetic.",
     )
     parser.add_argument(
+        "--genetic-spec",
+        type=str,
+        default="",
+        help="YAML spec for --generator genetic (default: bundled genetic_world_generator.yaml).",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default="",
@@ -103,6 +109,7 @@ def main() -> None:
     elif args.generator == "markov_rules":
         generator = RuleBiasMarkovGenerator(start_world=base)
     elif args.generator == "genetic":
+        genetic_spec = Path(args.genetic_spec) if args.genetic_spec.strip() else None
         generator = GeneticWorldGenerator(
             grid_size=args.grid,
             steps=args.steps,
@@ -110,6 +117,7 @@ def main() -> None:
             elite_count=args.ga_elite,
             mutation_scale=args.ga_mutation_scale,
             seed=args.ga_seed,
+            spec_path=genetic_spec,
         )
     else:
         from .neural_world import NeuralWorldGenerator

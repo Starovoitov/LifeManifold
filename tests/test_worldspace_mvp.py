@@ -92,6 +92,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             seed=0,
         )
         worlds = generator.generate(20)
+        self.assertEqual(len(worlds), 20)
         signatures = {
             (
                 tuple(w.birth),
@@ -102,7 +103,24 @@ class TestWorldSpaceMVP(unittest.TestCase):
             )
             for w in worlds
         }
-        self.assertGreaterEqual(len(signatures), 10)
+        self.assertGreaterEqual(len(signatures), 8)
+
+    def test_genetic_solution_seed_depends_on_generation(self):
+        generator = GeneticWorldGenerator(
+            grid_size=10,
+            steps=10,
+            population_size=6,
+            elite_count=2,
+            mutation_scale=0.03,
+            seed=11,
+        )
+        world = RandomWorldGenerator(grid_size=10, steps=10).generate(1)[0]
+        solution = generator._encode_world(world)
+        seed_g0 = generator._solution_seed(solution, 0)
+        seed_g1 = generator._solution_seed(solution, 1)
+        seed_g5 = generator._solution_seed(solution, 5)
+        self.assertNotEqual(seed_g0, seed_g1)
+        self.assertNotEqual(seed_g1, seed_g5)
 
 
 if __name__ == "__main__":

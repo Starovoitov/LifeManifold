@@ -205,7 +205,9 @@ def _iter_space_json_lines(
     for i, world in enumerate(generator.iter_worlds(n)):
         vec = mm[i].astype(np.float64)
         lab = int(labels[i])
-        row = _space_point_row(world, vec, mean, dominant_index, x_axis_metric, pca, lab)
+        row = _space_point_row(
+            world, vec, mean, dominant_index, x_axis_metric, pca, lab
+        )
         yield json.dumps(row, ensure_ascii=True)
 
 

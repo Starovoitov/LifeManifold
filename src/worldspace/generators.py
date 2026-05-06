@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 from .simulator import run_world
 from .spec import WorldSpec
 
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
+_DEFAULT_GENETIC_SPEC_PATH = Path(__file__).with_name("genetic_world_generator.yaml")
 
 
 def random_walk(
@@ -194,7 +196,7 @@ class RuleBiasMarkovGenerator(MarkovWorldGenerator):
 
 
 class GeneticWorldGenerator(WorldGenerator):
-    """Basic genetic algorithm over world parameters."""
+    """PyGAD-backed genetic algorithm over world parameters."""
 
     def __init__(
         self,
@@ -206,146 +208,182 @@ class GeneticWorldGenerator(WorldGenerator):
         diversity_penalty: float = 0.15,
         max_stagnation: int = 3,
         seed: int = 0,
+        spec_path: str | Path | None = None,
     ):
         """Initialize GA settings for evolutionary search."""
+        cfg = load_genetic_generator_yaml(spec_path or _DEFAULT_GENETIC_SPEC_PATH)
+        pygad_cfg = cfg.get("pygad", {})
         self.grid_size = grid_size
         self.steps = steps
-        self.population_size = max(2, population_size)
-        self.elite_count = max(1, min(elite_count, self.population_size))
-        self.mutation_scale = mutation_scale
-        self.diversity_penalty = max(0.0, diversity_penalty)
-        self.max_stagnation = max(1, max_stagnation)
+        self.population_size = max(2, int(population_size))
+        self.elite_count = max(
+            1,
+            min(int(elite_count), self.population_size),
+        )
+        self.mutation_scale = float(mutation_scale)
+        self.diversity_penalty = max(
+            0.0,
+            float(diversity_penalty),
+        )
+        self.max_stagnation = max(
+            1,
+            int(max_stagnation),
+        )
         self.seed = seed
+        self.parent_selection_type = str(
+            pygad_cfg.get("parent_selection_type", "tournament")
+        )
+        self.k_tournament = int(pygad_cfg.get("k_tournament", 4))
+        self.crossover_type = str(pygad_cfg.get("crossover_type", "uniform"))
+        self.mutation_type = str(pygad_cfg.get("mutation_type", "adaptive"))
+        self.suppress_warnings = bool(pygad_cfg.get("suppress_warnings", True))
+        self.num_parents_mating = int(
+            pygad_cfg.get(
+                "num_parents_mating",
+                max(2, min(self.population_size, self.elite_count * 2)),
+            )
+        )
+        self.keep_elitism = self.elite_count
+        self.mutation_probability = float(
+            pygad_cfg.get(
+                "mutation_probability",
+                float(np.clip(0.12 + self.diversity_penalty * 0.2, 0.05, 0.6)),
+            )
+        )
 
     def generate(self, n_worlds: int) -> list[WorldSpec]:
         """Generate best-per-generation worlds with a GA loop."""
         return list(self.iter_worlds(n_worlds))
 
     def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
-        """Yield top world from each generation."""
+        """Yield top world from each generation from a PyGAD run."""
         if n_worlds <= 0:
             return
-        rng = np.random.default_rng(self.seed)
-        population = self._initial_population(rng)
-        seed_counter = self.population_size + self.seed + 1
-        last_best_signature: tuple | None = None
-        stagnation = 0
-        for _ in range(n_worlds):
-            fitness = np.asarray([self._fitness(w) for w in population], dtype=np.float64)
-            signatures = [self._genome_signature(w) for w in population]
-            duplicate_counts = Counter(signatures)
-            adjusted_fitness = np.asarray(
-                [
-                    fit - self.diversity_penalty * (duplicate_counts[sig] - 1)
-                    for fit, sig in zip(fitness, signatures, strict=True)
-                ],
-                dtype=np.float64,
+        import pygad
+
+        gene_space: list = ([[0, 1] for _ in range(18)]) + [
+            {"low": 0.0, "high": 0.2},
+            {"low": 0.0, "high": 0.5},
+            {"low": 0.0, "high": 1.0},
+        ]
+        gene_type: list[type] = ([int] * 18) + [float, float, float]
+
+        initial_worlds = RandomWorldGenerator(
+            grid_size=self.grid_size, steps=self.steps
+        ).generate(self.population_size)
+        initial_population = np.asarray(
+            [self._encode_world(world) for world in initial_worlds], dtype=np.float64
+        )
+        fitness_cache: dict[tuple, float] = {}
+        best_worlds: list[WorldSpec] = []
+
+        def fitness_func(ga_instance: Any, solution: np.ndarray, __: int) -> float:
+            generation_idx = max(
+                0, int(getattr(ga_instance, "generations_completed", 0))
             )
-            order = np.argsort(adjusted_fitness)[::-1]
-            best = population[int(order[0])]
-            yield best
+            key = (
+                generation_idx,
+                tuple(np.round(solution.astype(np.float64), 6).tolist()),
+            )
+            cached = fitness_cache.get(key)
+            if cached is not None:
+                return cached
+            world = self._decode_solution(
+                solution, seed=self._solution_seed(solution, generation_idx)
+            )
+            fit = float(run_world(world).metrics.interestingness)
+            fitness_cache[key] = fit
+            return fit
 
-            best_signature = self._genome_signature(best)
-            if best_signature == last_best_signature:
-                stagnation += 1
-            else:
-                stagnation = 0
-            last_best_signature = best_signature
+        def on_generation(ga_instance: Any) -> None:
+            sol, _, _ = ga_instance.best_solution(
+                pop_fitness=ga_instance.last_generation_fitness
+            )
+            gen_idx = len(best_worlds)
+            best_worlds.append(
+                self._decode_solution(sol, seed=self._solution_seed(sol, gen_idx))
+            )
 
-            elites = self._unique_elites(population, order)
-            population = elites.copy()
-            while len(population) < self.population_size:
-                parent = self._sample_parent(elites, rng)
-                mutation_scale = self.mutation_scale * (1.0 + 0.35 * stagnation)
-                child = self._mutate(
-                    parent, seed=seed_counter, rng=rng, mutation_scale=mutation_scale
-                )
-                seed_counter += 1
-                if stagnation >= self.max_stagnation:
-                    child = self._mutate(
-                        child,
-                        seed=seed_counter,
-                        rng=rng,
-                        mutation_scale=mutation_scale * 1.5,
-                    )
-                    seed_counter += 1
-                population.append(child)
+        ga = pygad.GA(
+            num_generations=n_worlds,
+            num_parents_mating=max(
+                2, min(self.population_size, self.num_parents_mating)
+            ),
+            fitness_func=fitness_func,
+            initial_population=initial_population,
+            parent_selection_type=self.parent_selection_type,
+            K_tournament=max(2, min(self.k_tournament, self.population_size)),
+            keep_elitism=max(1, min(self.keep_elitism, self.population_size)),
+            crossover_type=self.crossover_type,
+            mutation_type=self.mutation_type,
+            mutation_probability=[
+                float(np.clip(self.mutation_probability * 1.5, 0.001, 0.999)),
+                float(np.clip(self.mutation_probability, 0.001, 0.999)),
+            ],
+            random_mutation_min_val=-abs(self.mutation_scale),
+            random_mutation_max_val=abs(self.mutation_scale),
+            gene_space=gene_space,
+            gene_type=gene_type,
+            random_seed=self.seed,
+            save_best_solutions=False,
+            on_generation=on_generation,
+            suppress_warnings=self.suppress_warnings,
+        )
+        ga.run()
+        yield from best_worlds[:n_worlds]
 
-    def _initial_population(self, rng: np.random.Generator) -> list[WorldSpec]:
-        base = RandomWorldGenerator(grid_size=self.grid_size, steps=self.steps)
-        worlds = base.generate(self.population_size)
-        seeded: list[WorldSpec] = []
-        for i, world in enumerate(worlds):
-            seeded.append(replace(world, seed=self.seed + int(rng.integers(1, 1_000_000)) + i))
-        return seeded
+    def _encode_world(self, world: WorldSpec) -> np.ndarray:
+        birth_mask = [1 if i in set(world.birth) else 0 for i in range(9)]
+        survival_mask = [1 if i in set(world.survival) else 0 for i in range(9)]
+        tail = [float(world.noise), float(world.resource_regen), float(world.predation)]
+        return np.asarray(birth_mask + survival_mask + tail, dtype=np.float64)
 
-    def _fitness(self, world: WorldSpec) -> float:
-        return float(run_world(world).metrics.interestingness)
-
-    def _sample_parent(
-        self,
-        elites: list[WorldSpec],
-        rng: np.random.Generator,
-    ) -> WorldSpec:
-        elite_fitness = np.asarray([self._fitness(w) for w in elites], dtype=np.float64)
-        min_fit = float(elite_fitness.min(initial=0.0))
-        weights = elite_fitness - min_fit + 1e-6
-        probs = weights / weights.sum()
-        idx = int(rng.choice(np.arange(len(elites)), p=probs))
-        return elites[idx]
-
-    def _mutate(
-        self,
-        world: WorldSpec,
-        seed: int,
-        rng: np.random.Generator,
-        mutation_scale: float | None = None,
-    ) -> WorldSpec:
-        scale = self.mutation_scale if mutation_scale is None else mutation_scale
-        return replace(
-            world,
-            birth=self._mutate_rule_set(world.birth, rng),
-            survival=self._mutate_rule_set(world.survival, rng),
-            noise=random_walk(world.noise, scale, rng, 0.0, 0.2),
-            resource_regen=random_walk(world.resource_regen, scale, rng, 0.0, 0.5),
-            predation=random_walk(world.predation, scale, rng, 0.0, 1.0),
+    def _decode_solution(self, solution: np.ndarray, seed: int) -> WorldSpec:
+        vals = np.asarray(solution, dtype=np.float64)
+        birth_mask = np.rint(np.clip(vals[:9], 0.0, 1.0)).astype(np.int8)
+        survival_mask = np.rint(np.clip(vals[9:18], 0.0, 1.0)).astype(np.int8)
+        birth = [i for i in range(9) if int(birth_mask[i]) == 1]
+        survival = [i for i in range(9) if int(survival_mask[i]) == 1]
+        if not birth:
+            birth = [int(np.argmax(vals[:9]))]
+        if not survival:
+            survival = [int(np.argmax(vals[9:18]))]
+        return WorldSpec(
+            birth=sorted(set(birth)),
+            survival=sorted(set(survival)),
+            noise=float(np.clip(vals[18], 0.0, 0.2)),
+            resource_regen=float(np.clip(vals[19], 0.0, 0.5)),
+            predation=float(np.clip(vals[20], 0.0, 1.0)),
+            cell_types=DEFAULT_CELL_TYPES.copy(),
+            grid_size=self.grid_size,
+            steps=self.steps,
             seed=seed,
         )
 
-    def _mutate_rule_set(
-        self, rule_set: list[int], rng: np.random.Generator
-    ) -> list[int]:
-        values = set(rule_set)
-        if rng.random() < 0.5 and len(values) > 1:
-            values.discard(int(rng.choice(list(values))))
-        else:
-            values.add(int(rng.integers(0, 9)))
-        return sorted(values)
+    def _solution_seed(self, solution: np.ndarray, generation: int) -> int:
+        vals = np.asarray(solution, dtype=np.float64)
+        scaled = np.rint(np.clip(vals, -1e6, 1e6) * 1000.0).astype(np.int64)
+        weights = np.arange(1, scaled.size + 1, dtype=np.int64)
+        sig = int(np.abs(np.dot(scaled, weights)) % 1_000_000_000)
+        return int(self.seed + generation * 100_003 + sig % 100_003)
 
-    def _unique_elites(self, population: list[WorldSpec], order: np.ndarray) -> list[WorldSpec]:
-        unique: list[WorldSpec] = []
-        seen: set[tuple] = set()
-        for idx in order:
-            candidate = population[int(idx)]
-            sig = self._genome_signature(candidate)
-            if sig in seen:
-                continue
-            unique.append(candidate)
-            seen.add(sig)
-            if len(unique) >= self.elite_count:
-                break
-        if not unique:
-            unique = [population[int(order[0])]]
-        return unique
 
-    def _genome_signature(self, world: WorldSpec) -> tuple:
-        return (
-            tuple(world.birth),
-            tuple(world.survival),
-            round(world.noise, 4),
-            round(world.resource_regen, 4),
-            round(world.predation, 4),
+def load_genetic_generator_yaml(path: str | Path) -> dict[str, Any]:
+    """Load and validate genetic generator YAML."""
+    src = Path(path)
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"Genetic generator YAML not found: {src.resolve()}. "
+            "Pass --genetic-spec in CLI or place default genetic_world_generator.yaml next to generators.py."
         )
+    raw = yaml.safe_load(src.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"YAML root must be a mapping: {src}")
+    if raw.get("version") != 1:
+        raise ValueError(f"{src}: expected version: 1")
+    if "genetic" not in raw or "pygad" not in raw:
+        raise ValueError(f"{src}: expected top-level keys 'genetic' and 'pygad'")
+    return raw
 
 
 class LLMWorldGenerator(WorldGenerator):
