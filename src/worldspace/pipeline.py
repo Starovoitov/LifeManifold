@@ -44,7 +44,11 @@ def stream_world_space_to_jsonl(
     echo_stdout: bool = True,
 ) -> None:
     """
-    Run generator → simulate → metrics → PCA → k-means with **O(1) RAM** vs. batch size.
+    Run generator → simulate → metrics → 2D embedding → k-means with **O(1) RAM** vs. batch size.
+
+    The 2D embedding is **not** plain PCA on all seven metrics: horizontal axis is
+    ``average_lifespan`` minus batch mean; vertical axis is the direction of maximum
+    variance orthogonal to lifespan (see ``math.lifespan_orthogonal_mean_and_basis_2d``).
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
@@ -66,7 +70,7 @@ def stream_world_space_to_jsonl(
         sum_x, sum_xx = _accumulate_metrics_memmap(generator, n, mm)
         labels.flush()
 
-        mean, basis = ws_math.pca_mean_and_basis_2d(sum_x, sum_xx, n)
+        mean, basis = ws_math.lifespan_orthogonal_mean_and_basis_2d(sum_x, sum_xx, n)
         ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
 
         lines = _iter_space_json_lines(generator, n, mm, labels, mean, basis)

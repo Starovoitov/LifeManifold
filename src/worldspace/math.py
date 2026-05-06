@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .metrics import METRICS_VECTOR_DIM
+from .metrics import METRIC_INDEX_AVERAGE_LIFESPAN, METRICS_VECTOR_DIM
 
 # Trailing mean-density samples kept for oscillation autocorrelation (O(1) vs. step count).
 OSCILLATION_DENSITY_WINDOW = 512
@@ -132,6 +132,51 @@ def pattern_diversity(history: list[np.ndarray], sample_size: int = 128) -> floa
     if not history:
         return 0.0
     return pattern_diversity_from_frame(history[-1], sample_size=sample_size)
+
+
+def lifespan_orthogonal_mean_and_basis_2d(
+    sum_x: np.ndarray,
+    sum_xx: np.ndarray,
+    n: int,
+    lifespan_index: int = METRIC_INDEX_AVERAGE_LIFESPAN,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Mean plus an orthonormal 2D basis for world-space plots:
+
+    - **Axis 1:** unit vector along ``average_lifespan`` (raw scale); projection is
+      ``lifespan - mean_lifespan``.
+    - **Axis 2:** unit vector orthogonal to axis 1 that captures the **largest** batch
+      variance among the remaining metrics (top eigenvector of the covariance submatrix
+      with the lifespan row/column removed).
+
+    This avoids a single high-variance coordinate (lifespan) from absorbing all of PCA.
+    """
+    d = METRICS_VECTOR_DIM
+    mean = sum_x / float(n)
+    u = np.zeros(d, dtype=float)
+    u[lifespan_index] = 1.0
+    if n <= 1:
+        w = np.zeros(d, dtype=float)
+        w[(lifespan_index + 1) % d] = 1.0
+        return mean, np.column_stack([u, w])
+
+    cov = (sum_xx - np.outer(sum_x, sum_x) / float(n)) / float(n - 1)
+    cov = 0.5 * (cov + cov.T)
+    keep = [i for i in range(d) if i != lifespan_index]
+    c_red = cov[np.ix_(keep, keep)]
+    evals, evecs = np.linalg.eigh(c_red)
+    order = np.argsort(evals)[::-1]
+    v = evecs[:, order[0]]
+    w = np.zeros(d, dtype=float)
+    for k, i in enumerate(keep):
+        w[i] = v[k]
+    nrm = np.linalg.norm(w)
+    if nrm < 1e-12:
+        w = np.zeros(d, dtype=float)
+        w[keep[0]] = 1.0
+    else:
+        w /= nrm
+    return mean, np.column_stack([u, w])
 
 
 def pca_mean_and_basis_2d(

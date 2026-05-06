@@ -7,6 +7,9 @@ import numpy as np
 # Length of ``WorldMetrics.as_vector()`` — keep mmap / PCA / k-means in sync.
 METRICS_VECTOR_DIM = 7
 
+# Index of ``average_lifespan`` in ``WorldMetrics.as_vector()`` (embedding axis 1).
+METRIC_INDEX_AVERAGE_LIFESPAN = 2
+
 
 @dataclass
 class WorldMetrics:

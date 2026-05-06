@@ -79,9 +79,7 @@ class NeuralWorldGenerator(WorldGenerator):
                 wp = cand if cand.is_file() else wp
             if wp.is_file():
                 try:
-                    state = torch.load(
-                        wp, map_location=self.device, weights_only=True
-                    )
+                    state = torch.load(wp, map_location=self.device, weights_only=True)
                 except TypeError:
                     state = torch.load(wp, map_location=self.device)
                 self._policy.load_state_dict(state)

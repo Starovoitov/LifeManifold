@@ -23,7 +23,7 @@ def plot_world_embedding(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
 ) -> None:
-    """Save a 2D scatter of PCA embedding; ``points`` items need ``embedding_2d`` and ``cluster_id``."""
+    """Save a 2D scatter of metric embedding; ``points`` items need ``embedding_2d`` and ``cluster_id``."""
     xs = np.array([p.embedding_2d[0] for p in points], dtype=float)
     ys = np.array([p.embedding_2d[1] for p in points], dtype=float)
     clusters = np.array([p.cluster_id for p in points], dtype=int)
@@ -38,7 +38,7 @@ def plot_world_embedding_from_jsonl(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
 ) -> None:
-    """Read a metrics JSONL file (one JSON object per line) and plot PCA embedding scatter."""
+    """Read a metrics JSONL file (one JSON object per line) and plot embedding scatter."""
     xs: list[float] = []
     ys: list[float] = []
     cs: list[int] = []
@@ -146,9 +146,9 @@ def _scatter_embedding(
             linewidths=0.35,
             s=40,
         )
-    ax.set_xlabel("PCA component 1")
-    ax.set_ylabel("PCA component 2")
-    ax.set_title(title or "World space (PCA on metrics, colored by cluster)")
+    ax.set_xlabel("average lifespan − batch mean")
+    ax.set_ylabel("max-variance axis ⊥ lifespan (other metrics)")
+    ax.set_title(title or "World space (lifespan + orthogonal spread, colored by cluster)")
     ax.legend(title="k-means", loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
     fig.savefig(target, bbox_inches="tight")
