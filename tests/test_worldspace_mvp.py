@@ -2,10 +2,15 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
-from src.worldspace.generators import GeneticWorldGenerator, RandomWorldGenerator
+from src.worldspace.generators import (
+    GeneticWorldGenerator,
+    LLMWorldGenerator,
+    RandomWorldGenerator,
+)
 from src.worldspace.metrics import METRIC_KEYS, METRICS_VECTOR_DIM
 from src.worldspace.pipeline import (
     _fit_dominant_metric_orthogonal_pca,
@@ -121,6 +126,31 @@ class TestWorldSpaceMVP(unittest.TestCase):
         seed_g5 = generator._solution_seed(solution, 5)
         self.assertNotEqual(seed_g0, seed_g1)
         self.assertNotEqual(seed_g1, seed_g5)
+
+    def test_llm_generator_iterative_updates_from_llm_response(self):
+        response = json.dumps(
+            {
+                "birth": [3, 4],
+                "survival": [2, 3, 4],
+                "noise": 0.07,
+                "resource_regen": 0.12,
+                "predation": 0.31,
+                "reasoning": "increase structured growth",
+            }
+        )
+        with patch("src.worldspace.generators.call_llm", return_value=response):
+            generator = LLMWorldGenerator(
+                grid_size=10,
+                steps=10,
+                seed=5,
+            )
+            worlds = generator.generate(3)
+        self.assertEqual(len(worlds), 3)
+        self.assertEqual(worlds[1].birth, [3, 4])
+        self.assertEqual(worlds[1].survival, [2, 3, 4])
+        self.assertAlmostEqual(worlds[1].noise, 0.07)
+        self.assertAlmostEqual(worlds[1].resource_regen, 0.12)
+        self.assertAlmostEqual(worlds[1].predation, 0.31)
 
 
 if __name__ == "__main__":

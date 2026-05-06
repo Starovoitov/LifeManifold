@@ -3,8 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import replace
+import json
+import os
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
 import numpy as np
 import yaml
@@ -14,6 +17,7 @@ from .spec import WorldSpec
 
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
 _DEFAULT_GENETIC_SPEC_PATH = Path(__file__).with_name("genetic_world_generator.yaml")
+_DEFAULT_LLM_SPEC_PATH = Path(__file__).with_name("llm_world_generator.yaml")
 
 
 def random_walk(
@@ -387,11 +391,256 @@ def load_genetic_generator_yaml(path: str | Path) -> dict[str, Any]:
 
 
 class LLMWorldGenerator(WorldGenerator):
-    """Future placeholder: LLM-driven generator."""
+    """LLM-driven iterative world optimizer with YAML-configured providers."""
+
+    def __init__(
+        self,
+        grid_size: int = 50,
+        steps: int = 300,
+        seed: int = 0,
+        spec_path: str | Path | None = None,
+    ):
+        cfg = load_llm_generator_yaml(spec_path or _DEFAULT_LLM_SPEC_PATH)
+        llm_cfg = cfg["llm"]
+        self.grid_size = grid_size
+        self.steps = steps
+        self.seed = seed
+        self.mode = str(llm_cfg["mode"]).strip().lower()
+        self.active_provider = str(llm_cfg["active_provider"]).strip()
+        self.providers = dict(llm_cfg["providers"])
+        self.temperature = float(llm_cfg.get("temperature", 0.2))
+        self.max_tokens = int(llm_cfg.get("max_tokens", 350))
+        self.fallback_scale = float(llm_cfg.get("fallback_scale", 0.02))
+        self.initial_generator = str(llm_cfg.get("initial_generator", "random"))
 
     def generate(self, n_worlds: int) -> list[WorldSpec]:
-        """Placeholder for future LLM generator implementation."""
-        raise NotImplementedError("LLMWorldGenerator is a placeholder for future work")
+        return list(self.iter_worlds(n_worlds))
+
+    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
+        if n_worlds <= 0:
+            return
+        current = self._initial_world()
+        yield current
+        for generation in range(1, n_worlds):
+            result = run_world(current)
+            score = float(result.metrics.interestingness)
+            prompt = self._build_improvement_prompt(current, score)
+            response = call_llm(
+                mode=self.mode,
+                provider_name=self.active_provider,
+                providers=self.providers,
+                prompt=prompt,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+            suggested = _extract_world_patch_from_text(response)
+            if suggested is None:
+                current = self._fallback_step(current, generation)
+            else:
+                current = self._apply_world_patch(current, suggested, generation)
+            yield current
+
+    def _initial_world(self) -> WorldSpec:
+        if self.initial_generator == "random_walk":
+            base = RandomWorldGenerator(
+                grid_size=self.grid_size,
+                steps=self.steps,
+            ).generate(1)[0]
+            return RandomWalkWorldGenerator(
+                start_world=base, scale=self.fallback_scale
+            ).generate(1)[0]
+        return RandomWorldGenerator(
+            grid_size=self.grid_size, steps=self.steps
+        ).generate(1)[0]
+
+    def _fallback_step(self, world: WorldSpec, generation: int) -> WorldSpec:
+        walker = RandomWalkWorldGenerator(start_world=world, scale=self.fallback_scale)
+        nxt = walker.generate(2)[-1]
+        return replace(nxt, seed=self.seed + generation)
+
+    def _build_improvement_prompt(self, world: WorldSpec, score: float) -> str:
+        payload = {
+            "current_world": world.to_json_dict(),
+            "current_interestingness": score,
+            "goal": "Increase interestingness while staying within valid bounds.",
+            "constraints": {
+                "birth": "unique integers in [0,8], at least 1 item",
+                "survival": "unique integers in [0,8], at least 1 item",
+                "noise": "[0.0,0.2]",
+                "resource_regen": "[0.0,0.5]",
+                "predation": "[0.0,1.0]",
+            },
+            "output_format": {
+                "birth": [3],
+                "survival": [2, 3],
+                "noise": 0.05,
+                "resource_regen": 0.1,
+                "predation": 0.2,
+                "reasoning": "short explanation",
+            },
+            "instruction": "Return JSON only.",
+        }
+        return json.dumps(payload, ensure_ascii=True)
+
+    def _apply_world_patch(
+        self, world: WorldSpec, patch: dict[str, Any], generation: int
+    ) -> WorldSpec:
+        birth = _normalize_rule_list(patch.get("birth"), world.birth)
+        survival = _normalize_rule_list(patch.get("survival"), world.survival)
+        noise = _clip_float(patch.get("noise"), world.noise, 0.0, 0.2)
+        resource_regen = _clip_float(
+            patch.get("resource_regen"),
+            world.resource_regen,
+            0.0,
+            0.5,
+        )
+        predation = _clip_float(patch.get("predation"), world.predation, 0.0, 1.0)
+        return replace(
+            world,
+            birth=birth,
+            survival=survival,
+            noise=noise,
+            resource_regen=resource_regen,
+            predation=predation,
+            seed=self.seed + generation,
+        )
+
+
+def call_llm(
+    *,
+    mode: str,
+    provider_name: str,
+    providers: dict[str, Any],
+    prompt: str,
+    temperature: float = 0.2,
+    max_tokens: int = 350,
+) -> str:
+    """Call an OpenAI-compatible chat completions endpoint and return message content."""
+    provider = providers.get(provider_name)
+    if not isinstance(provider, dict):
+        raise ValueError(f"Unknown provider in llm config: {provider_name!r}")
+    api_base = str(provider.get("api_base") or "").strip()
+    model = str(provider.get("model") or "").strip()
+    if not api_base or not model:
+        raise ValueError(f"Provider {provider_name!r} must define api_base and model")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You optimize simulation parameters."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    req = request.Request(api_base, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+
+    if mode == "remote":
+        key_env = str(provider.get("api_key_env") or "").strip()
+        if not key_env:
+            raise ValueError(
+                f"Remote provider {provider_name!r} requires api_key_env in config"
+            )
+        token = os.getenv(key_env, "").strip()
+        if not token:
+            raise RuntimeError(
+                f"Environment variable {key_env!r} is required for remote provider {provider_name!r}"
+            )
+        req.add_header("Authorization", f"Bearer {token}")
+    elif mode != "local":
+        raise ValueError("llm.mode must be either 'local' or 'remote'")
+
+    try:
+        with request.urlopen(req, timeout=45) as resp:
+            raw = resp.read().decode("utf-8")
+    except error.HTTPError as exc:
+        raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"LLM request failed: {exc.reason}") from exc
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("LLM response is not valid JSON") from exc
+    choices = data.get("choices")
+    if not choices:
+        raise RuntimeError("LLM response missing choices")
+    message = choices[0].get("message", {})
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("LLM response missing message.content")
+    return content
+
+
+def load_llm_generator_yaml(path: str | Path) -> dict[str, Any]:
+    """Load and validate llm world generator YAML."""
+    src = Path(path)
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"LLM generator YAML not found: {src.resolve()}. "
+            "Pass --llm-spec in CLI or place default llm_world_generator.yaml next to generators.py."
+        )
+    raw = yaml.safe_load(src.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"YAML root must be a mapping: {src}")
+    if raw.get("version") != 1:
+        raise ValueError(f"{src}: expected version: 1")
+    llm = raw.get("llm")
+    if not isinstance(llm, dict):
+        raise ValueError(f"{src}: expected top-level key 'llm'")
+    for key in ("mode", "active_provider", "providers"):
+        if key not in llm:
+            raise ValueError(f"{src}: llm.{key} is required")
+    if not isinstance(llm["providers"], dict):
+        raise ValueError(f"{src}: llm.providers must be a mapping")
+    return raw
+
+
+def _extract_world_patch_from_text(text: str) -> dict[str, Any] | None:
+    """Extract a JSON object from model output and return it as dict."""
+    stripped = text.strip()
+    candidates = [stripped]
+    if "```" in stripped:
+        chunks = stripped.split("```")
+        candidates.extend(chunk.strip() for chunk in chunks if chunk.strip())
+    for candidate in candidates:
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start < 0 or end <= start:
+            continue
+        try:
+            parsed = json.loads(candidate[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _normalize_rule_list(value: Any, fallback: list[int]) -> list[int]:
+    if not isinstance(value, list):
+        return list(fallback)
+    vals: set[int] = set()
+    for item in value:
+        try:
+            v = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= v <= 8:
+            vals.add(v)
+    if not vals:
+        return list(fallback)
+    return sorted(vals)
+
+
+def _clip_float(value: Any, fallback: float, low: float, high: float) -> float:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
+    return float(np.clip(f, low, high))
 
 
 def __getattr__(name: str) -> Any:
