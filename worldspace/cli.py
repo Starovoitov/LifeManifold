@@ -152,7 +152,7 @@ def main() -> None:
             spec_path=hybrid_spec,
         )
     else:
-        from .neural_world import NeuralWorldGenerator
+        from .generators.neural_world import NeuralWorldGenerator
 
         spec_path = Path(args.neural_spec) if args.neural_spec.strip() else None
         dev_kw = None if args.device == "auto" else args.device

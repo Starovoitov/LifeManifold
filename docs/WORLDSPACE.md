@@ -1,6 +1,6 @@
-# Пакет `src.worldspace`: подробное описание
+# Пакет `worldspace`: подробное описание
 
-Этот документ описывает, что делает пакет **`worldspace`**, как связаны его части и что именно означают параметры вроде **`noise`** в текущей реализации. Описание привязано к коду в `src/worldspace/`.
+Этот документ описывает, что делает пакет **`worldspace`**, как связаны его части и что именно означают параметры вроде **`noise`** в текущей реализации. Описание привязано к коду в `worldspace/`.
 
 ---
 
@@ -46,7 +46,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  subgraph pkg["src/worldspace"]
+  subgraph pkg["worldspace"]
     spec["spec.py — WorldSpec"]
     gen["generators.py — генераторы траекторий в пространстве миров"]
     wmath["math.py — соседи, PCA, k-means, формулы метрик"]
@@ -54,7 +54,7 @@ flowchart TB
     met["metrics.py — WorldMetrics"]
     pipe["pipeline.py — stream_world_space_to_jsonl"]
     cli["cli.py — точка входа CLI"]
-    main["__main__.py — python -m src.worldspace"]
+    main["__main__.py — python -m worldspace"]
   end
   cli --> main
   cli --> pipe
@@ -77,7 +77,7 @@ flowchart TB
 | `pipeline.py` | Потоковый пайплайн: memmap метрик, PCA по достаточным статистикам, k-means по строкам, JSONL |
 | `cli.py` / `__main__.py` | Запуск из командной строки |
 
-Краткая архитектурная заметка также есть в `src/worldspace/ARCHITECTURE.md`; этот файл (**`docs/WORLDSPACE.md`**) глубже раскрывает семантику параметров и метрик.
+Краткая архитектурная заметка также есть в `worldspace/ARCHITECTURE.md`; этот файл (**`docs/WORLDSPACE.md`**) глубже раскрывает семантику параметров и метрик.
 
 ---
 
@@ -285,7 +285,7 @@ flowchart LR
 
 ## 6. Пространство миров: PCA и кластеры
 
-Функция **`stream_world_space_to_jsonl(generator, n_worlds, path, ...)`** (`src/worldspace/pipeline.py`):
+Функция **`stream_world_space_to_jsonl(generator, n_worlds, path, ...)`** (`worldspace/pipeline.py`):
 
 1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** (без списка всех миров в памяти) — **`run_world`**, вектор метрик пишется в **временный memmap** `(n × 7)` и обновляются суммы для PCA (**`sum_x`**, **`sum_xx`**).
 2. По достаточным статистикам: **`math.pca_mean_and_basis_2d`** → среднее и базис **2D**.
@@ -353,10 +353,10 @@ flowchart TB
 
 ### 7.1 YAML-конфиги генераторов
 
-- `src/worldspace/genetic_world_generator.yaml`
-- `src/worldspace/llm_world_generator.yaml`
-- `src/worldspace/hybrid_world_generator.yaml`
-- `src/worldspace/neural_world_generator.yaml`
+- `worldspace/specs/genetic_world_generator.yaml`
+- `worldspace/specs/llm_world_generator.yaml`
+- `worldspace/specs/hybrid_world_generator.yaml`
+- `worldspace/specs/neural_world_generator.yaml`
 
 CLI поддерживает переопределение путей к этим файлам через `--genetic-spec`, `--llm-spec`, `--hybrid-spec`, `--neural-spec`.
 
@@ -364,32 +364,32 @@ CLI поддерживает переопределение путей к эти
 
 ## 8. CLI и файлы результатов
 
-Запуск пакета как модуля использует **`src/worldspace/__main__.py`** → **`cli.main()`**.
+Запуск пакета как модуля использует **`worldspace/__main__.py`** → **`cli.main()`**.
 
 Примеры:
 
 ```bash
-python -m src.worldspace --generator random --worlds 30 --steps 200 --grid 40
+python -m worldspace --generator random --worlds 30 --steps 200 --grid 40
 ```
 
 Другие режимы генератора:
 
 ```bash
-python -m src.worldspace --generator genetic --genetic-spec src/worldspace/genetic_world_generator.yaml
-python -m src.worldspace --generator llm --llm-spec src/worldspace/llm_world_generator.yaml
-python -m src.worldspace --generator hybrid --hybrid-spec src/worldspace/hybrid_world_generator.yaml
-python -m src.worldspace --generator neural --neural-spec src/worldspace/neural_world_generator.yaml
+python -m worldspace --generator genetic --genetic-spec worldspace/specs/genetic_world_generator.yaml
+python -m worldspace --generator llm --llm-spec worldspace/specs/llm_world_generator.yaml
+python -m worldspace --generator hybrid --hybrid-spec worldspace/specs/hybrid_world_generator.yaml
+python -m worldspace --generator neural --neural-spec worldspace/specs/neural_world_generator.yaml
 ```
 
 Запись в файл — **JSONL** (одна JSON-строка на мир; память по числу миров **O(1)**):
 
 ```bash
-python -m src.worldspace --output results/run.jsonl
+python -m worldspace --output results/run.jsonl
 ```
 
 Без **`--output`** те же строки идут в **stdout** (по одной JSON-строке на строку). Флаг **`--echo-lines`** дублирует строки в stdout при записи в файл.
 
-Визуализация: **`src/worldspace/viz.py`**. **`--plot`** строит график из JSONL: либо из **`--output`**, либо из временного JSONL, если **`--output`** не задан (файл удаляется после построения графика). **`plot_simulation_final_grid`** использует **`result.final_life`**.
+Визуализация: **`worldspace/viz.py`**. **`--plot`** строит график из JSONL: либо из **`--output`**, либо из временного JSONL, если **`--output`** не задан (файл удаляется после построения графика). **`plot_simulation_final_grid`** использует **`result.final_life`**.
 
 ---
 
@@ -411,4 +411,4 @@ python -m src.worldspace --output results/run.jsonl
 
 ## См. также
 
-- `src/worldspace/ARCHITECTURE.md` — короткая архитектурная выжимка на английском.
+- `worldspace/ARCHITECTURE.md` — короткая архитектурная выжимка на английском.

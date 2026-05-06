@@ -19,7 +19,7 @@ from .metrics import (
     metrics_vector_to_dict,
 )
 from .simulator import run_world
-from .spec import WorldSpec
+from .specs.spec import WorldSpec
 
 
 @contextmanager

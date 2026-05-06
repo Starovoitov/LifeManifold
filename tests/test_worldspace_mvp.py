@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import numpy as np
 
-from src.worldspace.generators import (
+from worldspace.generators import (
     GeneticWorldGenerator,
     HybridGALlmWorldGenerator,
     LLMWorldGenerator,
     RandomWorldGenerator,
 )
-from src.worldspace.metrics import METRIC_KEYS, METRICS_VECTOR_DIM
-from src.worldspace.pipeline import (
+from worldspace.metrics import METRIC_KEYS, METRICS_VECTOR_DIM
+from worldspace.pipeline import (
     _fit_dominant_metric_orthogonal_pca,
     _project_dominant_metric_orthogonal,
     stream_world_space_to_jsonl,
@@ -139,7 +139,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
                 "reasoning": "increase structured growth",
             }
         )
-        with patch("src.worldspace.generators.call_llm", return_value=response):
+        with patch("worldspace.generators.call_llm", return_value=response):
             generator = LLMWorldGenerator(
                 grid_size=10,
                 steps=10,
@@ -163,7 +163,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
                 "predation": 0.25,
             }
         )
-        with patch("src.worldspace.generators.call_llm", return_value=response):
+        with patch("worldspace.generators.call_llm", return_value=response):
             generator = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=2)
             worlds = generator.generate(4)
         self.assertEqual(len(worlds), 4)
@@ -176,7 +176,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             self.assertLessEqual(w.predation, 1.0)
 
     def test_hybrid_initial_population_depends_on_seed(self):
-        with patch("src.worldspace.generators.call_llm", return_value="{}"):
+        with patch("worldspace.generators.call_llm", return_value="{}"):
             g0 = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=0)
             g1 = HybridGALlmWorldGenerator(grid_size=10, steps=10, seed=101)
             w0 = g0.generate(1)[0]

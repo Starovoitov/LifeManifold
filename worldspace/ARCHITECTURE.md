@@ -14,7 +14,7 @@ Pipeline:
 
 ### WorldSpec
 
-File: `src/worldspace/spec.py`
+File: `worldspace/specs/spec.py`
 
 `WorldSpec` is the canonical world description (JSON-serializable):
 
@@ -33,7 +33,7 @@ Each world is a point in rule space and can be saved/loaded as JSON.
 
 ### Generator Ladder
 
-File: `src/worldspace/generators.py`
+File: `worldspace/generators.py`
 
 Implemented generator levels:
 
@@ -60,7 +60,7 @@ Implemented generator levels:
 
 ### Simulator
 
-File: `src/worldspace/simulator.py`
+File: `worldspace/simulator.py`
 
 `run_world(world: WorldSpec) -> SimulationResult`
 
@@ -78,13 +78,13 @@ Inside the loop there are **no growing Python lists** of per-step grids or full 
 
 ### Math helpers
 
-File: `src/worldspace/math.py`
+File: `worldspace/math.py`
 
 Shared numeric routines used by the simulator, metrics, and pipeline (neighbor counts, PCA projection, k-means, entropy/oscillation/diversity helpers). Imported inside the package as `from . import math as ws_math` to avoid clashing with the Python standard library `math` module.
 
 ### Metrics (World Coordinates in Behavior Space)
 
-File: `src/worldspace/metrics.py`
+File: `worldspace/metrics.py`
 
 `WorldMetrics` holds the behavioral coordinates (filled by `run_world`). There are **`METRICS_VECTOR_DIM` (= 7)** entries in `as_vector()` / JSON metrics:
 
@@ -95,7 +95,7 @@ Constants and vector layout live in `metrics.py` (`METRICS_VECTOR_DIM`).
 
 ### Space Construction (streaming)
 
-File: `src/worldspace/pipeline.py`
+File: `worldspace/pipeline.py`
 
 `stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=...)`:
 
@@ -108,7 +108,7 @@ No Python list of all worlds or all `SpacePoint` objects is kept. RAM vs. batch 
 
 ### Visualization (matplotlib)
 
-File: `src/worldspace/viz.py`
+File: `worldspace/viz.py`
 
 Matplotlib is confined to this submodule and uses the **`Agg`** backend (file output only).
 
@@ -122,20 +122,20 @@ CLI: `--plot` reads JSONL from `--output`, or from a temporary JSONL if `--outpu
 
 Files:
 
-- `src/worldspace/genetic_world_generator.yaml`
-- `src/worldspace/llm_world_generator.yaml`
-- `src/worldspace/hybrid_world_generator.yaml`
-- `src/worldspace/neural_world_generator.yaml`
+- `worldspace/specs/genetic_world_generator.yaml`
+- `worldspace/specs/llm_world_generator.yaml`
+- `worldspace/specs/hybrid_world_generator.yaml`
+- `worldspace/specs/neural_world_generator.yaml`
 
 These files define default generator behavior and provider/model routing; CLI flags can override paths to these configs.
 
 ## CLI and Output Artifacts
 
-Files: `src/worldspace/cli.py`, `src/worldspace/__main__.py`
+Files: `worldspace/cli.py`, `worldspace/__main__.py`
 
 Run:
 
-`python -m src.worldspace --generator random --worlds 30 --steps 200 --grid 40`
+`python -m worldspace --generator random --worlds 30 --steps 200 --grid 40`
 
 Other generator modes:
 

@@ -12,13 +12,13 @@ from urllib import error, request
 import numpy as np
 import yaml
 
-from .simulator import run_world
-from .spec import WorldSpec
+from ..simulator import run_world
+from ..specs.spec import WorldSpec
 
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
-_DEFAULT_GENETIC_SPEC_PATH = Path(__file__).with_name("genetic_world_generator.yaml")
-_DEFAULT_LLM_SPEC_PATH = Path(__file__).with_name("llm_world_generator.yaml")
-_DEFAULT_HYBRID_SPEC_PATH = Path(__file__).with_name("hybrid_world_generator.yaml")
+_DEFAULT_GENETIC_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "genetic_world_generator.yaml"
+_DEFAULT_LLM_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "llm_world_generator.yaml"
+_DEFAULT_HYBRID_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "hybrid_world_generator.yaml"
 
 
 def random_walk(
@@ -379,7 +379,7 @@ def load_genetic_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"Genetic generator YAML not found: {src.resolve()}. "
-            "Pass --genetic-spec in CLI or place default genetic_world_generator.yaml next to generators.py."
+            "Pass --genetic-spec in CLI or place default genetic_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -727,7 +727,7 @@ def load_llm_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"LLM generator YAML not found: {src.resolve()}. "
-            "Pass --llm-spec in CLI or place default llm_world_generator.yaml next to generators.py."
+            "Pass --llm-spec in CLI or place default llm_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -751,7 +751,7 @@ def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"Hybrid generator YAML not found: {src.resolve()}. "
-            "Pass --hybrid-spec in CLI or place default hybrid_world_generator.yaml next to generators.py."
+            "Pass --hybrid-spec in CLI or place default hybrid_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -780,6 +780,15 @@ def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:
         if key not in llm:
             raise ValueError(f"{src}: llm.{key} is required")
     return raw
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy import so PyTorch is only pulled in when accessing ``NeuralWorldGenerator``."""
+    if name == "NeuralWorldGenerator":
+        from .neural_world import NeuralWorldGenerator as _NWG
+
+        return _NWG
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _extract_world_patch_from_text(text: str) -> dict[str, Any] | None:
@@ -858,10 +867,3 @@ def _apply_world_patch(world: WorldSpec, patch: dict[str, Any], seed: int) -> Wo
     )
 
 
-def __getattr__(name: str) -> Any:
-    """Lazy import so PyTorch is only pulled in when accessing ``NeuralWorldGenerator``."""
-    if name == "NeuralWorldGenerator":
-        from .neural_world import NeuralWorldGenerator as _NWG
-
-        return _NWG
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

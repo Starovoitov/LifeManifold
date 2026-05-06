@@ -7,7 +7,7 @@ import numpy as np
 
 from . import math as ws_math
 from .metrics import WorldMetrics
-from .spec import WorldSpec
+from .specs.spec import WorldSpec
 
 
 @dataclass

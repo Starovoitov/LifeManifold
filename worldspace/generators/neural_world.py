@@ -12,8 +12,8 @@ import torch
 import torch.nn as nn
 import yaml
 
-from .generators import WorldGenerator
-from .spec import WorldSpec
+from . import WorldGenerator
+from ..specs.spec import WorldSpec
 
 
 def load_neural_generator_yaml(path: str | Path) -> dict[str, Any]:
@@ -23,7 +23,7 @@ def load_neural_generator_yaml(path: str | Path) -> dict[str, Any]:
         raise FileNotFoundError(
             f"Neural generator YAML not found: {src.resolve()}. "
             "Pass spec_path= to NeuralWorldGenerator, or ensure "
-            "neural_world_generator.yaml is installed next to neural_world.py "
+            "neural_world_generator.yaml is available under worldspace/specs/ "
             "(it is tracked in the repo; *.spec in .gitignore has an exception for this file)."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
@@ -38,7 +38,7 @@ class NeuralWorldGenerator(WorldGenerator):
     """
     Sample latent vectors → MLP (from YAML ``model`` section) → decode to :class:`WorldSpec`.
 
-    Default YAML path: ``neural_world_generator.yaml`` next to this module.
+    Default YAML path: ``neural_world_generator.yaml`` in worldspace/specs/.
     ``device`` overrides YAML ``torch.device`` (``None`` = follow YAML; use ``"auto"`` in YAML
     for CUDA-if-available else CPU).
     """
@@ -155,7 +155,7 @@ _RULE_DIM = 9
 _FLOAT_HEAD = 3  # noise, resource_regen, predation
 _OUT_DIM = 2 * _RULE_DIM + _FLOAT_HEAD
 
-_DEFAULT_SPEC_PATH = Path(__file__).with_name("neural_world_generator.yaml")
+_DEFAULT_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "neural_world_generator.yaml"
 
 
 def _resolve_torch_device(yaml_device: str, override: str | None) -> torch.device:

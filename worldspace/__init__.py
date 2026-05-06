@@ -3,7 +3,7 @@
 from .metrics import METRICS_VECTOR_DIM, WorldMetrics, metrics_vector_to_dict
 from .pipeline import stream_world_space_to_jsonl
 from .simulator import SimulationResult, run_world
-from .spec import WorldSpec
+from .specs.spec import WorldSpec
 from .viz import (
     plot_simulation_final_grid,
     plot_world_embedding,
