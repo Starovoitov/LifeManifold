@@ -2,7 +2,8 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -11,6 +12,8 @@ from worldspace.generators import (
     HybridGALlmWorldGenerator,
     LLMWorldGenerator,
     RandomWorldGenerator,
+    call_llm,
+    load_llm_generator_yaml,
 )
 from worldspace.metrics import METRIC_KEYS, METRICS_VECTOR_DIM
 from worldspace.pipeline import (
@@ -44,6 +47,33 @@ class TestWorldSpaceMVP(unittest.TestCase):
             self.assertGreaterEqual(st, 0.0)
             self.assertLessEqual(st, 1.0)
             self.assertIn("interestingness", row["metrics"])
+        finally:
+            os.unlink(path)
+
+    def test_stream_jsonl_llm_pipeline_calls_call_llm_once_per_step(self):
+        """Pass-2 must reuse cached worlds; no second full ``iter_worlds`` (halves LLM traffic)."""
+        response = json.dumps(
+            {
+                "birth": [3, 4],
+                "survival": [2, 3, 4],
+                "noise": 0.07,
+                "resource_regen": 0.12,
+                "predation": 0.31,
+                "reasoning": "ok",
+            }
+        )
+        fd, path = tempfile.mkstemp(suffix=".jsonl")
+        os.close(fd)
+        try:
+            with patch("worldspace.generators.call_llm", return_value=response) as m_llm:
+                generator = LLMWorldGenerator(grid_size=10, steps=10, seed=1)
+                stream_world_space_to_jsonl(
+                    generator, 4, path, k_clusters=2, echo_stdout=False
+                )
+            self.assertEqual(m_llm.call_count, 3)
+            with open(path, encoding="utf-8") as f:
+                lines = [ln for ln in f if ln.strip()]
+            self.assertEqual(len(lines), 4)
         finally:
             os.unlink(path)
 
@@ -196,6 +226,58 @@ class TestWorldSpaceMVP(unittest.TestCase):
             round(w1.predation, 6),
         )
         self.assertNotEqual(sig0, sig1)
+
+    def test_bundled_llm_spec_defines_qwen_provider(self):
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        cfg = load_llm_generator_yaml(spec_path)
+        llm = cfg["llm"]
+        self.assertEqual(llm.get("initial_generator"), "qwen")
+        qwen = llm["providers"]["qwen"]
+        self.assertEqual(qwen.get("provider"), "openai")
+        self.assertEqual(qwen.get("model"), "qwen-plus")
+        self.assertEqual(qwen.get("api_key_env"), "QWEN_API_KEY")
+        self.assertIn("dashscope-intl.aliyuncs.com", str(qwen.get("api_base", "")))
+
+    def test_call_llm_qwen_from_bundled_spec_posts_remote_request(self):
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch("worldspace.generators.request.urlopen", return_value=fake_cm) as m_open:
+                out = call_llm(
+                    mode="remote",
+                    provider_name="qwen",
+                    providers=providers,
+                    prompt="ping",
+                    temperature=0.2,
+                    max_tokens=350,
+                )
+
+        self.assertEqual(out, "{}")
+        m_open.assert_called_once()
+        req = m_open.call_args[0][0]
+        hdrs = dict(req.header_items())
+        self.assertEqual(hdrs.get("Authorization"), "Bearer test-qwen-key")
+        self.assertEqual(hdrs.get("Content-type"), "application/json")
+        payload = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "qwen-plus")
+        self.assertEqual(payload["temperature"], 0.2)
+        self.assertEqual(payload["max_tokens"], 350)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 
 import json
@@ -49,7 +49,11 @@ def stream_world_space_to_jsonl(
     echo_stdout: bool = True,
 ) -> None:
     """
-    Run generator → simulate → metrics → 2D embedding → k-means with **O(1) RAM** vs. batch size.
+    Run generator → simulate → metrics → 2D embedding → k-means.
+
+    Each ``WorldSpec`` is kept in RAM for a second pass (small parameter structs) so JSON
+    lines match the metrics rows without re-running ``iter_worlds`` (avoids duplicate LLM
+    calls for ``LLMWorldGenerator`` / ``HybridGALlmWorldGenerator``).
 
     The 2D embedding uses the most variable metric in the batch as horizontal axis:
     ``metric - batch_mean(metric)``. Vertical axis is the first sklearn PCA component
@@ -73,7 +77,7 @@ def stream_world_space_to_jsonl(
         echo_stdout = True
 
     with memmap_workspace(n) as (mm, labels):
-        _accumulate_metrics_memmap(generator, n, mm)
+        worlds = _accumulate_metrics_memmap(generator, n, mm)
         labels.flush()
 
         x = np.asarray(mm[:n], dtype=np.float64)
@@ -81,7 +85,7 @@ def stream_world_space_to_jsonl(
         ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
 
         lines = _iter_space_json_lines(
-            generator, n, mm, labels, mean, dominant_idx, axis_name, pca
+            worlds, mm, labels, mean, dominant_idx, axis_name, pca
         )
         if file_write and target is not None:
             _write_jsonl_to_path(target, lines, echo_stdout)
@@ -120,12 +124,15 @@ def _accumulate_metrics_memmap(
     generator: WorldGenerator,
     n: int,
     mm: np.memmap,
-) -> None:
-    """Simulate each world and write float32 metric rows to ``mm``."""
+) -> list[WorldSpec]:
+    """Simulate each world, write float32 metric rows to ``mm``, return specs for pass 2."""
+    worlds: list[WorldSpec] = []
     for i, world in enumerate(generator.iter_worlds(n)):
+        worlds.append(world)
         vec = run_world(world).metrics.as_vector()
         mm[i] = vec.astype(np.float32)
     mm.flush()
+    return worlds
 
 
 def _fit_dominant_metric_orthogonal_pca(
@@ -192,8 +199,7 @@ def _space_point_row(
 
 
 def _iter_space_json_lines(
-    generator: WorldGenerator,
-    n: int,
+    worlds: Sequence[WorldSpec],
     mm: np.memmap,
     labels: np.memmap,
     mean: np.ndarray,
@@ -201,8 +207,8 @@ def _iter_space_json_lines(
     x_axis_metric: str,
     pca: PCA | None,
 ) -> Iterator[str]:
-    """Yield JSON lines for each world using metrics rows and k-means labels from mmap."""
-    for i, world in enumerate(generator.iter_worlds(n)):
+    """Yield JSON lines for each cached world using metrics rows and k-means labels."""
+    for i, world in enumerate(worlds):
         vec = mm[i].astype(np.float64)
         lab = int(labels[i])
         row = _space_point_row(

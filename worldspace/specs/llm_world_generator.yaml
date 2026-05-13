@@ -6,7 +6,7 @@ llm:
   temperature: 0.2
   max_tokens: 350
   fallback_scale: 0.02
-  initial_generator: random
+  initial_generator: qwen
   providers:
     openai:
       provider: openai

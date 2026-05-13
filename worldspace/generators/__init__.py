@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import replace
 import json
 import os
+import ssl
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -699,13 +700,26 @@ def call_llm(
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
 
+    def _llm_transport_hint(reason: object) -> str:
+        text = str(reason)
+        if isinstance(reason, ssl.SSLError) or "SSL" in text or "UNEXPECTED_EOF" in text:
+            return (
+                " TLS hint: urllib uses system trust and env proxies; set HTTPS_PROXY/HTTP_PROXY "
+                "if required, add your intercept CA to SSL_CERT_FILE (urllib does not read "
+                "REQUESTS_CA_BUNDLE), or try another network/VPN. DashScope intl endpoint can be "
+                "blocked or reset by some paths."
+            )
+        return ""
+
     try:
         with request.urlopen(req, timeout=45) as resp:
             raw = resp.read().decode("utf-8")
     except error.HTTPError as exc:
         raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
     except error.URLError as exc:
-        raise RuntimeError(f"LLM request failed: {exc.reason}") from exc
+        r = exc.reason
+        hint = _llm_transport_hint(r)
+        raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
 
     try:
         data = json.loads(raw)
