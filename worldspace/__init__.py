@@ -7,6 +7,7 @@ from .specs.spec import WorldSpec
 from .visualizer import (
     plot_ca_step_metrics_timeseries,
     plot_ca_step_pca_trajectories,
+    plot_ca_step_umap_trajectories,
     plot_simulation_final_grid,
     plot_world_embedding,
     plot_world_embedding_from_jsonl,
@@ -29,4 +30,5 @@ __all__ = [
     "summarize_ca_step_trace_by_world",
     "plot_ca_step_metrics_timeseries",
     "plot_ca_step_pca_trajectories",
+    "plot_ca_step_umap_trajectories",
 ]

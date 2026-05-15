@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p_ca = sub.add_parser(
         "ca-trace",
-        help="Plots from --ca-step-trace JSONL (time-series + PCA trajectories).",
+        help="Plots from --ca-step-trace JSONL (time-series + PCA and UMAP trajectories).",
     )
     p_ca.add_argument(
         "trace_jsonl",
@@ -80,6 +80,11 @@ def main(argv: list[str] | None = None) -> None:
         help="Skip the PCA trajectory plot.",
     )
     p_ca.add_argument(
+        "--no-umap",
+        action="store_true",
+        help="Skip the UMAP trajectory plot.",
+    )
+    p_ca.add_argument(
         "--summary",
         action="store_true",
         help=(
@@ -107,6 +112,7 @@ def _run_ca_trace(args: argparse.Namespace) -> None:
         load_ca_step_trace_jsonl,
         plot_ca_step_metrics_timeseries,
         plot_ca_step_pca_trajectories,
+        plot_ca_step_umap_trajectories,
         summarize_ca_step_trace_by_world,
     )
 
@@ -150,4 +156,11 @@ def _run_ca_trace(args: argparse.Namespace) -> None:
             yield_indices,
             out_dir / "ca_pca_trajectories.png",
             title="PCA on metric snapshots (trajectories over ca_step)",
+        )
+    if not args.no_umap:
+        plot_ca_step_umap_trajectories(
+            df,
+            yield_indices,
+            out_dir / "ca_umap_trajectories.png",
+            title="UMAP on metric snapshots (trajectories over ca_step)",
         )

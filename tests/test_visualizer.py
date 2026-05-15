@@ -3,12 +3,12 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from worldspace.visualizer.plotting import (
     load_ca_step_trace_jsonl,
     plot_ca_step_metrics_timeseries,
     plot_ca_step_pca_trajectories,
+    plot_ca_step_umap_trajectories,
     summarize_ca_step_trace_by_world,
 )
 from worldspace.visualizer.visualizer import main as visualizer_main
@@ -53,9 +53,11 @@ class TestVisualizer(unittest.TestCase):
         fd, src = tempfile.mkstemp(suffix=".jsonl")
         fd_ts, out_ts = tempfile.mkstemp(suffix=".png")
         fd_pc, out_pc = tempfile.mkstemp(suffix=".png")
+        fd_um, out_um = tempfile.mkstemp(suffix=".png")
         os.close(fd)
         os.close(fd_ts)
         os.close(fd_pc)
+        os.close(fd_um)
         try:
             rows = []
             for yi in (0, 1):
@@ -70,12 +72,15 @@ class TestVisualizer(unittest.TestCase):
                 metric_names=["interestingness", "entropy"],
             )
             plot_ca_step_pca_trajectories(df, [0, 1], out_pc)
+            plot_ca_step_umap_trajectories(df, [0, 1], out_um)
             self.assertGreater(Path(out_ts).stat().st_size, 100)
             self.assertGreater(Path(out_pc).stat().st_size, 100)
+            self.assertGreater(Path(out_um).stat().st_size, 100)
         finally:
             os.unlink(src)
             os.unlink(out_ts)
             os.unlink(out_pc)
+            os.unlink(out_um)
 
     def test_embedding_subcommand_writes_png(self):
         fd_j, jsonl = tempfile.mkstemp(suffix=".jsonl")
@@ -113,5 +118,6 @@ class TestVisualizer(unittest.TestCase):
                 visualizer_main(["ca-trace", jsonl, "--output-dir", d])
                 self.assertTrue((Path(d) / "ca_timeseries.png").is_file())
                 self.assertTrue((Path(d) / "ca_pca_trajectories.png").is_file())
+                self.assertTrue((Path(d) / "ca_umap_trajectories.png").is_file())
         finally:
             os.unlink(jsonl)

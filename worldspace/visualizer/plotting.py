@@ -8,9 +8,7 @@ not a 7D PCA decomposition and not PC2 of a full PCA.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import matplotlib
 
@@ -18,12 +16,13 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from ..metrics import METRIC_KEYS
 from ..simulator import SimulationResult
 
-if TYPE_CHECKING:
-    import pandas as pd
+_EMBED_X_DEFAULT = "Δ metric (unknown)"
+_EMBED_Y_DEFAULT = "PC1 of 6 metrics (excluding selected metric)"
 
 
 def plot_world_embedding(
@@ -35,14 +34,20 @@ def plot_world_embedding(
     dpi: int = 120,
 ) -> None:
     """Save a 2D scatter of metric embedding; ``points`` items need ``embedding_2d`` and ``cluster_id``."""
-    xs = np.array([p.embedding_2d[0] for p in points], dtype=float)
-    ys = np.array([p.embedding_2d[1] for p in points], dtype=float)
-    clusters = np.array([p.cluster_id for p in points], dtype=int)
-    x_label, y_label = _axis_labels_from_points(points)
-    _scatter_embedding(
-        xs,
-        ys,
-        clusters,
+    if not points:
+        frame = pd.DataFrame(columns=["x", "y", "cluster_id"])
+        x_label, y_label = _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
+    else:
+        frame = pd.DataFrame(
+            {
+                "x": [float(p.embedding_2d[0]) for p in points],
+                "y": [float(p.embedding_2d[1]) for p in points],
+                "cluster_id": [int(p.cluster_id) for p in points],
+            }
+        )
+        x_label, y_label = _axis_labels_from_first_point(points[0])
+    _scatter_world_embedding(
+        frame,
         path,
         title=title,
         figsize=figsize,
@@ -61,47 +66,28 @@ def plot_world_embedding_from_jsonl(
     dpi: int = 120,
 ) -> None:
     """Read a metrics JSONL file (one JSON object per line) and plot embedding scatter."""
-    xs: list[float] = []
-    ys: list[float] = []
-    cs: list[int] = []
-    x_label = "Δ metric (unknown)"
-    y_label = "PC1 of 6 metrics (excluding selected metric)"
-    with Path(jsonl_path).open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            emb = row["embedding_2d"]
-            xs.append(float(emb[0]))
-            ys.append(float(emb[1]))
-            cs.append(int(row["cluster_id"]))
-            axes = row.get("embedding_axes")
-            if isinstance(axes, dict):
-                x_metric = axes.get("x_metric")
-                if x_metric:
-                    x_label = f"Δ {x_metric}"
-                    y_label = f"PC1 of 6 metrics (excluding {x_metric})"
-                else:
-                    x_label = str(axes.get("x_label", x_label))
-                    y_label = str(axes.get("y_label", y_label))
-    if not xs:
-        _scatter_embedding(
-            np.array([]),
-            np.array([]),
-            np.array([], dtype=int),
-            path,
-            title=title,
-            figsize=figsize,
-            dpi=dpi,
-            x_label=x_label,
-            y_label=y_label,
+    raw = pd.read_json(Path(jsonl_path), lines=True)
+    if not raw.empty and "embedding_axes" in raw.columns:
+        axes_series = pd.Series(
+            raw["embedding_axes"].to_numpy(),
+            index=raw.index,
+            dtype=object,
         )
-        return
-    _scatter_embedding(
-        np.asarray(xs, dtype=float),
-        np.asarray(ys, dtype=float),
-        np.asarray(cs, dtype=int),
+    else:
+        axes_series = pd.Series(dtype=object)
+    x_label, y_label = _axis_labels_from_embedding_axes_series(axes_series)
+    if raw.empty:
+        frame = pd.DataFrame(columns=["x", "y", "cluster_id"])
+    else:
+        frame = pd.DataFrame(
+            raw["embedding_2d"].tolist(),
+            columns=["x", "y"],
+            index=raw.index,
+            dtype=float,
+        )
+        frame["cluster_id"] = raw["cluster_id"].astype(int)
+    _scatter_world_embedding(
+        frame,
         path,
         title=title,
         figsize=figsize,
@@ -144,87 +130,8 @@ def plot_simulation_final_grid(
     plt.close(fig)
 
 
-def _scatter_embedding(
-    xs: np.ndarray,
-    ys: np.ndarray,
-    clusters: np.ndarray,
-    path: str | Path,
-    *,
-    title: str | None,
-    figsize: tuple[float, float],
-    dpi: int,
-    x_label: str = "Δ metric (unknown)",
-    y_label: str = "PC1 of 6 metrics (excluding selected metric)",
-) -> None:
-    """Render scatter of ``xs``/``ys`` colored by ``clusters``; write empty-state figure if no points."""
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    if xs.size == 0:
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        ax.text(0.5, 0.5, "no points", ha="center", va="center", transform=ax.transAxes)
-        ax.set_axis_off()
-        fig.savefig(target, bbox_inches="tight")
-        plt.close(fig)
-        return
-
-    cmap = plt.get_cmap("tab10")
-    uniq = sorted(set(clusters.tolist()))
-
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-    for idx, cid in enumerate(uniq):
-        mask = clusters == cid
-        color = cmap(idx % 10)
-        ax.scatter(
-            xs[mask],
-            ys[mask],
-            c=[color],
-            label=f"cluster {cid}",
-            alpha=0.9,
-            edgecolors="k",
-            linewidths=0.35,
-            s=40,
-        )
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(
-        title
-        or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
-    )
-    ax.legend(title="k-means", loc="best", fontsize="small")
-    ax.grid(True, alpha=0.25)
-    fig.savefig(target, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _axis_labels_from_points(points: list) -> tuple[str, str]:
-    """Try to derive axis labels from point metadata; fallback to generic labels."""
-    default_x = "Δ metric (unknown)"
-    default_y = "PC1 of 6 metrics (excluding selected metric)"
-    if not points:
-        return default_x, default_y
-
-    first = points[0]
-    axes = getattr(first, "embedding_axes", None)
-    if isinstance(axes, dict):
-        x_metric = axes.get("x_metric")
-        if x_metric:
-            return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
-        return (
-            str(axes.get("x_label", default_x)),
-            str(axes.get("y_label", default_y)),
-        )
-
-    x_metric = getattr(first, "x_metric", None)
-    if x_metric:
-        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
-    return default_x, default_y
-
-
-def load_ca_step_trace_jsonl(path: str | Path) -> "pd.DataFrame":
+def load_ca_step_trace_jsonl(path: str | Path) -> pd.DataFrame:
     """Load ``--ca-step-trace`` JSONL into a flat pandas table (one row per CA step)."""
-    import pandas as pd
-
     p = Path(path)
     df = pd.read_json(p, lines=True)
     if df.empty:
@@ -236,10 +143,8 @@ def load_ca_step_trace_jsonl(path: str | Path) -> "pd.DataFrame":
     return pd.concat([base, met], axis=1)
 
 
-def summarize_ca_step_trace_by_world(df: "pd.DataFrame") -> "pd.DataFrame":
+def summarize_ca_step_trace_by_world(df: pd.DataFrame) -> pd.DataFrame:
     """Per ``yield_index``, aggregate each metric across ``ca_step`` (mean/std/min/max)."""
-    import pandas as pd
-
     cols = [c for c in METRIC_KEYS if c in df.columns]
     if not cols:
         return pd.DataFrame()
@@ -248,7 +153,7 @@ def summarize_ca_step_trace_by_world(df: "pd.DataFrame") -> "pd.DataFrame":
 
 
 def plot_ca_step_metrics_timeseries(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     yield_indices: list[int],
     path: str | Path,
     *,
@@ -309,7 +214,7 @@ def plot_ca_step_metrics_timeseries(
 
 
 def plot_ca_step_pca_trajectories(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     yield_indices: list[int],
     path: str | Path,
     *,
@@ -323,11 +228,8 @@ def plot_ca_step_pca_trajectories(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    metric_cols = [c for c in METRIC_KEYS if c in df.columns]
-    present = set(int(x) for x in df["yield_index"].unique())
-    yids = [int(y) for y in yield_indices if int(y) in present]
-    sub = df[df["yield_index"].isin(yids)].copy()
-    if sub.empty or len(metric_cols) < 2 or not yids:
+    ctx = _ca_step_trace_reduction_context(df, yield_indices)
+    if ctx is None:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         ax.text(0.5, 0.5, "insufficient data for PCA", ha="center", va="center", transform=ax.transAxes)
         ax.set_axis_off()
@@ -335,23 +237,16 @@ def plot_ca_step_pca_trajectories(
         plt.close(fig)
         return
 
-    X = sub[metric_cols].to_numpy(dtype=np.float64)
-    if X.shape[0] < 2:
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        ax.text(0.5, 0.5, "need ≥2 rows for PCA", ha="center", va="center", transform=ax.transAxes)
-        ax.set_axis_off()
-        fig.savefig(target, bbox_inches="tight")
-        plt.close(fig)
-        return
-
+    sub, X, yids, _metric_cols = ctx
     pca = PCA(n_components=2)
     Z = pca.fit_transform(X)
+    sub = sub.copy()
     sub["_pc1"] = Z[:, 0]
     sub["_pc2"] = Z[:, 1]
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     cmap = plt.get_cmap("tab10")
-    for j, yid in enumerate(sorted(yids)):
+    for j, yid in enumerate(yids):
         seg = sub[sub["yield_index"] == yid].sort_values("ca_step")
         if seg.empty:
             continue
@@ -381,6 +276,188 @@ def plot_ca_step_pca_trajectories(
         or "PCA of per-step metrics (lines connect increasing ca_step within each world)"
     )
     ax.legend(loc="best", fontsize="small")
+    ax.grid(True, alpha=0.25)
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_ca_step_umap_trajectories(
+    df: pd.DataFrame,
+    yield_indices: list[int],
+    path: str | Path,
+    *,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+    dpi: int = 120,
+) -> None:
+    """Fit 2D UMAP on all metric rows for selected worlds; draw trajectories in embedding space over time."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ImportWarning)
+        import umap
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    ctx = _ca_step_trace_reduction_context(df, yield_indices)
+    if ctx is None:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "insufficient data for UMAP", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    sub, X, yids, _metric_cols = ctx
+    n_samples = X.shape[0]
+    if n_samples > 2:
+        n_neighbors = max(2, min(15, n_samples - 1))
+    else:
+        n_neighbors = max(1, n_samples - 1)
+
+    reducer = umap.UMAP(
+        n_components=2,
+        n_neighbors=n_neighbors,
+        min_dist=0.1,
+        metric="euclidean",
+        random_state=42,
+        n_jobs=1,
+    )
+    Z = reducer.fit_transform(X)
+    sub = sub.copy()
+    sub["_umap1"] = Z[:, 0]
+    sub["_umap2"] = Z[:, 1]
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    cmap = plt.get_cmap("tab10")
+    for j, yid in enumerate(yids):
+        seg = sub[sub["yield_index"] == yid].sort_values("ca_step")
+        if seg.empty:
+            continue
+        c = cmap(j % 10)
+        ax.plot(
+            seg["_umap1"],
+            seg["_umap2"],
+            color=c,
+            alpha=0.55,
+            linewidth=1.4,
+        )
+        ax.scatter(
+            seg["_umap1"],
+            seg["_umap2"],
+            color=c,
+            s=18,
+            label=f"yield {yid}",
+            edgecolors="k",
+            linewidths=0.25,
+            zorder=5,
+        )
+    ax.set_xlabel("UMAP 1")
+    ax.set_ylabel("UMAP 2")
+    ax.set_title(
+        title
+        or "UMAP of per-step metrics (lines connect increasing ca_step within each world)"
+    )
+    ax.legend(loc="best", fontsize="small")
+    ax.grid(True, alpha=0.25)
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _ca_step_trace_reduction_context(
+    df: pd.DataFrame,
+    yield_indices: list[int],
+) -> tuple[pd.DataFrame, np.ndarray, list[int], list[str]] | None:
+    """Return ``(sub, X, sorted_yids, metric_cols)`` for PCA/UMAP trajectory plots, or ``None`` if not enough data."""
+    metric_cols = [c for c in METRIC_KEYS if c in df.columns]
+    present = set(int(x) for x in df["yield_index"].unique())
+    yids = [int(y) for y in yield_indices if int(y) in present]
+    sub = df[df["yield_index"].isin(yids)].copy()
+    if sub.empty or len(metric_cols) < 2 or not yids:
+        return None
+    X = sub[metric_cols].to_numpy(dtype=np.float64)
+    if X.shape[0] < 2:
+        return None
+    yids_sorted = sorted(yids)
+    return sub, X, yids_sorted, metric_cols
+
+
+def _labels_from_axes_dict(axes: dict | None) -> tuple[str, str]:
+    if not isinstance(axes, dict):
+        return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
+    x_metric = axes.get("x_metric")
+    if x_metric:
+        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+    return (
+        str(axes.get("x_label", _EMBED_X_DEFAULT)),
+        str(axes.get("y_label", _EMBED_Y_DEFAULT)),
+    )
+
+
+def _axis_labels_from_embedding_axes_series(axes: pd.Series) -> tuple[str, str]:
+    """Labels from the last JSONL row that carries a dict ``embedding_axes`` (matches streaming order)."""
+    if axes.empty:
+        return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
+    for val in axes.iloc[::-1]:
+        if isinstance(val, dict):
+            return _labels_from_axes_dict(val)
+    return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
+
+
+def _axis_labels_from_first_point(point: object) -> tuple[str, str]:
+    axes = getattr(point, "embedding_axes", None)
+    if isinstance(axes, dict):
+        return _labels_from_axes_dict(axes)
+    x_metric = getattr(point, "x_metric", None)
+    if x_metric:
+        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+    return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
+
+
+def _scatter_world_embedding(
+    frame: pd.DataFrame,
+    path: str | Path,
+    *,
+    title: str | None,
+    figsize: tuple[float, float],
+    dpi: int,
+    x_label: str,
+    y_label: str,
+) -> None:
+    """Scatter ``x`` / ``y`` colored by ``cluster_id``; empty ``frame`` writes the empty-state figure."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    if frame.empty:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "no points", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    cmap = plt.get_cmap("tab10")
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    for idx, (cid, g) in enumerate(frame.groupby("cluster_id", sort=True)):
+        color = cmap(idx % 10)
+        ax.scatter(
+            g["x"],
+            g["y"],
+            c=[color],
+            label=f"cluster {cid}",
+            alpha=0.9,
+            edgecolors="k",
+            linewidths=0.35,
+            s=40,
+        )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(
+        title
+        or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
+    )
+    ax.legend(title="k-means", loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
     fig.savefig(target, bbox_inches="tight")
     plt.close(fig)
