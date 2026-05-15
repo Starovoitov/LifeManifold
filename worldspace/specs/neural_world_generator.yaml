@@ -1,5 +1,5 @@
 # Default neural world generator: small MLP (latent → birth/survival logits + floats) → WorldSpec.
-# Override: NeuralWorldGenerator(spec_path=...) or CLI --neural-spec.
+# Override: NeuralWorldGenerator(spec_path=...) or CLI --generator-spec.
 
 version: 1
 

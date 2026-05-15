@@ -67,9 +67,9 @@ def stream_world_space_to_jsonl(
     main JSONL lines are printed only when ``echo_stdout`` is True (default False),
     e.g. trace-only runs stay quiet.
 
-    If ``metrics_trace_path`` is set and ``n_worlds`` > 0, write one JSON line per yielded
-    world during the first pass: ``yield_index``, ``world``, ``metrics`` (same simulation
-    as used for the batch memmap; no embedding or cluster fields).
+    If ``metrics_trace_path`` is set and ``n_worlds`` > 0, after embeddings and k-means
+    write one JSON line per world: ``yield_index`` plus the same fields as the main
+    record (``world``, ``metrics``, ``embedding_2d``, ``embedding_axes``, ``cluster_id``).
 
     If ``ca_step_trace_path`` is set and ``n_worlds`` > 0, append one JSON line per CA
     timestep for each pipeline ``run_world`` (``yield_index``, ``ca_step``, ``metrics``).
@@ -102,24 +102,32 @@ def stream_world_space_to_jsonl(
             ca_trace_file = cp.open("w", encoding="utf-8")
 
         with memmap_workspace(n) as (mm, labels):
-            worlds = _accumulate_metrics_memmap(
-                generator, n, mm, trace_file, ca_trace_file
-            )
+            worlds = _accumulate_metrics_memmap(generator, n, mm, ca_trace_file)
             labels.flush()
 
             x = np.asarray(mm[:n], dtype=np.float64)
             mean, dominant_idx, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
             ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
 
-            lines = _iter_space_json_lines(
-                worlds, mm, labels, mean, dominant_idx, axis_name, pca
+            point_dicts = list(
+                _iter_space_point_dicts(
+                    worlds, mm, labels, mean, dominant_idx, axis_name, pca
+                )
             )
+            lines = (json.dumps(row, ensure_ascii=True) for row in point_dicts)
             if file_write and target is not None:
                 _write_jsonl_to_path(target, lines, echo_stdout)
             else:
                 if echo_stdout:
-                    for line in lines:
-                        print(line, flush=True)
+                    for row in point_dicts:
+                        print(json.dumps(row, ensure_ascii=True), flush=True)
+
+            if trace_file is not None:
+                for i, row in enumerate(point_dicts):
+                    trace_file.write(
+                        json.dumps({"yield_index": i, **row}, ensure_ascii=True) + "\n"
+                    )
+                trace_file.flush()
     finally:
         if trace_file is not None:
             trace_file.close()
@@ -157,7 +165,6 @@ def _accumulate_metrics_memmap(
     generator: WorldGenerator,
     n: int,
     mm: np.memmap,
-    metrics_trace_file: TextIO | None,
     ca_step_trace_file: TextIO | None,
 ) -> list[WorldSpec]:
     """Simulate each world, write float32 metric rows to ``mm``, return specs for pass 2."""
@@ -173,14 +180,6 @@ def _accumulate_metrics_memmap(
         else:
             vec = run_world(world).metrics.as_vector()
         mm[i] = vec.astype(np.float32)
-        if metrics_trace_file is not None:
-            row = {
-                "yield_index": i,
-                "world": world.to_json_dict(),
-                "metrics": metrics_vector_to_dict(vec),
-            }
-            metrics_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
-            metrics_trace_file.flush()
     mm.flush()
     return worlds
 
@@ -248,7 +247,7 @@ def _space_point_row(
     }
 
 
-def _iter_space_json_lines(
+def _iter_space_point_dicts(
     worlds: Sequence[WorldSpec],
     mm: np.memmap,
     labels: np.memmap,
@@ -256,15 +255,14 @@ def _iter_space_json_lines(
     dominant_index: int,
     x_axis_metric: str,
     pca: PCA | None,
-) -> Iterator[str]:
-    """Yield JSON lines for each cached world using metrics rows and k-means labels."""
+) -> Iterator[dict]:
+    """Yield one space record dict per cached world (metrics rows + k-means labels)."""
     for i, world in enumerate(worlds):
         vec = mm[i].astype(np.float64)
         lab = int(labels[i])
-        row = _space_point_row(
+        yield _space_point_row(
             world, vec, mean, dominant_index, x_axis_metric, pca, lab
         )
-        yield json.dumps(row, ensure_ascii=True)
 
 
 def _write_jsonl_to_path(

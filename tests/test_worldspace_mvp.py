@@ -53,7 +53,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             os.unlink(path)
 
     def test_metrics_trace_only_no_stdout_without_echo(self):
-        """No main ``--output`` and ``echo_stdout=False`` keeps stdout quiet; trace still fills."""
+        """No main JSONL path, ``echo_stdout=False``: stdout quiet; ``--metrics-trace`` file still filled."""
         with tempfile.TemporaryDirectory() as d:
             trace_path = Path(d) / "t.jsonl"
             gen = RandomWorldGenerator(grid_size=4, steps=4)
@@ -213,6 +213,9 @@ class TestWorldSpaceMVP(unittest.TestCase):
                 self.assertIn("birth", row["world"])
                 self.assertIn("metrics", row)
                 self.assertIn("interestingness", row["metrics"])
+                self.assertIn("embedding_2d", row)
+                self.assertEqual(len(row["embedding_2d"]), 2)
+                self.assertIn("cluster_id", row)
         finally:
             os.unlink(out_path)
             os.unlink(trace_path)

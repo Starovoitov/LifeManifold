@@ -380,7 +380,7 @@ def load_genetic_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"Genetic generator YAML not found: {src.resolve()}. "
-            "Pass --genetic-spec in CLI or place default genetic_world_generator.yaml in worldspace/specs/."
+            "Pass --generator-spec in CLI or place default genetic_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -706,7 +706,7 @@ def call_llm(
             return (
                 f" Hint: no server accepted TCP to {api_base!r} (connection refused). "
                 "If this is a local OpenAI-compatible endpoint (Ollama/LM Studio), start it "
-                "or change ``api_base`` / use ``--llm-spec`` with a reachable URL."
+                "or change ``api_base`` / use ``--generator-spec`` with a reachable URL."
             )
         if isinstance(reason, ssl.SSLError) or "SSL" in text or "UNEXPECTED_EOF" in text:
             return (
@@ -747,7 +747,7 @@ def load_llm_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"LLM generator YAML not found: {src.resolve()}. "
-            "Pass --llm-spec in CLI or place default llm_world_generator.yaml in worldspace/specs/."
+            "Pass --generator-spec in CLI or place default llm_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -771,7 +771,7 @@ def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:
     if not src.is_file():
         raise FileNotFoundError(
             f"Hybrid generator YAML not found: {src.resolve()}. "
-            "Pass --hybrid-spec in CLI or place default hybrid_world_generator.yaml in worldspace/specs/."
+            "Pass --generator-spec in CLI or place default hybrid_world_generator.yaml in worldspace/specs/."
         )
     raw = yaml.safe_load(src.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):

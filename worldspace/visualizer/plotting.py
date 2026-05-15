@@ -65,7 +65,7 @@ def plot_world_embedding_from_jsonl(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
 ) -> None:
-    """Read a metrics JSONL file (one JSON object per line) and plot embedding scatter."""
+    """Read a world-space JSONL file (e.g. ``--metrics-trace``) and plot embedding scatter."""
     raw = pd.read_json(Path(jsonl_path), lines=True)
     if not raw.empty and "embedding_axes" in raw.columns:
         axes_series = pd.Series(

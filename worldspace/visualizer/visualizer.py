@@ -1,4 +1,4 @@
-"""CLI: embedding scatter from main JSONL; CA-step trace figures + summary."""
+"""CLI: embedding scatter from metrics-trace JSONL; CA-step trace figures + summary."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m worldspace.visualizer",
         description=(
-            "World-space visualizations: embedding scatter from pipeline JSONL; "
+            "World-space visualizations: embedding scatter from ``--metrics-trace`` JSONL; "
             "or CA step trace plots from --ca-step-trace output."
         )
     )
@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p_emb = sub.add_parser(
         "embedding",
-        help="2D scatter from main world-space JSONL (pipeline --output).",
+        help="2D scatter from world-space JSONL (e.g. ``python -m worldspace --metrics-trace``).",
     )
     p_emb.add_argument(
         "jsonl",

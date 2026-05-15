@@ -23,7 +23,7 @@ flowchart LR
     CLU["k-means"]
   end
   subgraph out["Выход"]
-    FILE["JSONL (--output или stdout с --echo-lines)"]
+    FILE["JSONL (--metrics-trace или stdout с --echo-lines)"]
   end
   G --> WS
   WS --> SIM
@@ -76,7 +76,7 @@ flowchart TB
 | `math.py` | `neighbor_count`, `kmeans_lloyd_on_memmap`, `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
 | `simulator.py` | CA по шагам; онлайн-метрики; опционально пошаговый JSONL при вызове из пайплайна (**`ca_step_trace_*`**) |
 | `metrics.py` | Датакласс метрик и сериализация вектора в JSON |
-| `pipeline.py` | Memmap метрик, sklearn PCA (доминирующая метрика + PC1 по шести остальным), k-means, JSONL; опционально **`metrics_trace_path`**, **`ca_step_trace_path`** |
+| `pipeline.py` | Memmap метрик, sklearn PCA, k-means; опционально **`metrics_trace_path`** (полные строки после эмбеддинга), **`ca_step_trace_path`** |
 | `visualizer/plotting.py` | Matplotlib: embedding из JSONL, сетка; pandas — CA-trace, сводки, time-series и PCA-траектории |
 | `visualizer/` (`__main__.py`, `visualizer.py`) | **`python -m worldspace.visualizer`** — подкоманды **`embedding`**, **`ca-trace`** |
 | `cli.py` / `__main__.py` | Запуск из командной строки |
@@ -291,12 +291,12 @@ flowchart LR
 
 Функция **`stream_world_space_to_jsonl(..., metrics_trace_path=..., ca_step_trace_path=...)`** (`worldspace/pipeline.py`):
 
-1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** — **`run_world`** (вектор метрик **после полного прогона** пишется в **memmap** `(n × 7)`). Список **`WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного **`iter_worlds`**, что убирает второй круг HTTP у **`LLMWorldGenerator`**). Если задан **`ca_step_trace_path`**, в **`run_world`** передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с **`yield_index`**, **`ca_step`**, **`metrics`** (только вызовы из этого прохода пайплайна). Если задан **`metrics_trace_path`**, на каждый мир — строка с **`yield_index`**, **`world`**, **`metrics`** (без 2D и кластера).
+1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** — **`run_world`** (вектор метрик **после полного прогона** пишется в **memmap** `(n × 7)`). Список **`WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного **`iter_worlds`**, что убирает второй круг HTTP у **`LLMWorldGenerator`**). Если задан **`ca_step_trace_path`**, в **`run_world`** передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с **`yield_index`**, **`ca_step`**, **`metrics`** (только вызовы из этого прохода пайплайна).
 2. По матрице метрик батча: **`_fit_dominant_metric_orthogonal_pca`** — ось **x** как отклонение метрики с **максимальной дисперсией** по батчу от её среднего; ось **y** — **первый главный компонент sklearn `PCA(n_components=1)`**, обученный на **шести остальных** столбцах (sklearn центрирует эти признаки внутри `fit`).
 3. **k-means Lloyd** по строкам memmap (центроиды **`k×7`**, метки в отдельном memmap).
-4. **Проход 2:** для индекса **`i`** берётся **`worlds[i]`** и строка memmap; проекция в 2D, **`cluster_id`**, запись **одной JSON-строки** в основной файл (если задан **`path`**) и при **`echo_stdout=True`** — в stdout.
+4. **Проход 2:** для индекса **`i`** берётся **`worlds[i]`** и строка memmap; проекция в 2D, **`cluster_id`**, запись **одной JSON-строки** в основной файл (если задан **`path`**) и при **`echo_stdout=True`** — в stdout. Если задан **`metrics_trace_path`**, после прохода 2 в этот файл пишется по строке на мир: **`yield_index`** плюс те же поля, что и в основной записи (`world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`) — удобно для **`python -m worldspace.visualizer embedding`** без отдельного файла основного JSONL.
 
-Итоговая строка основного JSONL: `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`. Временный memmap метрик удаляется после завершения функции. При **`n_worlds ≤ 0`** trace-файлы **не открываются**.
+Основной JSONL (если задан аргумент **`path`** в **`stream_world_space_to_jsonl`**) и строки в **`--metrics-trace`** после прохода 2 содержат поля `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`; в **`--metrics-trace`** дополнительно есть **`yield_index`**. Временный memmap метрик удаляется после завершения функции. При **`n_worlds ≤ 0`** trace-файлы **не открываются**.
 
 ```mermaid
 flowchart TB
@@ -362,7 +362,7 @@ flowchart TB
 - `worldspace/specs/hybrid_world_generator.yaml`
 - `worldspace/specs/neural_world_generator.yaml`
 
-CLI поддерживает переопределение путей к этим файлам через `--genetic-spec`, `--llm-spec`, `--hybrid-spec`, `--neural-spec`.
+CLI поддерживает переопределение пути к YAML через единый флаг `--generator-spec` (вместе с `--generator genetic|llm|hybrid|neural`); форма файла проверяется и должна соответствовать выбранному генератору.
 
 ---
 
@@ -379,22 +379,23 @@ python -m worldspace --generator random --worlds 30 --steps 200 --grid 40
 Другие режимы генератора:
 
 ```bash
-python -m worldspace --generator genetic --genetic-spec worldspace/specs/genetic_world_generator.yaml
-python -m worldspace --generator llm --llm-spec worldspace/specs/llm_world_generator.yaml
-python -m worldspace --generator hybrid --hybrid-spec worldspace/specs/hybrid_world_generator.yaml
-python -m worldspace --generator neural --neural-spec worldspace/specs/neural_world_generator.yaml
+python -m worldspace --generator genetic --generator-spec worldspace/specs/genetic_world_generator.yaml
+python -m worldspace --generator llm --generator-spec worldspace/specs/llm_world_generator.yaml
+python -m worldspace --generator hybrid --generator-spec worldspace/specs/hybrid_world_generator.yaml
+python -m worldspace --generator neural --generator-spec worldspace/specs/neural_world_generator.yaml
 ```
 
-Запись в файл — **JSONL** в **`--output`** (одна JSON-строка на мир). Дополнительно (любой **`--generator`**):
+Запись **JSONL** из CLI: основной поток — **`--metrics-trace PATH`** (одна JSON-строка на мир после PCA/k-means: `yield_index`, `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`) и/или **`--ca-step-trace PATH`**. Дополнительно (любой **`--generator`**):
 
-- **`--metrics-trace PATH`** — JSONL: на каждый мир из прохода 1 — `yield_index`, `world`, `metrics` (удобно для pandas / ноутбуков).
+- **`--echo-lines`** — печатать в stdout те же полные записи по миру (без `yield_index`), что и в строках основного конвейера при записи в файл через API **`path`**; без этого флага и без **`--metrics-trace`** / **`--ca-step-trace`** stdout остаётся пустым.
+
 - **`--ca-step-trace PATH`** — JSONL: на каждый **шаг CA** внутри **`run_world`** для каждого такого мира — `yield_index`, `ca_step`, `metrics`. Внутренние вызовы **`run_world`** из генераторов (например, оценка родителя в **`LLMWorldGenerator`**) **не** пишутся в этот файл.
 
 ```bash
-python -m worldspace --output results/run.jsonl --metrics-trace results/trace.jsonl --ca-step-trace results/ca_steps.jsonl
+python -m worldspace --metrics-trace results/trace.jsonl --ca-step-trace results/ca_steps.jsonl
 ```
 
-Без **`--output`** полный JSONL основного прогона **не** пишется в stdout по умолчанию (удобно для прогонов только с **`--metrics-trace`** / **`--ca-step-trace`**). Чтобы вывести основной JSONL в stdout без файла, задайте **`--echo-lines`**. При записи в файл **`--echo-lines`** дублирует каждую строку в stdout.
+Чтобы дублировать полные записи по миру в stdout (без записи в файл), задайте **`--echo-lines`**.
 
 **Визуализация** (единая точка входа, pandas + matplotlib):
 
@@ -402,12 +403,12 @@ python -m worldspace --output results/run.jsonl --metrics-trace results/trace.js
 uv run python -m worldspace.visualizer ca-trace results/ca_steps.jsonl --output-dir results/ca_plots --worlds 0,10,20 --summary
 ```
 
-Пишет **`ca_timeseries.png`** и **`ca_pca_trajectories.png`**; **`--summary`** печатает сводку **mean/std/min/max** по метрикам в разрезе **`yield_index`**.
+Пишет **`ca_timeseries.png`**, **`ca_pca_trajectories.png`** и **`ca_umap_trajectories.png`**; **`--summary`** печатает сводку **mean/std/min/max** по метрикам в разрезе **`yield_index`**.
 
-Scatter основного прогона из JSONL с **`--output`**:
+Scatter основного прогона из JSONL с **`--metrics-trace`**:
 
 ```bash
-uv run python -m worldspace.visualizer embedding results/run.jsonl --plot results/world_space_map.png
+uv run python -m worldspace.visualizer embedding results/trace.jsonl --plot results/world_space_map.png
 ```
 
 **`plot_simulation_final_grid`** (API в **`worldspace.visualizer.plotting`**) использует **`result.final_life`**.

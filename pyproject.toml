@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "matplotlib>=3.8",
     "numpy",
+    "pydantic>=2.7",
     "pandas>=2.0",
     "pygad",
     "pyyaml>=6",
@@ -20,7 +21,13 @@ dev = [
     "black",
     "pyright",
     "ruff",
+    "types-PyYAML",
 ]
+
+[tool.pyright]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
 
 [tool.uv]
 package = false

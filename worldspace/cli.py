@@ -14,6 +14,7 @@ from .generators import (
     RuleBiasMarkovGenerator,
     TwoStateNoiseMarkovGenerator,
 )
+from .cli_generator_spec import parse_generator_spec_path, validate_generator_spec_yaml
 from .pipeline import stream_world_space_to_jsonl
 
 
@@ -37,10 +38,13 @@ def main() -> None:
         default="random",
     )
     parser.add_argument(
-        "--neural-spec",
+        "--generator-spec",
         type=str,
         default="",
-        help="YAML spec for --generator neural (default: bundled neural_world_generator.yaml).",
+        help=(
+            "YAML spec path for --generator genetic, llm, hybrid, or neural "
+            "(default: bundled spec for that generator). Ignored for other generators."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -76,46 +80,23 @@ def main() -> None:
         help="RNG seed for --generator genetic.",
     )
     parser.add_argument(
-        "--genetic-spec",
-        type=str,
-        default="",
-        help="YAML spec for --generator genetic (default: bundled genetic_world_generator.yaml).",
-    )
-    parser.add_argument(
-        "--llm-spec",
-        type=str,
-        default="",
-        help="YAML spec for --generator llm (default: bundled llm_world_generator.yaml).",
-    )
-    parser.add_argument(
-        "--hybrid-spec",
-        type=str,
-        default="",
-        help="YAML spec for --generator hybrid (default: bundled hybrid_world_generator.yaml).",
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="",
-        help=(
-            "Optional JSONL path for full world-space records (embedding + cluster). "
-            "Omit to skip writing main JSONL (e.g. metrics-only or CA-step trace runs)."
-        ),
-    )
-    parser.add_argument(
         "--echo-lines",
         action="store_true",
         help=(
-            "Print each main JSONL line to stdout. When --output is set, mirrors the "
-            "file; when --output is omitted, streams JSONL to stdout only if this flag "
-            "is set."
+            "Print each main JSONL line to stdout as it is produced (same payload as "
+            "``--metrics-trace`` when that path is set). "
+            "Omit for quiet runs that only write trace files."
         ),
     )
     parser.add_argument(
         "--metrics-trace",
         type=str,
         default="",
-        help="Optional JSONL: one line per yielded world (yield_index, world, metrics) during the first pipeline pass; any --generator.",
+        help=(
+            "Optional JSONL: one line per world after embedding + k-means "
+            "(yield_index, world, metrics, embedding_2d, embedding_axes, cluster_id); "
+            "suitable for ``python -m worldspace.visualizer embedding``; any --generator."
+        ),
     )
     parser.add_argument(
         "--ca-step-trace",
@@ -124,6 +105,19 @@ def main() -> None:
         help="Optional JSONL: one line per CA timestep per pipeline run_world (yield_index, ca_step, metrics); any --generator.",
     )
     args = parser.parse_args()
+
+    spec_generators = frozenset({"genetic", "llm", "hybrid", "neural"})
+    gen_spec_path = parse_generator_spec_path(args.generator_spec)
+    if args.generator_spec.strip() and args.generator not in spec_generators:
+        parser.error(
+            f"--generator-spec is only valid with --generator "
+            f"genetic|llm|hybrid|neural (got {args.generator!r})."
+        )
+    if gen_spec_path is not None and args.generator in spec_generators:
+        try:
+            validate_generator_spec_yaml(args.generator, gen_spec_path)
+        except (FileNotFoundError, ValueError) as exc:
+            parser.error(str(exc))
 
     trace_arg = args.metrics_trace.strip()
     metrics_trace_path = Path(trace_arg).expanduser() if trace_arg else None
@@ -140,7 +134,6 @@ def main() -> None:
     elif args.generator == "markov_rules":
         generator = RuleBiasMarkovGenerator(start_world=base)
     elif args.generator == "genetic":
-        genetic_spec = Path(args.genetic_spec) if args.genetic_spec.strip() else None
         generator = GeneticWorldGenerator(
             grid_size=args.grid,
             steps=args.steps,
@@ -148,39 +141,34 @@ def main() -> None:
             elite_count=args.ga_elite,
             mutation_scale=args.ga_mutation_scale,
             seed=args.ga_seed,
-            spec_path=genetic_spec,
+            spec_path=gen_spec_path,
         )
     elif args.generator == "llm":
-        llm_spec = Path(args.llm_spec) if args.llm_spec.strip() else None
         generator = LLMWorldGenerator(
             grid_size=args.grid,
             steps=args.steps,
             seed=args.ga_seed,
-            spec_path=llm_spec,
+            spec_path=gen_spec_path,
         )
     elif args.generator == "hybrid":
-        hybrid_spec = Path(args.hybrid_spec) if args.hybrid_spec.strip() else None
         generator = HybridGALlmWorldGenerator(
             grid_size=args.grid,
             steps=args.steps,
             seed=args.ga_seed,
-            spec_path=hybrid_spec,
+            spec_path=gen_spec_path,
         )
     else:
         from .generators.neural_world import NeuralWorldGenerator
 
-        spec_path = Path(args.neural_spec) if args.neural_spec.strip() else None
         dev_kw = None if args.device == "auto" else args.device
-        generator = NeuralWorldGenerator(spec_path=spec_path, device=dev_kw)
+        generator = NeuralWorldGenerator(spec_path=gen_spec_path, device=dev_kw)
 
-    out_arg = args.output.strip()
-    out_path: str | Path | None = out_arg or None
     echo_stdout = bool(args.echo_lines)
 
     stream_world_space_to_jsonl(
         generator,
         args.worlds,
-        out_path,
+        None,
         k_clusters=4,
         echo_stdout=echo_stdout,
         metrics_trace_path=metrics_trace_path,

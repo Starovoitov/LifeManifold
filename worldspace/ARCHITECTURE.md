@@ -101,10 +101,10 @@ File: `worldspace/pipeline.py`
 
 `stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=..., metrics_trace_path=..., ca_step_trace_path=...)`:
 
-1. **Pass 1:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world` (passing CA trace file/handle into `run_world` when `ca_step_trace_path` is set). Append each final metrics vector to a **temporary float32 memmap** (`n × METRICS_VECTOR_DIM`). **Materialize** the list of `WorldSpec` objects for pass 2 (small structs; avoids a second `iter_worlds` pass, which halves remote LLM calls for `LLMWorldGenerator`). Optionally append one JSON line per world to `metrics_trace_path` (`yield_index`, `world`, `metrics`).
+1. **Pass 1:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world` (passing CA trace file/handle into `run_world` when `ca_step_trace_path` is set). Append each final metrics vector to a **temporary float32 memmap** (`n × METRICS_VECTOR_DIM`). **Materialize** the list of `WorldSpec` objects for pass 2 (small structs; avoids a second `iter_worlds` pass, which halves remote LLM calls for `LLMWorldGenerator`).
 2. Fit **dominant-metric + orthogonal sklearn PCA** on the memmap matrix (`_fit_dominant_metric_orthogonal_pca`): x-axis = deviation of the batch-highest-variance metric from its batch mean; y-axis = first PC of the remaining six columns (`sklearn.decomposition.PCA(n_components=1)`).
 3. Run Lloyd k-means **row-wise** on the memmap (centroids `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
-4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output (and optionally stdout).
+4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output path (if any) and optionally stdout. If `metrics_trace_path` is set, write the same space record plus `yield_index` per line to that file (suitable for `python -m worldspace.visualizer embedding` from CLI `--metrics-trace`).
 
 Trace file handles are opened **inside** the same `try`/`finally` as the pipeline body so a failure opening the second trace file still closes the first.
 
@@ -116,7 +116,7 @@ Package: `worldspace/visualizer/` — Matplotlib uses the **`Agg`** backend (fil
 
 - **`plotting.py`**: `plot_world_embedding`, `plot_world_embedding_from_jsonl`, `plot_simulation_final_grid`; pandas helpers `load_ca_step_trace_jsonl`, `summarize_ca_step_trace_by_world`; `plot_ca_step_metrics_timeseries`, `plot_ca_step_pca_trajectories` for `--ca-step-trace` JSONL.
 - **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with subcommands:
-  - **`embedding`** — scatter from main pipeline JSONL (`embedding ... <jsonl> --plot <png>`).
+  - **`embedding`** — scatter from `--metrics-trace` JSONL (`embedding ... <jsonl> --plot <png>`).
   - **`ca-trace`** — time-series + PCA figures from `--ca-step-trace` output (see `docs/WORLDSPACE.md` §8).
 
 Public re-exports also live on `worldspace` (from `worldspace.visualizer`).
@@ -130,7 +130,7 @@ Files:
 - `worldspace/specs/hybrid_world_generator.yaml`
 - `worldspace/specs/neural_world_generator.yaml`
 
-These files define default generator behavior and provider/model routing; CLI flags can override paths to these configs.
+These files define default generator behavior and provider/model routing; the CLI flag `--generator-spec PATH` overrides the path when using `--generator genetic|llm|hybrid|neural` (the YAML shape is validated for that generator).
 
 ## CLI and Output Artifacts
 
@@ -142,33 +142,32 @@ Run:
 
 Other generator modes:
 
-- `--generator genetic --genetic-spec ...`
-- `--generator llm --llm-spec ...`
-- `--generator hybrid --hybrid-spec ...`
-- `--generator neural --neural-spec ...`
+- `--generator genetic --generator-spec ...`
+- `--generator llm --generator-spec ...`
+- `--generator hybrid --generator-spec ...`
+- `--generator neural --generator-spec ...`
 
 Optional persistence (JSONL only, one JSON object per line):
 
-- `--output results/world_space.jsonl`
+- `--metrics-trace PATH` — JSONL: one line per world after embedding + k-means (`yield_index`, `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`).
 
-Optional copy of each line to stdout while writing a file:
+Optional copy of each full space record to stdout (no `yield_index` in those lines):
 
 - `--echo-lines`
 
 Optional sidecars (any `--generator`):
 
-- `--metrics-trace PATH` — JSONL: one line per simulated world from pass 1 (`yield_index`, `world`, `metrics`; no embedding/cluster).
 - `--ca-step-trace PATH` — JSONL: one line per CA timestep for each **pipeline** `run_world` (`yield_index`, `ca_step`, `metrics`). Does not trace extra `run_world` calls inside generators (e.g. LLM parent scoring).
 
-Embedding scatter (reads JSONL written with `--output`):
+Embedding scatter (reads JSONL from `--metrics-trace`):
 
-`python -m worldspace.visualizer embedding results/world_space.jsonl --plot results/world_space_map.png`
+`python -m worldspace.visualizer embedding results/trace.jsonl --plot results/world_space_map.png`
 
 CA trace plots (pandas + matplotlib):
 
 `python -m worldspace.visualizer ca-trace results/ca_steps.jsonl --output-dir results/ca_plots --worlds 0,10,20 --summary`
 
-If `--output` is omitted, main JSONL lines are **not** printed unless `--echo-lines` is set (trace-only runs stay quiet).
+If neither `--metrics-trace` nor `--echo-lines` is set, no per-world JSONL is written by the CLI (CA-step-only runs stay quiet on stdout).
 
 ## Separation from Legacy Stack
 
