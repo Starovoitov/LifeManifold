@@ -11,8 +11,8 @@ evolution:
   mutation_scale: 0.02
 
 llm:
-  mode: local
-  active_provider: ollama
+  mode: remote
+  active_provider: qwen
   temperature: 0.2
   max_tokens: 350
   providers:

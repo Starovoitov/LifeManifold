@@ -1,14 +1,9 @@
-"""Matplotlib figures for world-space (embedding scatter, CA grids, CA-step traces).
-
-Scatter ``embedding_2d`` matches ``pipeline.stream_world_space_to_jsonl``: **x** is the
-dominant (highest-variance) metric minus batch mean; **y** is sklearn's first PC on the
-other six metrics (sklearn centers those columns once in ``fit``/``transform``) —
-not a 7D PCA decomposition and not PC2 of a full PCA.
-"""
+"""Matplotlib figures for world-space (per-world metric scatters, CA grids, CA-step traces)."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import matplotlib
 
@@ -18,83 +13,189 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ..metrics import METRIC_KEYS
+from .. import math as ws_math
+from ..metrics import METRIC_KEYS, METRICS_VECTOR_DIM
+from ..pipeline import dominant_metric_delta_xy_batch
 from ..simulator import SimulationResult
 
-_EMBED_X_DEFAULT = "Δ metric (unknown)"
-_EMBED_Y_DEFAULT = "PC1 of 6 metrics (excluding selected metric)"
 
-
-def plot_world_embedding(
-    points: list,
-    path: str | Path,
-    *,
-    title: str | None = None,
-    figsize: tuple[float, float] = (8, 6),
-    dpi: int = 120,
-) -> None:
-    """Save a 2D scatter of metric embedding; ``points`` items need ``embedding_2d`` and ``cluster_id``."""
-    if not points:
-        frame = pd.DataFrame(columns=["x", "y", "cluster_id"])
-        x_label, y_label = _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
-    else:
-        frame = pd.DataFrame(
-            {
-                "x": [float(p.embedding_2d[0]) for p in points],
-                "y": [float(p.embedding_2d[1]) for p in points],
-                "cluster_id": [int(p.cluster_id) for p in points],
-            }
-        )
-        x_label, y_label = _axis_labels_from_first_point(points[0])
-    _scatter_world_embedding(
-        frame,
-        path,
-        title=title,
-        figsize=figsize,
-        dpi=dpi,
-        x_label=x_label,
-        y_label=y_label,
-    )
-
-
-def plot_world_embedding_from_jsonl(
+def plot_world_metrics_pca_scatter_from_jsonl(
     jsonl_path: str | Path,
     path: str | Path,
     *,
     title: str | None = None,
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
+    k_clusters: int = 4,
 ) -> None:
-    """Read a world-space JSONL file (e.g. ``--metrics-trace``) and plot embedding scatter."""
-    raw = pd.read_json(Path(jsonl_path), lines=True)
-    if not raw.empty and "embedding_axes" in raw.columns:
-        axes_series = pd.Series(
-            raw["embedding_axes"].to_numpy(),
-            index=raw.index,
-            dtype=object,
+    """
+    2D scatter of worlds in PCA space of the seven ``METRIC_KEYS`` columns
+    (from each line's ``metrics`` object). Points colored by k-means on those metrics
+    (``cluster_id`` from JSONL, or Lloyd k-means with ``k_clusters`` when absent).
+    """
+    from sklearn.decomposition import PCA
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    raw, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+
+    pca = PCA(n_components=2, svd_solver="full")
+    Z = pca.fit_transform(X)
+    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
+    v0, v1 = pca.explained_variance_ratio_
+    ax.set_xlabel(f"PC1 ({100.0 * float(v0):.1f}% var)")
+    ax.set_ylabel(f"PC2 ({100.0 * float(v1):.1f}% var)")
+    ax.set_title(
+        title
+        or (
+            f"PCA scatter of per-world metrics (7D → 2D; "
+            f"k-means on {METRICS_VECTOR_DIM}D, k={k_clusters})"
         )
-    else:
-        axes_series = pd.Series(dtype=object)
-    x_label, y_label = _axis_labels_from_embedding_axes_series(axes_series)
-    if raw.empty:
-        frame = pd.DataFrame(columns=["x", "y", "cluster_id"])
-    else:
-        frame = pd.DataFrame(
-            raw["embedding_2d"].tolist(),
-            columns=["x", "y"],
-            index=raw.index,
-            dtype=float,
-        )
-        frame["cluster_id"] = raw["cluster_id"].astype(int)
-    _scatter_world_embedding(
-        frame,
-        path,
-        title=title,
-        figsize=figsize,
-        dpi=dpi,
-        x_label=x_label,
-        y_label=y_label,
     )
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_world_metrics_umap_scatter_from_jsonl(
+    jsonl_path: str | Path,
+    path: str | Path,
+    *,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+    dpi: int = 120,
+    k_clusters: int = 4,
+) -> None:
+    """
+    2D UMAP embedding of the same seven per-world ``metrics`` columns as
+    :func:`plot_world_metrics_pca_scatter_from_jsonl`. Points colored by k-means on
+    those metrics (``cluster_id`` from JSONL, or Lloyd k-means when absent).
+
+    Requires at least **three** rows (UMAP ``n_neighbors`` must be > 1). Uses
+    ``init="random"`` so small batches do not hit fragile spectral initialization.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ImportWarning)
+        import umap
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    raw, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+    n = int(X.shape[0])
+    if n < 3:
+        raise ValueError(
+            "Metrics JSONL for umap.png needs at least three lines (worlds); "
+            "UMAP requires n_neighbors > 1."
+        )
+
+    n_neighbors = max(2, min(15, n - 1))
+
+    reducer = umap.UMAP(
+        n_components=2,
+        n_neighbors=n_neighbors,
+        min_dist=0.1,
+        metric="euclidean",
+        random_state=42,
+        n_jobs=1,
+        init="random",
+    )
+    Z = reducer.fit_transform(X)
+    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
+    ax.set_xlabel("UMAP 1")
+    ax.set_ylabel("UMAP 2")
+    ax.set_title(
+        title
+        or (
+            f"UMAP scatter of per-world final metrics "
+            f"(same 7D as pca.png; k-means, k={k_clusters})"
+        )
+    )
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_dominant_metric_delta_scatter_from_jsonl(
+    jsonl_path: str | Path,
+    path: str | Path,
+    *,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+    dpi: int = 120,
+    k_clusters: int = 4,
+) -> None:
+    """
+    Scatter worlds in pipeline **dominant-metric-delta** layout (``dominant_metric_delta_xy``).
+
+    **x**: Δ dominant metric (highest variance in batch); **y**: PC1 of the other six
+    metrics. Uses stored ``dominant_metric_delta_xy`` when present (legacy: ``world_space_xy``,
+    ``embedding_2d``); otherwise recomputes via :func:`dominant_metric_delta_xy_batch`.
+    Point color: ``cluster_id`` or k-means (``k_clusters``). See ``docs/WORLDSPACE.md`` §6.1.
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    raw = pd.read_json(Path(jsonl_path), lines=True)
+
+    if raw.empty:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "no points", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    xy_col = _dominant_metric_delta_xy_jsonl_column(raw)
+    labels_col = _dominant_metric_delta_axis_labels_jsonl_column(raw)
+    has_metrics = "metrics" in raw.columns
+
+    if xy_col is not None:
+        Z = np.asarray(raw[xy_col].tolist(), dtype=np.float64)
+        x_label, y_label = _axis_labels_from_dominant_metric_delta_labels_series(
+            raw, labels_col
+        )
+        if has_metrics:
+            raw_m, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+            cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
+        elif "cluster_id" in raw.columns:
+            cluster_ids = raw["cluster_id"].astype(int).to_numpy()
+        else:
+            raise ValueError(
+                "Metrics JSONL with precomputed dominant_metric_delta_xy needs either a full "
+                "``metrics`` object per line (for k-means coloring) or ``cluster_id``."
+            )
+    elif has_metrics:
+        raw_m, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+        Z, axis_dict = dominant_metric_delta_xy_batch(X)
+        x_label, y_label = _axis_labels_from_labels_dict(axis_dict)
+        cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
+    else:
+        raise ValueError(
+            "Metrics JSONL for dominant_metric_delta.png needs "
+            "``dominant_metric_delta_xy`` or per-line "
+            "``metrics`` with all standard keys."
+        )
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(
+        title or "World space: Δ dominant metric vs PC1 of other six (k-means color)"
+    )
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_simulation_final_grid(
@@ -386,6 +487,129 @@ def plot_ca_step_umap_trajectories(
     plt.close(fig)
 
 
+def _final_world_metrics_matrix_from_jsonl(
+    jsonl_path: str | Path,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    Load metrics-trace JSONL (one world per line): require ``metrics`` with all
+    ``METRIC_KEYS``. Returns ``(raw, X)`` with ``X`` of shape ``(n, 7)``.
+    """
+    raw = pd.read_json(Path(jsonl_path), lines=True)
+    if raw.empty:
+        raise ValueError("Metrics JSONL is empty.")
+    if "metrics" not in raw.columns:
+        raise ValueError(
+            "Metrics JSONL must contain a ``metrics`` object per line with numeric "
+            f"fields {list(METRIC_KEYS)}."
+        )
+    met = pd.json_normalize(cast(Any, raw["metrics"]))
+    missing = [k for k in METRIC_KEYS if k not in met.columns]
+    if missing:
+        raise ValueError(
+            "Each ``metrics`` object must include all standard keys "
+            f"{list(METRIC_KEYS)}. Missing: {missing}"
+        )
+    X = met[list(METRIC_KEYS)].to_numpy(dtype=np.float64)
+    if np.isnan(X).any():
+        raise ValueError("Metrics JSONL contains NaN in metric columns.")
+    n = int(X.shape[0])
+    if n < 2:
+        raise ValueError(
+            "Metrics JSONL needs at least two lines (worlds) for 2D PCA / UMAP scatter."
+        )
+    return raw, X
+
+
+def _world_metrics_cluster_labels(
+    X: np.ndarray,
+    raw: pd.DataFrame,
+    *,
+    k_clusters: int = 4,
+) -> np.ndarray:
+    """
+    Per-world k-means labels for scatter coloring.
+
+    Uses ``cluster_id`` from JSONL when present (pipeline ``--metrics-trace``);
+    otherwise runs the same Lloyd k-means as ``stream_world_space_to_jsonl`` on the
+    seven metric dimensions.
+    """
+    if "cluster_id" in raw.columns:
+        return raw["cluster_id"].astype(int).to_numpy()
+    n = int(X.shape[0])
+    labels = np.zeros(n, dtype=np.int32)
+    rows = np.ascontiguousarray(X, dtype=np.float32)
+    ws_math.kmeans_lloyd_on_memmap(rows, labels, n, k_clusters)
+    return labels.astype(int)
+
+
+def _scatter_world_metrics_by_cluster(
+    ax: plt.Axes,
+    Z: np.ndarray,
+    cluster_ids: np.ndarray,
+    *,
+    point_size: float = 45,
+) -> None:
+    """Scatter ``Z`` with one color per k-means cluster id."""
+    cmap = plt.get_cmap("tab10")
+    for j, cid in enumerate(sorted(set(int(c) for c in cluster_ids))):
+        mask = cluster_ids == cid
+        ax.scatter(
+            Z[mask, 0],
+            Z[mask, 1],
+            c=[cmap(j % 10)],
+            label=f"cluster {cid}",
+            alpha=0.9,
+            edgecolors="k",
+            linewidths=0.35,
+            s=point_size,
+        )
+    ax.legend(title="k-means", loc="best")
+
+
+def _dominant_metric_delta_xy_jsonl_column(raw: pd.DataFrame) -> str | None:
+    if "dominant_metric_delta_xy" in raw.columns:
+        return "dominant_metric_delta_xy"
+    if "world_space_xy" in raw.columns:
+        return "world_space_xy"
+    if "embedding_2d" in raw.columns:
+        return "embedding_2d"
+    return None
+
+
+def _dominant_metric_delta_axis_labels_jsonl_column(raw: pd.DataFrame) -> str | None:
+    if "dominant_metric_delta_axis_labels" in raw.columns:
+        return "dominant_metric_delta_axis_labels"
+    if "world_space_axis_labels" in raw.columns:
+        return "world_space_axis_labels"
+    if "embedding_axes" in raw.columns:
+        return "embedding_axes"
+    return None
+
+
+def _axis_labels_from_labels_dict(labels: dict | None) -> tuple[str, str]:
+    if not isinstance(labels, dict):
+        return "Δ metric (unknown)", "PC1 of 6 other metrics"
+    x_metric = labels.get("x_metric")
+    if x_metric:
+        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+    return (
+        str(labels.get("x_label", "Δ metric")),
+        str(labels.get("y_label", "PC1 of 6 other metrics")),
+    )
+
+
+def _axis_labels_from_dominant_metric_delta_labels_series(
+    raw: pd.DataFrame,
+    labels_col: str | None,
+) -> tuple[str, str]:
+    if labels_col is None or labels_col not in raw.columns:
+        return "Δ metric (unknown)", "PC1 of 6 other metrics"
+    for val in raw[labels_col].iloc[::-1]:
+        if isinstance(val, dict):
+            return _axis_labels_from_labels_dict(val)
+    return "Δ metric (unknown)", "PC1 of 6 other metrics"
+
+
 def _ca_step_trace_reduction_context(
     df: pd.DataFrame,
     yield_indices: list[int],
@@ -402,83 +626,3 @@ def _ca_step_trace_reduction_context(
         return None
     yids_sorted = sorted(yids)
     return sub, X, yids_sorted, metric_cols
-
-
-def _labels_from_axes_dict(axes: dict | None) -> tuple[str, str]:
-    if not isinstance(axes, dict):
-        return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
-    x_metric = axes.get("x_metric")
-    if x_metric:
-        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
-    return (
-        str(axes.get("x_label", _EMBED_X_DEFAULT)),
-        str(axes.get("y_label", _EMBED_Y_DEFAULT)),
-    )
-
-
-def _axis_labels_from_embedding_axes_series(axes: pd.Series) -> tuple[str, str]:
-    """Labels from the last JSONL row that carries a dict ``embedding_axes`` (matches streaming order)."""
-    if axes.empty:
-        return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
-    for val in axes.iloc[::-1]:
-        if isinstance(val, dict):
-            return _labels_from_axes_dict(val)
-    return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
-
-
-def _axis_labels_from_first_point(point: object) -> tuple[str, str]:
-    axes = getattr(point, "embedding_axes", None)
-    if isinstance(axes, dict):
-        return _labels_from_axes_dict(axes)
-    x_metric = getattr(point, "x_metric", None)
-    if x_metric:
-        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
-    return _EMBED_X_DEFAULT, _EMBED_Y_DEFAULT
-
-
-def _scatter_world_embedding(
-    frame: pd.DataFrame,
-    path: str | Path,
-    *,
-    title: str | None,
-    figsize: tuple[float, float],
-    dpi: int,
-    x_label: str,
-    y_label: str,
-) -> None:
-    """Scatter ``x`` / ``y`` colored by ``cluster_id``; empty ``frame`` writes the empty-state figure."""
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    if frame.empty:
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        ax.text(0.5, 0.5, "no points", ha="center", va="center", transform=ax.transAxes)
-        ax.set_axis_off()
-        fig.savefig(target, bbox_inches="tight")
-        plt.close(fig)
-        return
-
-    cmap = plt.get_cmap("tab10")
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-    for idx, (cid, g) in enumerate(frame.groupby("cluster_id", sort=True)):
-        color = cmap(idx % 10)
-        ax.scatter(
-            g["x"],
-            g["y"],
-            c=[color],
-            label=f"cluster {cid}",
-            alpha=0.9,
-            edgecolors="k",
-            linewidths=0.35,
-            s=40,
-        )
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(
-        title
-        or "World space: Δ selected metric vs PC₁ of other metrics (k-means color)"
-    )
-    ax.legend(title="k-means", loc="best", fontsize="small")
-    ax.grid(True, alpha=0.25)
-    fig.savefig(target, bbox_inches="tight")
-    plt.close(fig)

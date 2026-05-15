@@ -51,25 +51,25 @@ def stream_world_space_to_jsonl(
     ca_step_trace_path: str | Path | None = None,
 ) -> None:
     """
-    Run generator → simulate → metrics → 2D embedding → k-means.
+    Run generator → simulate → metrics → 2D world-space layout → k-means.
 
     Each ``WorldSpec`` is kept in RAM for a second pass (small parameter structs) so JSON
     lines match the metrics rows without re-running ``iter_worlds`` (avoids duplicate LLM
     calls for ``LLMWorldGenerator`` / ``HybridGALlmWorldGenerator``).
 
-    The 2D embedding uses the most variable metric in the batch as horizontal axis:
-    ``metric - batch_mean(metric)``. Vertical axis is the first sklearn PCA component
-    of the remaining six metrics (single internal centering;
-    ``_fit_dominant_metric_orthogonal_pca``).
+    Per-world 2D layout ``dominant_metric_delta_xy`` (see :func:`dominant_metric_delta_xy_batch`): **x** is
+    the batch's highest-variance metric minus its batch mean; **y** is sklearn PC1 on the
+    other six metrics (centering only inside that PCA). Not the same as 7D PCA/UMAP plots.
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
     main JSONL lines are printed only when ``echo_stdout`` is True (default False),
     e.g. trace-only runs stay quiet.
 
-    If ``metrics_trace_path`` is set and ``n_worlds`` > 0, after embeddings and k-means
+    If ``metrics_trace_path`` is set and ``n_worlds`` > 0, after layout and k-means
     write one JSON line per world: ``yield_index`` plus the same fields as the main
-    record (``world``, ``metrics``, ``embedding_2d``, ``embedding_axes``, ``cluster_id``).
+    record (``world``, ``metrics``, ``dominant_metric_delta_xy``, ``dominant_metric_delta_axis_labels``,
+    ``cluster_id``).
 
     If ``ca_step_trace_path`` is set and ``n_worlds`` > 0, append one JSON line per CA
     timestep for each pipeline ``run_world`` (``yield_index``, ``ca_step``, ``metrics``).
@@ -133,6 +133,39 @@ def stream_world_space_to_jsonl(
             trace_file.close()
         if ca_trace_file is not None:
             ca_trace_file.close()
+
+
+def dominant_metric_delta_axis_labels(x_axis_metric: str) -> dict[str, str]:
+    """Axis metadata for ``dominant_metric_delta_xy`` (written to ``--metrics-trace`` JSONL)."""
+    return {
+        "x_metric": x_axis_metric,
+        "x_label": f"Δ {x_axis_metric}",
+        "y_label": f"PC1 of 6 metrics (excluding {x_axis_metric})",
+    }
+
+
+def dominant_metric_delta_xy_batch(X: np.ndarray) -> tuple[np.ndarray, dict[str, str]]:
+    """
+    Batch 2D dominant-metric-delta layout for metric rows ``X`` of shape ``(n, 7)``.
+
+    **x** (``dominant_metric_delta_xy[0]``): value of the batch's highest-variance metric minus
+    that metric's batch mean (one coordinate, not PCA).
+
+    **y** (``dominant_metric_delta_xy[1]``): sklearn ``PCA(n_components=1)`` on the **other six**
+    columns only; sklearn centers those six inside ``fit``/``transform``. The dominant
+    metric is excluded from the PCA subspace entirely.
+
+    For ``n < 2``, **y** is always ``0``. See ``docs/WORLDSPACE.md`` §6.1.
+    """
+    x = np.asarray(X, dtype=np.float64)
+    mean, dominant_idx, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
+    n = int(x.shape[0])
+    z = np.empty((n, 2), dtype=np.float64)
+    for i in range(n):
+        z[i, 0], z[i, 1] = _project_dominant_metric_orthogonal(
+            x[i], mean, dominant_idx, pca
+        )
+    return z, dominant_metric_delta_axis_labels(axis_name)
 
 
 def _unlink_quiet(paths: tuple[str, ...]) -> None:
@@ -232,17 +265,15 @@ def _space_point_row(
     pca: PCA | None,
     label: int,
 ) -> dict:
-    """Build one JSON-serializable record (world + metrics + 2D embedding + cluster)."""
-    emb = _project_dominant_metric_orthogonal(vec, mean, dominant_index, pca)
+    """Build one JSON-serializable record (world + metrics + world-space xy + cluster)."""
+    xy = _project_dominant_metric_orthogonal(vec, mean, dominant_index, pca)
     return {
         "world": world.to_json_dict(),
         "metrics": metrics_vector_to_dict(vec),
-        "embedding_2d": [emb[0], emb[1]],
-        "embedding_axes": {
-            "x_metric": x_axis_metric,
-            "x_label": f"Δ {x_axis_metric}",
-            "y_label": f"PC1 of 6 metrics (excluding {x_axis_metric})",
-        },
+        "dominant_metric_delta_xy": [xy[0], xy[1]],
+        "dominant_metric_delta_axis_labels": dominant_metric_delta_axis_labels(
+            x_axis_metric
+        ),
         "cluster_id": label,
     }
 

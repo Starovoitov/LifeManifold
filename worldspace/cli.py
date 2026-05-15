@@ -94,8 +94,10 @@ def main() -> None:
         default="",
         help=(
             "Optional JSONL: one line per world after embedding + k-means "
-            "(yield_index, world, metrics, embedding_2d, embedding_axes, cluster_id); "
-            "suitable for ``python -m worldspace.visualizer embedding``; any --generator."
+            "(yield_index, world, metrics, dominant_metric_delta_xy, "
+            "dominant_metric_delta_axis_labels, "
+            "cluster_id); "
+            "suitable for ``python -m worldspace.visualizer``; any --generator."
         ),
     )
     parser.add_argument(

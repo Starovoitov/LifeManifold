@@ -1,4 +1,4 @@
-"""CLI: embedding scatter from metrics-trace JSONL; CA-step trace figures + summary."""
+"""CLI: render all requested world-space figures under ``--output-dir``."""
 
 from __future__ import annotations
 
@@ -11,103 +11,178 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m worldspace.visualizer",
         description=(
-            "World-space visualizations: embedding scatter from ``--metrics-trace`` JSONL; "
-            "or CA step trace plots from --ca-step-trace output."
+            "Render visualizations into ``--output-dir`` using fixed filenames. "
+            "From ``--metrics-jsonl``: ``dominant_metric_delta.png`` (Δ-dominant + PC1 "
+            "of six), ``pca.png`` and ``umap.png`` (7D PCA / UMAP scatters, k-means "
+            "color; UMAP needs at least three worlds). "
+            "From ``--ca-step-jsonl``: ``ca_step_timeseries.png``, ``pca_trajectories.png``, "
+            "``umap_trajectories.png``."
         ),
     )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_emb = sub.add_parser(
-        "embedding",
-        help="2D scatter from world-space JSONL (e.g. ``python -m worldspace --metrics-trace``).",
-    )
-    p_emb.add_argument(
-        "jsonl",
-        type=str,
-        help="Path to metrics JSONL (one object per line).",
-    )
-    p_emb.add_argument(
-        "--plot",
-        type=str,
-        required=True,
-        help="Output PNG path for the embedding scatter.",
-    )
-    p_emb.add_argument(
-        "--title",
-        type=str,
-        default="",
-        help="Figure title (optional).",
-    )
-
-    p_ca = sub.add_parser(
-        "ca-trace",
-        help="Plots from --ca-step-trace JSONL (time-series + PCA and UMAP trajectories).",
-    )
-    p_ca.add_argument(
-        "trace_jsonl",
-        type=str,
-        help="Path to CA step trace JSONL (from --ca-step-trace).",
-    )
-    p_ca.add_argument(
+    parser.add_argument(
         "--output-dir",
         type=str,
-        default=".",
+        required=True,
         help="Directory for PNG outputs (created if missing).",
     )
-    p_ca.add_argument(
-        "--worlds",
+    parser.add_argument(
+        "--metrics-jsonl",
         type=str,
         default="",
         help=(
-            "Comma-separated yield_index values to plot; "
-            "default: up to 8 distinct indices from the file."
+            "Path to metrics JSONL (``--metrics-trace`` or any JSONL with per-line "
+            "``metrics``). Writes ``dominant_metric_delta.png``, ``pca.png``, ``umap.png`` "
+            "(colored by ``cluster_id`` or ``--k-clusters`` k-means). "
+            "``dominant_metric_delta.png`` / ``pca.png``: ≥2 worlds; ``umap.png``: ≥3."
         ),
     )
-    p_ca.add_argument(
+    parser.add_argument(
+        "--k-clusters",
+        type=int,
+        default=4,
+        help=(
+            "Number of k-means clusters for metrics scatters when "
+            "``cluster_id`` is absent from ``--metrics-jsonl`` (default matches pipeline)."
+        ),
+    )
+    parser.add_argument(
+        "--ca-step-jsonl",
+        type=str,
+        default="",
+        help="Path to CA step trace JSONL from ``--ca-step-trace``.",
+    )
+    parser.add_argument(
+        "--ca-trace-worlds",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated ``yield_index`` values for CA-step plots; "
+            "default: up to 8 distinct indices from the CA trace file."
+        ),
+    )
+    parser.add_argument(
         "--metrics",
         type=str,
         default="interestingness,entropy,density_mean,oscillation_score",
-        help="Comma-separated metric names for the time-series figure.",
+        help="Comma-separated metric names for ``ca_step_timeseries.png`` (CA trace only).",
     )
-    p_ca.add_argument(
-        "--no-timeseries",
-        action="store_true",
-        help="Skip the metrics-vs-ca_step line plot.",
-    )
-    p_ca.add_argument(
-        "--no-pca",
-        action="store_true",
-        help="Skip the PCA trajectory plot.",
-    )
-    p_ca.add_argument(
-        "--no-umap",
-        action="store_true",
-        help="Skip the UMAP trajectory plot.",
-    )
-    p_ca.add_argument(
+    parser.add_argument(
         "--summary",
         action="store_true",
         help=(
             "Print per-world pandas aggregate table (mean/std/min/max per metric) "
-            "to stdout."
+            "to stdout when a CA step trace is provided."
         ),
     )
-
     args = parser.parse_args(argv)
 
-    if args.command == "embedding":
-        from .plotting import plot_world_embedding_from_jsonl
+    metrics_path = args.metrics_jsonl.strip()
+    ca_path = args.ca_step_jsonl.strip()
+    if not metrics_path and not ca_path:
+        parser.error("Provide at least one of --metrics-jsonl and/or --ca-step-jsonl.")
 
-        title = args.title.strip() or None
-        plot_world_embedding_from_jsonl(args.jsonl, args.plot, title=title)
-        return
+    out_dir = Path(args.output_dir).expanduser()
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.command == "ca-trace":
-        _run_ca_trace(args)
-        return
+    ok = False
+    if metrics_path:
+        ok |= _run_metrics_plots(
+            metrics_path,
+            out_dir,
+            k_clusters=max(1, args.k_clusters),
+            ca_also=bool(ca_path),
+        )
+
+    if ca_path:
+        ok |= _run_ca_trace_plots(
+            ca_path=ca_path,
+            out_dir=out_dir,
+            worlds_arg=args.ca_trace_worlds.strip(),
+            metrics_csv=args.metrics,
+            do_summary=args.summary,
+        )
+    if not ok:
+        sys.exit(1)
 
 
-def _run_ca_trace(args: argparse.Namespace) -> None:
+def _run_metrics_plots(
+    metrics_jsonl: str,
+    out_dir: Path,
+    *,
+    k_clusters: int,
+    ca_also: bool,
+) -> bool:
+    from .plotting import (
+        plot_world_metrics_pca_scatter_from_jsonl,
+        plot_world_metrics_umap_scatter_from_jsonl,
+        plot_dominant_metric_delta_scatter_from_jsonl,
+    )
+
+    src = Path(metrics_jsonl)
+    if not src.is_file():
+        print(f"Not a file: {src.resolve()}", file=sys.stderr)
+        return False
+
+    # Drop prior metrics-trace figures so a failed step cannot leave a stale file
+    # (e.g. old ``umap.png`` from when CA trajectories used that name).
+    for name in (
+        "dominant_metric_delta.png",
+        "world_space.png",
+        "pca.png",
+        "umap.png",
+        "embedding.png",
+    ):
+        stale = out_dir / name
+        if stale.is_file():
+            stale.unlink()
+
+    ok = False
+    try:
+        plot_dominant_metric_delta_scatter_from_jsonl(
+            src,
+            out_dir / "dominant_metric_delta.png",
+            title=None,
+            k_clusters=k_clusters,
+        )
+        ok = True
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"Skipping dominant_metric_delta.png: {exc}", file=sys.stderr)
+    try:
+        plot_world_metrics_pca_scatter_from_jsonl(
+            src, out_dir / "pca.png", title=None, k_clusters=k_clusters
+        )
+        ok = True
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(
+            f"Skipping pca.png (PCA scatter of per-world metrics): {exc}",
+            file=sys.stderr,
+        )
+    try:
+        plot_world_metrics_umap_scatter_from_jsonl(
+            src, out_dir / "umap.png", title=None, k_clusters=k_clusters
+        )
+        ok = True
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(
+            f"Skipping umap.png (UMAP scatter of per-world metrics): {exc}",
+            file=sys.stderr,
+        )
+    if not ok and not ca_also:
+        print(
+            "(Fix --metrics-jsonl or pass --ca-step-jsonl to render other plots.)",
+            file=sys.stderr,
+        )
+    return ok
+
+
+def _run_ca_trace_plots(
+    *,
+    ca_path: str,
+    out_dir: Path,
+    worlds_arg: str,
+    metrics_csv: str,
+    do_summary: bool,
+) -> bool:
     from .plotting import (
         load_ca_step_trace_jsonl,
         plot_ca_step_metrics_timeseries,
@@ -116,51 +191,45 @@ def _run_ca_trace(args: argparse.Namespace) -> None:
         summarize_ca_step_trace_by_world,
     )
 
-    src = Path(args.trace_jsonl)
+    src = Path(ca_path)
     if not src.is_file():
         print(f"Not a file: {src.resolve()}", file=sys.stderr)
-        sys.exit(1)
-
-    out_dir = Path(args.output_dir).expanduser()
-    out_dir.mkdir(parents=True, exist_ok=True)
+        return False
 
     df = load_ca_step_trace_jsonl(src)
     if df.empty:
-        print("Trace file is empty; nothing to plot.", file=sys.stderr)
-        sys.exit(1)
+        print("CA step trace file is empty.", file=sys.stderr)
+        return False
 
-    worlds_arg = args.worlds.strip()
     if worlds_arg:
         yield_indices = [int(x.strip()) for x in worlds_arg.split(",") if x.strip()]
     else:
         uniq = sorted(df["yield_index"].unique().tolist())
         yield_indices = uniq[:8]
 
-    metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]
+    metrics = [m.strip() for m in metrics_csv.split(",") if m.strip()]
 
-    if args.summary:
+    if do_summary:
         summary = summarize_ca_step_trace_by_world(df)
         print(summary.to_string())
 
-    if not args.no_timeseries:
-        plot_ca_step_metrics_timeseries(
-            df,
-            yield_indices,
-            out_dir / "ca_timeseries.png",
-            metric_names=metrics,
-            title="CA metrics vs step (selected worlds)",
-        )
-    if not args.no_pca:
-        plot_ca_step_pca_trajectories(
-            df,
-            yield_indices,
-            out_dir / "ca_pca_trajectories.png",
-            title="PCA on metric snapshots (trajectories over ca_step)",
-        )
-    if not args.no_umap:
-        plot_ca_step_umap_trajectories(
-            df,
-            yield_indices,
-            out_dir / "ca_umap_trajectories.png",
-            title="UMAP on metric snapshots (trajectories over ca_step)",
-        )
+    plot_ca_step_metrics_timeseries(
+        df,
+        yield_indices,
+        out_dir / "ca_step_timeseries.png",
+        metric_names=metrics,
+        title="CA metrics vs step (selected worlds)",
+    )
+    plot_ca_step_pca_trajectories(
+        df,
+        yield_indices,
+        out_dir / "pca_trajectories.png",
+        title="PCA trajectories over ca_step (per-step metric snapshots)",
+    )
+    plot_ca_step_umap_trajectories(
+        df,
+        yield_indices,
+        out_dir / "umap_trajectories.png",
+        title="UMAP trajectories over ca_step (per-step metric snapshots)",
+    )
+    return True

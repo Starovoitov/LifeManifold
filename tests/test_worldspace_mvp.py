@@ -40,10 +40,10 @@ class TestWorldSpaceMVP(unittest.TestCase):
             row = json.loads(lines[0])
             self.assertIn("world", row)
             self.assertIn("metrics", row)
-            self.assertIn("embedding_2d", row)
-            self.assertEqual(len(row["embedding_2d"]), 2)
-            self.assertIn("embedding_axes", row)
-            self.assertIn("x_metric", row["embedding_axes"])
+            self.assertIn("dominant_metric_delta_xy", row)
+            self.assertEqual(len(row["dominant_metric_delta_xy"]), 2)
+            self.assertIn("dominant_metric_delta_axis_labels", row)
+            self.assertIn("x_metric", row["dominant_metric_delta_axis_labels"])
             self.assertIn("cluster_id", row)
             st = row["metrics"]["stability"]
             self.assertGreaterEqual(st, 0.0)
@@ -219,8 +219,8 @@ class TestWorldSpaceMVP(unittest.TestCase):
                 self.assertIn("birth", row["world"])
                 self.assertIn("metrics", row)
                 self.assertIn("interestingness", row["metrics"])
-                self.assertIn("embedding_2d", row)
-                self.assertEqual(len(row["embedding_2d"]), 2)
+                self.assertIn("dominant_metric_delta_xy", row)
+                self.assertEqual(len(row["dominant_metric_delta_xy"]), 2)
                 self.assertIn("cluster_id", row)
         finally:
             os.unlink(out_path)
@@ -259,7 +259,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             os.unlink(out_path)
             os.unlink(trace_path)
 
-    def test_dominant_metric_embedding_axes(self):
+    def test_dominant_metric_delta_xy_axes(self):
         rng = np.random.default_rng(0)
         n, d = 50, METRICS_VECTOR_DIM
         x = rng.standard_normal((n, d))

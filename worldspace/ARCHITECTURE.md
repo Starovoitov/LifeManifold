@@ -104,7 +104,7 @@ File: `worldspace/pipeline.py`
 1. **Pass 1:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world` (passing CA trace file/handle into `run_world` when `ca_step_trace_path` is set). Append each final metrics vector to a **temporary float32 memmap** (`n × METRICS_VECTOR_DIM`). **Materialize** the list of `WorldSpec` objects for pass 2 (small structs; avoids a second `iter_worlds` pass, which halves remote LLM calls for `LLMWorldGenerator`).
 2. Fit **dominant-metric + orthogonal sklearn PCA** on the memmap matrix (`_fit_dominant_metric_orthogonal_pca`): x-axis = deviation of the batch-highest-variance metric from its batch mean; y-axis = first PC of the remaining six columns (`sklearn.decomposition.PCA(n_components=1)`).
 3. Run Lloyd k-means **row-wise** on the memmap (centroids `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
-4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output path (if any) and optionally stdout. If `metrics_trace_path` is set, write the same space record plus `yield_index` per line to that file (suitable for `python -m worldspace.visualizer embedding` from CLI `--metrics-trace`).
+4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output path (if any) and optionally stdout. If `metrics_trace_path` is set, write the same space record plus `yield_index` per line to that file (suitable for `python -m worldspace.visualizer --metrics-jsonl ...` from CLI `--metrics-trace`).
 
 Trace file handles are opened **inside** the same `try`/`finally` as the pipeline body so a failure opening the second trace file still closes the first.
 
@@ -114,10 +114,8 @@ RAM: memmap metrics stay **O(1)** vs batch size for the metric matrix; plus **O(
 
 Package: `worldspace/visualizer/` — Matplotlib uses the **`Agg`** backend (file output only).
 
-- **`plotting.py`**: `plot_world_embedding`, `plot_world_embedding_from_jsonl`, `plot_simulation_final_grid`; pandas helpers `load_ca_step_trace_jsonl`, `summarize_ca_step_trace_by_world`; `plot_ca_step_metrics_timeseries`, `plot_ca_step_pca_trajectories` for `--ca-step-trace` JSONL.
-- **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with subcommands:
-  - **`embedding`** — scatter from `--metrics-trace` JSONL (`embedding ... <jsonl> --plot <png>`).
-  - **`ca-trace`** — time-series + PCA figures from `--ca-step-trace` output (see `docs/WORLDSPACE.md` §8).
+- **`plotting.py`**: `plot_dominant_metric_delta_scatter_from_jsonl`, `plot_world_metrics_pca_scatter_from_jsonl`, `plot_world_metrics_umap_scatter_from_jsonl`, `plot_simulation_final_grid`; pandas helpers `load_ca_step_trace_jsonl`, `summarize_ca_step_trace_by_world`; `plot_ca_step_metrics_timeseries`, `plot_ca_step_pca_trajectories`, `plot_ca_step_umap_trajectories` for `--ca-step-trace` JSONL.
+- **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with **`--output-dir`** (required) and optional **`--metrics-jsonl`** (writes `dominant_metric_delta.png`, `pca.png`, `umap.png`) and/or **`--ca-step-jsonl`** (writes `ca_step_timeseries.png`, `pca_trajectories.png`, `umap_trajectories.png`). Optional **`--ca-trace-worlds`**, **`--metrics`**, **`--summary`** for CA plots (see `docs/WORLDSPACE.md` §6.1, §8).
 
 Public re-exports also live on `worldspace` (from `worldspace.visualizer`).
 
@@ -149,7 +147,7 @@ Other generator modes:
 
 Optional persistence (JSONL only, one JSON object per line):
 
-- `--metrics-trace PATH` — JSONL: one line per world after embedding + k-means (`yield_index`, `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`).
+- `--metrics-trace PATH` — JSONL: one line per world after dominant-metric-delta layout + k-means (`yield_index`, `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`). See `docs/WORLDSPACE.md` §6.1.
 
 Optional copy of each full space record to stdout (no `yield_index` in those lines):
 
@@ -159,13 +157,9 @@ Optional sidecars (any `--generator`):
 
 - `--ca-step-trace PATH` — JSONL: one line per CA timestep for each **pipeline** `run_world` (`yield_index`, `ca_step`, `metrics`). Does not trace extra `run_world` calls inside generators (e.g. LLM parent scoring).
 
-Embedding scatter (reads JSONL from `--metrics-trace`):
+Unified visualizer (fixed filenames under `--output-dir`):
 
-`python -m worldspace.visualizer embedding results/trace.jsonl --plot results/world_space_map.png`
-
-CA trace plots (pandas + matplotlib):
-
-`python -m worldspace.visualizer ca-trace results/ca_steps.jsonl --output-dir results/ca_plots --worlds 0,10,20 --summary`
+`python -m worldspace.visualizer --output-dir results/plots --metrics-jsonl results/trace.jsonl --ca-step-jsonl results/ca_steps.jsonl --ca-trace-worlds 0,10,20 --summary`
 
 If neither `--metrics-trace` nor `--echo-lines` is set, no per-world JSONL is written by the CLI (CA-step-only runs stay quiet on stdout).
 
