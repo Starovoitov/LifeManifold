@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -50,6 +51,25 @@ class TestWorldSpaceMVP(unittest.TestCase):
             self.assertIn("interestingness", row["metrics"])
         finally:
             os.unlink(path)
+
+    def test_metrics_trace_only_no_stdout_without_echo(self):
+        """No main ``--output`` and ``echo_stdout=False`` keeps stdout quiet; trace still fills."""
+        with tempfile.TemporaryDirectory() as d:
+            trace_path = Path(d) / "t.jsonl"
+            gen = RandomWorldGenerator(grid_size=4, steps=4)
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                stream_world_space_to_jsonl(
+                    gen,
+                    2,
+                    None,
+                    k_clusters=2,
+                    echo_stdout=False,
+                    metrics_trace_path=trace_path,
+                )
+            self.assertEqual(buf.getvalue(), "")
+            tlines = [ln for ln in trace_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            self.assertEqual(len(tlines), 2)
 
     def test_stream_zero_worlds_metrics_trace_not_opened(self):
         """``n_worlds`` <= 0 returns before trace file open — no handle leak (regression)."""

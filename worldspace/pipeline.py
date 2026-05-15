@@ -46,7 +46,7 @@ def stream_world_space_to_jsonl(
     path: str | Path | None,
     k_clusters: int = 4,
     *,
-    echo_stdout: bool = True,
+    echo_stdout: bool = False,
     metrics_trace_path: str | Path | None = None,
     ca_step_trace_path: str | Path | None = None,
 ) -> None:
@@ -64,7 +64,8 @@ def stream_world_space_to_jsonl(
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
-    records are only printed (``echo_stdout`` is treated as True).
+    main JSONL lines are printed only when ``echo_stdout`` is True (default False),
+    e.g. trace-only runs stay quiet.
 
     If ``metrics_trace_path`` is set and ``n_worlds`` > 0, write one JSON line per yielded
     world during the first pass: ``yield_index``, ``world``, ``metrics`` (same simulation
@@ -84,8 +85,6 @@ def stream_world_space_to_jsonl(
         if file_write and target is not None:
             target.write_text("")
         return
-    if not file_write:
-        echo_stdout = True
 
     trace_file: TextIO | None = None
     ca_trace_file: TextIO | None = None
@@ -118,8 +117,9 @@ def stream_world_space_to_jsonl(
             if file_write and target is not None:
                 _write_jsonl_to_path(target, lines, echo_stdout)
             else:
-                for line in lines:
-                    print(line, flush=True)
+                if echo_stdout:
+                    for line in lines:
+                        print(line, flush=True)
     finally:
         if trace_file is not None:
             trace_file.close()

@@ -23,7 +23,7 @@ flowchart LR
     CLU["k-means"]
   end
   subgraph out["Выход"]
-    FILE["JSONL (файл или stdout)"]
+    FILE["JSONL (--output или stdout с --echo-lines)"]
   end
   G --> WS
   WS --> SIM
@@ -35,8 +35,8 @@ flowchart LR
 ```
 
 - **`WorldSpec`** — статическое описание одного мира (правила и числовые параметры).
-- **`run_world`** — динамика поля и **сразу** шестимерные метрики (без длинных списков по шагам).
-- **`stream_world_space_to_jsonl`** — двухпроходный прогон: PCA/k-means по memmap, запись JSONL **потоково**, память по числу миров **O(1)**.
+- **`run_world`** — динамика поля и **семимерные** метрики по завершении прогона (опционально — пошаговая запись в JSONL при вызове из пайплайна с **`ca_step_trace_*`**).
+- **`stream_world_space_to_jsonl`** — двухпроходный прогон: PCA/k-means по memmap, запись JSONL; список **`WorldSpec`** по одному на мир держится в RAM для второго прохода (малые JSON-структуры; зато **`iter_worlds`** не вызывается дважды — важно для LLM без дублирования HTTP). Матрица метрик по-прежнему в **memmap** \(O(1)\) по числу миров для \(n\times 7\).
 
 Пакет **не зависит** от legacy-слоёв приложения (`celery`, `redis`, веб-сокеты и т.д.) и задуман как автономный исследовательский пайплайн.
 
@@ -53,11 +53,13 @@ flowchart TB
     sim["simulator.py — run_world"]
     met["metrics.py — WorldMetrics"]
     pipe["pipeline.py — stream_world_space_to_jsonl"]
+    viz["visualizer/ — plotting + CLI"]
     cli["cli.py — точка входа CLI"]
     main["__main__.py — python -m worldspace"]
   end
   cli --> main
   cli --> pipe
+  pipe -.-> viz
   pipe --> gen
   pipe --> sim
   pipe --> met
@@ -71,10 +73,12 @@ flowchart TB
 |--------|------------|
 | `spec.py` | Датакласс мира + сериализация JSON |
 | `generators.py` | Случайные/марковские/генетические/LLM/гибридные генераторы миров + YAML-конфиги |
-| `math.py` | `neighbor_count`, PCA по достаточным статистикам (`pca_mean_and_basis_2d`, `project_pca_2d`), `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
-| `simulator.py` | CA по шагам; онлайн-метрики и один финальный снимок сетки |
+| `math.py` | `neighbor_count`, `kmeans_lloyd_on_memmap`, `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
+| `simulator.py` | CA по шагам; онлайн-метрики; опционально пошаговый JSONL при вызове из пайплайна (**`ca_step_trace_*`**) |
 | `metrics.py` | Датакласс метрик и сериализация вектора в JSON |
-| `pipeline.py` | Потоковый пайплайн: memmap метрик, PCA по достаточным статистикам, k-means по строкам, JSONL |
+| `pipeline.py` | Memmap метрик, sklearn PCA (доминирующая метрика + PC1 по шести остальным), k-means, JSONL; опционально **`metrics_trace_path`**, **`ca_step_trace_path`** |
+| `visualizer/plotting.py` | Matplotlib: embedding из JSONL, сетка; pandas — CA-trace, сводки, time-series и PCA-траектории |
+| `visualizer/` (`__main__.py`, `visualizer.py`) | **`python -m worldspace.visualizer`** — подкоманды **`embedding`**, **`ca-trace`** |
 | `cli.py` / `__main__.py` | Запуск из командной строки |
 
 Краткая архитектурная заметка также есть в `worldspace/ARCHITECTURE.md`; этот файл (**`docs/WORLDSPACE.md`**) глубже раскрывает семантику параметров и метрик.
@@ -285,14 +289,14 @@ flowchart LR
 
 ## 6. Пространство миров: PCA и кластеры
 
-Функция **`stream_world_space_to_jsonl(generator, n_worlds, path, ...)`** (`worldspace/pipeline.py`):
+Функция **`stream_world_space_to_jsonl(..., metrics_trace_path=..., ca_step_trace_path=...)`** (`worldspace/pipeline.py`):
 
-1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** (без списка всех миров в памяти) — **`run_world`**, вектор метрик пишется в **временный memmap** `(n × 7)` и обновляются суммы для PCA (**`sum_x`**, **`sum_xx`**).
-2. По достаточным статистикам: **`math.pca_mean_and_basis_2d`** → среднее и базис **2D**.
+1. **Проход 1:** для каждого мира из **`generator.iter_worlds(n)`** — **`run_world`** (вектор метрик **после полного прогона** пишется в **memmap** `(n × 7)`). Список **`WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного **`iter_worlds`**, что убирает второй круг HTTP у **`LLMWorldGenerator`**). Если задан **`ca_step_trace_path`**, в **`run_world`** передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с **`yield_index`**, **`ca_step`**, **`metrics`** (только вызовы из этого прохода пайплайна). Если задан **`metrics_trace_path`**, на каждый мир — строка с **`yield_index`**, **`world`**, **`metrics`** (без 2D и кластера).
+2. По матрице метрик батча: **`_fit_dominant_metric_orthogonal_pca`** — ось **x** как отклонение метрики с **максимальной дисперсией** по батчу от её среднего; ось **y** — **первый главный компонент sklearn `PCA(n_components=1)`**, обученный на **шести остальных** столбцах (sklearn центрирует эти признаки внутри `fit`).
 3. **k-means Lloyd** по строкам memmap (центроиды **`k×7`**, метки в отдельном memmap).
-4. **Проход 2:** снова **`iter_worlds(n)`** (тот же порядок, детерминированные генераторы), чтение строки memmap, проекция **`math.project_pca_2d`**, запись **одной JSON-строки** в файл (и опционально в stdout).
+4. **Проход 2:** для индекса **`i`** берётся **`worlds[i]`** и строка memmap; проекция в 2D, **`cluster_id`**, запись **одной JSON-строки** в основной файл (если задан **`path`**) и при **`echo_stdout=True`** — в stdout.
 
-Итоговая строка JSON содержит `world`, `metrics`, `embedding_2d`, `cluster_id`. Память по числу миров **не растёт** с размером батча (временный файл на диске для столбцов метрик).
+Итоговая строка основного JSONL: `world`, `metrics`, `embedding_2d`, `embedding_axes`, `cluster_id`. Временный memmap метрик удаляется после завершения функции. При **`n_worlds ≤ 0`** trace-файлы **не открываются**.
 
 ```mermaid
 flowchart TB
@@ -304,7 +308,7 @@ flowchart TB
     MROW["каждая строка — as_vector(metrics)"]
   end
   subgraph proj["Проекция и группы"]
-    PCA["PCA через SVD → (x,y)"]
+    PCA["доминирующая метрика + sklearn PCA(1) на 6 столбцах → (x,y)"]
     KM["k-means → cluster_id"]
   end
   W1 --> MROW
@@ -381,15 +385,32 @@ python -m worldspace --generator hybrid --hybrid-spec worldspace/specs/hybrid_wo
 python -m worldspace --generator neural --neural-spec worldspace/specs/neural_world_generator.yaml
 ```
 
-Запись в файл — **JSONL** (одна JSON-строка на мир; память по числу миров **O(1)**):
+Запись в файл — **JSONL** в **`--output`** (одна JSON-строка на мир). Дополнительно (любой **`--generator`**):
+
+- **`--metrics-trace PATH`** — JSONL: на каждый мир из прохода 1 — `yield_index`, `world`, `metrics` (удобно для pandas / ноутбуков).
+- **`--ca-step-trace PATH`** — JSONL: на каждый **шаг CA** внутри **`run_world`** для каждого такого мира — `yield_index`, `ca_step`, `metrics`. Внутренние вызовы **`run_world`** из генераторов (например, оценка родителя в **`LLMWorldGenerator`**) **не** пишутся в этот файл.
 
 ```bash
-python -m worldspace --output results/run.jsonl
+python -m worldspace --output results/run.jsonl --metrics-trace results/trace.jsonl --ca-step-trace results/ca_steps.jsonl
 ```
 
-Без **`--output`** те же строки идут в **stdout** (по одной JSON-строке на строку). Флаг **`--echo-lines`** дублирует строки в stdout при записи в файл.
+Без **`--output`** полный JSONL основного прогона **не** пишется в stdout по умолчанию (удобно для прогонов только с **`--metrics-trace`** / **`--ca-step-trace`**). Чтобы вывести основной JSONL в stdout без файла, задайте **`--echo-lines`**. При записи в файл **`--echo-lines`** дублирует каждую строку в stdout.
 
-Визуализация: **`worldspace/viz.py`**. **`--plot`** строит график из JSONL: либо из **`--output`**, либо из временного JSONL, если **`--output`** не задан (файл удаляется после построения графика). **`plot_simulation_final_grid`** использует **`result.final_life`**.
+**Визуализация** (единая точка входа, pandas + matplotlib):
+
+```bash
+uv run python -m worldspace.visualizer ca-trace results/ca_steps.jsonl --output-dir results/ca_plots --worlds 0,10,20 --summary
+```
+
+Пишет **`ca_timeseries.png`** и **`ca_pca_trajectories.png`**; **`--summary`** печатает сводку **mean/std/min/max** по метрикам в разрезе **`yield_index`**.
+
+Scatter основного прогона из JSONL с **`--output`**:
+
+```bash
+uv run python -m worldspace.visualizer embedding results/run.jsonl --plot results/world_space_map.png
+```
+
+**`plot_simulation_final_grid`** (API в **`worldspace.visualizer.plotting`**) использует **`result.final_life`**.
 
 ---
 
@@ -405,7 +426,7 @@ python -m worldspace --output results/run.jsonl
 
 ## 10. Зависимости
 
-Пакет использует **`numpy`**. Установка зависимостей проекта задаётся в **`pyproject.toml`**.
+Пакет использует **`numpy`**, **`matplotlib`**, **`scikit-learn`**, **`pandas`**, **`pyyaml`**, **`pygad`**, **`torch`** (см. **`pyproject.toml`**). Установка: **`uv sync`** в корне репозитория.
 
 ---
 

@@ -1,4 +1,4 @@
-"""Matplotlib figures for world-space exploration (kept inside ``worldspace`` only).
+"""Matplotlib figures for world-space (embedding scatter, CA grids, CA-step traces).
 
 Scatter ``embedding_2d`` matches ``pipeline.stream_world_space_to_jsonl``: **x** is the
 dominant (highest-variance) metric minus batch mean; **y** is sklearn's first PC on the
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib
 
@@ -18,7 +19,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .simulator import SimulationResult
+from ..metrics import METRIC_KEYS
+from ..simulator import SimulationResult
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def plot_world_embedding(
@@ -214,3 +219,168 @@ def _axis_labels_from_points(points: list) -> tuple[str, str]:
     if x_metric:
         return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
     return default_x, default_y
+
+
+def load_ca_step_trace_jsonl(path: str | Path) -> "pd.DataFrame":
+    """Load ``--ca-step-trace`` JSONL into a flat pandas table (one row per CA step)."""
+    import pandas as pd
+
+    p = Path(path)
+    df = pd.read_json(p, lines=True)
+    if df.empty:
+        return df
+    if "metrics" not in df.columns:
+        raise ValueError("CA step trace JSONL must contain a 'metrics' object per line")
+    met = pd.json_normalize(df["metrics"])
+    base = df[["yield_index", "ca_step"]].reset_index(drop=True)
+    return pd.concat([base, met], axis=1)
+
+
+def summarize_ca_step_trace_by_world(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Per ``yield_index``, aggregate each metric across ``ca_step`` (mean/std/min/max)."""
+    import pandas as pd
+
+    cols = [c for c in METRIC_KEYS if c in df.columns]
+    if not cols:
+        return pd.DataFrame()
+    g = df.groupby("yield_index", sort=True)[cols]
+    return g.agg(["mean", "std", "min", "max"])
+
+
+def plot_ca_step_metrics_timeseries(
+    df: "pd.DataFrame",
+    yield_indices: list[int],
+    path: str | Path,
+    *,
+    metric_names: list[str] | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10.0, 8.0),
+    dpi: int = 120,
+) -> None:
+    """Line plots: ``ca_step`` vs selected metrics, one subplot per metric (selected worlds)."""
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    metrics = metric_names or ["interestingness", "entropy", "density_mean"]
+    metrics = [m for m in metrics if m in df.columns]
+    present = set(int(x) for x in df["yield_index"].unique())
+    yids = [int(y) for y in yield_indices if int(y) in present]
+    if not metrics or not yids:
+        fig, ax = plt.subplots(figsize=(8, 4), dpi=dpi)
+        ax.text(0.5, 0.5, "no data for plot", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    n = len(metrics)
+    ncols = 2
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, squeeze=False)
+    cmap = plt.get_cmap("tab10")
+    for ax, m in zip(np.ravel(axes), metrics):
+        for j, yid in enumerate(yids):
+            seg = df[df["yield_index"] == yid].sort_values("ca_step")
+            if seg.empty:
+                continue
+            c = cmap(j % 10)
+            ax.plot(
+                seg["ca_step"],
+                seg[m],
+                color=c,
+                label=f"yield {yid}",
+                linewidth=1.2,
+                marker="o",
+                markersize=2,
+                alpha=0.85,
+            )
+        ax.set_xlabel("ca_step")
+        ax.set_ylabel(m)
+        ax.set_title(m)
+        ax.grid(True, alpha=0.25)
+        ax.legend(fontsize="x-small", loc="best")
+    for k in range(len(metrics), nrows * ncols):
+        np.ravel(axes)[k].set_axis_off()
+    fig.suptitle(title or "CA metrics over simulation steps")
+    fig.tight_layout()
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_ca_step_pca_trajectories(
+    df: "pd.DataFrame",
+    yield_indices: list[int],
+    path: str | Path,
+    *,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+    dpi: int = 120,
+) -> None:
+    """Fit 2D PCA on all metric rows for selected worlds; draw trajectories in PC space over time."""
+    from sklearn.decomposition import PCA
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    metric_cols = [c for c in METRIC_KEYS if c in df.columns]
+    present = set(int(x) for x in df["yield_index"].unique())
+    yids = [int(y) for y in yield_indices if int(y) in present]
+    sub = df[df["yield_index"].isin(yids)].copy()
+    if sub.empty or len(metric_cols) < 2 or not yids:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "insufficient data for PCA", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    X = sub[metric_cols].to_numpy(dtype=np.float64)
+    if X.shape[0] < 2:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "need ≥2 rows for PCA", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(target, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    pca = PCA(n_components=2)
+    Z = pca.fit_transform(X)
+    sub["_pc1"] = Z[:, 0]
+    sub["_pc2"] = Z[:, 1]
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    cmap = plt.get_cmap("tab10")
+    for j, yid in enumerate(sorted(yids)):
+        seg = sub[sub["yield_index"] == yid].sort_values("ca_step")
+        if seg.empty:
+            continue
+        c = cmap(j % 10)
+        ax.plot(
+            seg["_pc1"],
+            seg["_pc2"],
+            color=c,
+            alpha=0.55,
+            linewidth=1.4,
+        )
+        ax.scatter(
+            seg["_pc1"],
+            seg["_pc2"],
+            color=c,
+            s=18,
+            label=f"yield {yid}",
+            edgecolors="k",
+            linewidths=0.25,
+            zorder=5,
+        )
+    v0, v1 = pca.explained_variance_ratio_
+    ax.set_xlabel(f"PC1 ({100.0 * float(v0):.1f}% var)")
+    ax.set_ylabel(f"PC2 ({100.0 * float(v1):.1f}% var)")
+    ax.set_title(
+        title
+        or "PCA of per-step metrics (lines connect increasing ca_step within each world)"
+    )
+    ax.legend(loc="best", fontsize="small")
+    ax.grid(True, alpha=0.25)
+    fig.savefig(target, bbox_inches="tight")
+    plt.close(fig)

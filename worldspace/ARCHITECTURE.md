@@ -33,7 +33,7 @@ Each world is a point in rule space and can be saved/loaded as JSON.
 
 ### Generator Ladder
 
-File: `worldspace/generators.py`
+File: `worldspace/generators/__init__.py` (package `worldspace.generators`)
 
 Implemented generator levels:
 
@@ -62,7 +62,9 @@ Implemented generator levels:
 
 File: `worldspace/simulator.py`
 
-`run_world(world: WorldSpec) -> SimulationResult`
+`run_world(world, *, ca_step_trace_file=None, ca_step_trace_yield_index=0) -> SimulationResult`
+
+Optional keyword-only args (used by the pipeline when `--ca-step-trace` is set): after each CA timestep, append one JSON line (`yield_index`, `ca_step`, `metrics`) to `ca_step_trace_file`. Other callers omit them.
 
 Simulation model:
 
@@ -80,7 +82,7 @@ Inside the loop there are **no growing Python lists** of per-step grids or full 
 
 File: `worldspace/math.py`
 
-Shared numeric routines used by the simulator, metrics, and pipeline (neighbor counts, PCA projection, k-means, entropy/oscillation/diversity helpers). Imported inside the package as `from . import math as ws_math` to avoid clashing with the Python standard library `math` module.
+Shared numeric routines used by the simulator, metrics, and pipeline (neighbor counts, Lloyd k-means on memmap rows, entropy/oscillation/diversity helpers). Imported as `from . import math as ws_math` to avoid clashing with the standard library `math` module.
 
 ### Metrics (World Coordinates in Behavior Space)
 
@@ -97,26 +99,27 @@ Constants and vector layout live in `metrics.py` (`METRICS_VECTOR_DIM`).
 
 File: `worldspace/pipeline.py`
 
-`stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=...)`:
+`stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=..., metrics_trace_path=..., ca_step_trace_path=...)`:
 
-1. **Pass 1 — streaming over worlds:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world`, write the metrics vector (`METRICS_VECTOR_DIM` floats) to a **temporary float32 memmap** row, and update PCA sufficient statistics (`sum_x`, `sum_xx`) in **O(1)** extra RAM.
-2. Fit PCA mean + 2D basis from sufficient statistics (`math.pca_mean_and_basis_2d`).
-3. Run Lloyd k-means **row-wise** on the memmap (centroids are `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
-4. **Pass 2 — streaming again:** same `iter_worlds` order, read each metrics row from disk, project to 2D, assign `cluster_id`, **append one JSON line** to the output file (and optionally print it).
+1. **Pass 1:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world` (passing CA trace file/handle into `run_world` when `ca_step_trace_path` is set). Append each final metrics vector to a **temporary float32 memmap** (`n × METRICS_VECTOR_DIM`). **Materialize** the list of `WorldSpec` objects for pass 2 (small structs; avoids a second `iter_worlds` pass, which halves remote LLM calls for `LLMWorldGenerator`). Optionally append one JSON line per world to `metrics_trace_path` (`yield_index`, `world`, `metrics`).
+2. Fit **dominant-metric + orthogonal sklearn PCA** on the memmap matrix (`_fit_dominant_metric_orthogonal_pca`): x-axis = deviation of the batch-highest-variance metric from its batch mean; y-axis = first PC of the remaining six columns (`sklearn.decomposition.PCA(n_components=1)`).
+3. Run Lloyd k-means **row-wise** on the memmap (centroids `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
+4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output (and optionally stdout).
 
-No Python list of all worlds or all `SpacePoint` objects is kept. RAM vs. batch size is **O(1)** (plus fixed small buffers and k-means state); disk holds the temporary `(n × METRICS_VECTOR_DIM)` metrics file only until the function returns.
+Trace file handles are opened **inside** the same `try`/`finally` as the pipeline body so a failure opening the second trace file still closes the first.
 
-### Visualization (matplotlib)
+RAM: memmap metrics stay **O(1)** vs batch size for the metric matrix; plus **O(n)** small `WorldSpec` objects for the cached list.
 
-File: `worldspace/viz.py`
+### Visualization (matplotlib + pandas for CA traces)
 
-Matplotlib is confined to this submodule and uses the **`Agg`** backend (file output only).
+Package: `worldspace/visualizer/` — Matplotlib uses the **`Agg`** backend (file output only).
 
-- `plot_world_embedding(points, path, ...)` — scatter from in-memory point-like objects (`embedding_2d`, `cluster_id`).
-- `plot_world_embedding_from_jsonl(jsonl_path, path, ...)` — scatter from a saved JSONL run (used by the CLI).
-- `plot_simulation_final_grid(result, path, ...)` — heatmap of `result.final_life`.
+- **`plotting.py`**: `plot_world_embedding`, `plot_world_embedding_from_jsonl`, `plot_simulation_final_grid`; pandas helpers `load_ca_step_trace_jsonl`, `summarize_ca_step_trace_by_world`; `plot_ca_step_metrics_timeseries`, `plot_ca_step_pca_trajectories` for `--ca-step-trace` JSONL.
+- **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with subcommands:
+  - **`embedding`** — scatter from main pipeline JSONL (`embedding ... <jsonl> --plot <png>`).
+  - **`ca-trace`** — time-series + PCA figures from `--ca-step-trace` output (see `docs/WORLDSPACE.md` §8).
 
-CLI: `--plot` reads JSONL from `--output`, or from a temporary JSONL if `--output` is omitted (file removed after plotting).
+Public re-exports also live on `worldspace` (from `worldspace.visualizer`).
 
 ### Generator Configs (YAML)
 
@@ -152,11 +155,20 @@ Optional copy of each line to stdout while writing a file:
 
 - `--echo-lines`
 
-Optional figure (requires `--output` first):
+Optional sidecars (any `--generator`):
 
-- `--plot results/world_space_map.png`
+- `--metrics-trace PATH` — JSONL: one line per simulated world from pass 1 (`yield_index`, `world`, `metrics`; no embedding/cluster).
+- `--ca-step-trace PATH` — JSONL: one line per CA timestep for each **pipeline** `run_world` (`yield_index`, `ca_step`, `metrics`). Does not trace extra `run_world` calls inside generators (e.g. LLM parent scoring).
 
-If `--output` is omitted, each JSON record is printed as one line to stdout (JSONL on stdout) with the same streaming memory profile.
+Embedding scatter (reads JSONL written with `--output`):
+
+`python -m worldspace.visualizer embedding results/world_space.jsonl --plot results/world_space_map.png`
+
+CA trace plots (pandas + matplotlib):
+
+`python -m worldspace.visualizer ca-trace results/ca_steps.jsonl --output-dir results/ca_plots --worlds 0,10,20 --summary`
+
+If `--output` is omitted, main JSONL lines are **not** printed unless `--echo-lines` is set (trace-only runs stay quiet).
 
 ## Separation from Legacy Stack
 

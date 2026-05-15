@@ -4,10 +4,14 @@ from .metrics import METRICS_VECTOR_DIM, WorldMetrics, metrics_vector_to_dict
 from .pipeline import stream_world_space_to_jsonl
 from .simulator import SimulationResult, run_world
 from .specs.spec import WorldSpec
-from .viz import (
+from .visualizer import (
+    plot_ca_step_metrics_timeseries,
+    plot_ca_step_pca_trajectories,
     plot_simulation_final_grid,
     plot_world_embedding,
     plot_world_embedding_from_jsonl,
+    load_ca_step_trace_jsonl,
+    summarize_ca_step_trace_by_world,
 )
 
 __all__ = [
@@ -21,4 +25,8 @@ __all__ = [
     "plot_world_embedding",
     "plot_world_embedding_from_jsonl",
     "plot_simulation_final_grid",
+    "load_ca_step_trace_jsonl",
+    "summarize_ca_step_trace_by_world",
+    "plot_ca_step_metrics_timeseries",
+    "plot_ca_step_pca_trajectories",
 ]

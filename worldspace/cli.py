@@ -1,10 +1,8 @@
-"""Command-line entry for world-space streaming and optional embedding plots."""
+"""Command-line entry for world-space streaming and optional trace files."""
 
 from __future__ import annotations
 
 import argparse
-import os
-import tempfile
 from pathlib import Path
 
 from .generators import (
@@ -17,7 +15,6 @@ from .generators import (
     TwoStateNoiseMarkovGenerator,
 )
 from .pipeline import stream_world_space_to_jsonl
-from .viz import plot_world_embedding_from_jsonl
 
 
 def main() -> None:
@@ -100,18 +97,19 @@ def main() -> None:
         "--output",
         type=str,
         default="",
-        help="Optional JSONL path (one JSON object per line). Memory use is O(1) vs. number of worlds.",
+        help=(
+            "Optional JSONL path for full world-space records (embedding + cluster). "
+            "Omit to skip writing main JSONL (e.g. metrics-only or CA-step trace runs)."
+        ),
     )
     parser.add_argument(
         "--echo-lines",
         action="store_true",
-        help="When using --output, also print each JSON line to stdout.",
-    )
-    parser.add_argument(
-        "--plot",
-        type=str,
-        default="",
-        help="Path to save PCA embedding scatter. If set without --output, JSONL is written to a temp file then removed.",
+        help=(
+            "Print each main JSONL line to stdout. When --output is set, mirrors the "
+            "file; when --output is omitted, streams JSONL to stdout only if this flag "
+            "is set."
+        ),
     )
     parser.add_argument(
         "--metrics-trace",
@@ -176,44 +174,18 @@ def main() -> None:
         generator = NeuralWorldGenerator(spec_path=spec_path, device=dev_kw)
 
     out_arg = args.output.strip()
-    temp_jsonl: Path | None = None
-    if args.plot.strip() and not out_arg:
-        fd, tmp = tempfile.mkstemp(suffix=".jsonl", prefix="worldspace-")
-        os.close(fd)
-        temp_jsonl = Path(tmp)
-        out_path: str | Path | None = temp_jsonl
-        echo_stdout = args.echo_lines
-    else:
-        out_path = out_arg or None
-        echo_stdout = (out_path is None) or args.echo_lines
+    out_path: str | Path | None = out_arg or None
+    echo_stdout = bool(args.echo_lines)
 
-    try:
-        stream_world_space_to_jsonl(
-            generator,
-            args.worlds,
-            out_path,
-            k_clusters=4,
-            echo_stdout=echo_stdout,
-            metrics_trace_path=metrics_trace_path,
-            ca_step_trace_path=ca_step_trace_path,
-        )
-
-        if args.plot.strip():
-            jsonl_src = out_arg if out_arg else str(temp_jsonl)
-            title_parts = [f"generator={args.generator}", f"worlds={args.worlds}"]
-            if args.generator == "neural":
-                title_parts.append(f"device={args.device}")
-            plot_world_embedding_from_jsonl(
-                jsonl_src,
-                args.plot.strip(),
-                title=", ".join(title_parts),
-            )
-    finally:
-        if temp_jsonl is not None:
-            try:
-                temp_jsonl.unlink()
-            except OSError:
-                pass
+    stream_world_space_to_jsonl(
+        generator,
+        args.worlds,
+        out_path,
+        k_clusters=4,
+        echo_stdout=echo_stdout,
+        metrics_trace_path=metrics_trace_path,
+        ca_step_trace_path=ca_step_trace_path,
+    )
 
 
 if __name__ == "__main__":
