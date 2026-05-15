@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-
 import json
 import os
 import tempfile
 from pathlib import Path
+from typing import TextIO
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -47,6 +47,8 @@ def stream_world_space_to_jsonl(
     k_clusters: int = 4,
     *,
     echo_stdout: bool = True,
+    metrics_trace_path: str | Path | None = None,
+    ca_step_trace_path: str | Path | None = None,
 ) -> None:
     """
     Run generator → simulate → metrics → 2D embedding → k-means.
@@ -63,6 +65,14 @@ def stream_world_space_to_jsonl(
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
     records are only printed (``echo_stdout`` is treated as True).
+
+    If ``metrics_trace_path`` is set and ``n_worlds`` > 0, write one JSON line per yielded
+    world during the first pass: ``yield_index``, ``world``, ``metrics`` (same simulation
+    as used for the batch memmap; no embedding or cluster fields).
+
+    If ``ca_step_trace_path`` is set and ``n_worlds`` > 0, append one JSON line per CA
+    timestep for each pipeline ``run_world`` (``yield_index``, ``ca_step``, ``metrics``).
+    Does not trace extra ``run_world`` calls made inside generators (e.g. LLM scoring).
     """
     file_write = path is not None
     target = Path(path) if file_write else None
@@ -70,28 +80,51 @@ def stream_world_space_to_jsonl(
         target.parent.mkdir(parents=True, exist_ok=True)
     n = n_worlds
     if n <= 0:
+        # Return before opening trace files: avoids dangling handles when n is 0.
         if file_write and target is not None:
             target.write_text("")
         return
     if not file_write:
         echo_stdout = True
 
-    with memmap_workspace(n) as (mm, labels):
-        worlds = _accumulate_metrics_memmap(generator, n, mm)
-        labels.flush()
+    trace_file: TextIO | None = None
+    ca_trace_file: TextIO | None = None
+    try:
+        raw_trace = metrics_trace_path
+        if raw_trace is not None and str(raw_trace).strip():
+            tp = Path(str(raw_trace).strip()).expanduser()
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            trace_file = tp.open("w", encoding="utf-8")
 
-        x = np.asarray(mm[:n], dtype=np.float64)
-        mean, dominant_idx, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
-        ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
+        raw_ca = ca_step_trace_path
+        if raw_ca is not None and str(raw_ca).strip():
+            cp = Path(str(raw_ca).strip()).expanduser()
+            cp.parent.mkdir(parents=True, exist_ok=True)
+            ca_trace_file = cp.open("w", encoding="utf-8")
 
-        lines = _iter_space_json_lines(
-            worlds, mm, labels, mean, dominant_idx, axis_name, pca
-        )
-        if file_write and target is not None:
-            _write_jsonl_to_path(target, lines, echo_stdout)
-        else:
-            for line in lines:
-                print(line, flush=True)
+        with memmap_workspace(n) as (mm, labels):
+            worlds = _accumulate_metrics_memmap(
+                generator, n, mm, trace_file, ca_trace_file
+            )
+            labels.flush()
+
+            x = np.asarray(mm[:n], dtype=np.float64)
+            mean, dominant_idx, axis_name, pca = _fit_dominant_metric_orthogonal_pca(x)
+            ws_math.kmeans_lloyd_on_memmap(mm, labels, n, k_clusters)
+
+            lines = _iter_space_json_lines(
+                worlds, mm, labels, mean, dominant_idx, axis_name, pca
+            )
+            if file_write and target is not None:
+                _write_jsonl_to_path(target, lines, echo_stdout)
+            else:
+                for line in lines:
+                    print(line, flush=True)
+    finally:
+        if trace_file is not None:
+            trace_file.close()
+        if ca_trace_file is not None:
+            ca_trace_file.close()
 
 
 def _unlink_quiet(paths: tuple[str, ...]) -> None:
@@ -124,13 +157,30 @@ def _accumulate_metrics_memmap(
     generator: WorldGenerator,
     n: int,
     mm: np.memmap,
+    metrics_trace_file: TextIO | None,
+    ca_step_trace_file: TextIO | None,
 ) -> list[WorldSpec]:
     """Simulate each world, write float32 metric rows to ``mm``, return specs for pass 2."""
     worlds: list[WorldSpec] = []
     for i, world in enumerate(generator.iter_worlds(n)):
         worlds.append(world)
-        vec = run_world(world).metrics.as_vector()
+        if ca_step_trace_file is not None:
+            vec = run_world(
+                world,
+                ca_step_trace_file=ca_step_trace_file,
+                ca_step_trace_yield_index=i,
+            ).metrics.as_vector()
+        else:
+            vec = run_world(world).metrics.as_vector()
         mm[i] = vec.astype(np.float32)
+        if metrics_trace_file is not None:
+            row = {
+                "yield_index": i,
+                "world": world.to_json_dict(),
+                "metrics": metrics_vector_to_dict(vec),
+            }
+            metrics_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+            metrics_trace_file.flush()
     mm.flush()
     return worlds
 

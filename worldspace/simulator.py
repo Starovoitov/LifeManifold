@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import json
+from typing import TextIO
 
 import numpy as np
 
 from . import math as ws_math
-from .metrics import WorldMetrics
+from .metrics import WorldMetrics, metrics_vector_to_dict
 from .specs.spec import WorldSpec
 
 
@@ -19,8 +21,18 @@ class SimulationResult:
     final_life: np.ndarray | None = None
 
 
-def run_world(world: WorldSpec) -> SimulationResult:
-    """Run one world; metrics use online accumulators."""
+def run_world(
+    world: WorldSpec,
+    *,
+    ca_step_trace_file: TextIO | None = None,
+    ca_step_trace_yield_index: int = 0,
+) -> SimulationResult:
+    """Run one world; metrics use online accumulators.
+
+    If ``ca_step_trace_file`` is set, append one JSON object per CA timestep after that
+    step (``yield_index``, ``ca_step``, ``metrics``). Used by the pipeline batch path only;
+    other ``run_world`` callers omit it.
+    """
     rng = np.random.default_rng(world.seed)
     life, food, ages = _initial_grids(rng, world)
 
@@ -31,7 +43,7 @@ def run_world(world: WorldSpec) -> SimulationResult:
     death_count = 0
     density_tail: deque[float] = deque(maxlen=ws_math.OSCILLATION_DENSITY_WINDOW)
 
-    for _ in range(world.steps):
+    for step in range(world.steps):
         neighbors = ws_math.neighbor_count(life)
         next_life = _next_life_from_rules(rng, life, neighbors, world)
         food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
@@ -49,6 +61,24 @@ def run_world(world: WorldSpec) -> SimulationResult:
         density_mean, density_m2, density_n = _welford_append(
             d, density_mean, density_m2, density_n
         )
+
+        if ca_step_trace_file is not None:
+            snap = _metrics_from_final_state(
+                life,
+                density_mean,
+                density_m2,
+                density_n,
+                density_tail,
+                death_age_sum,
+                death_count,
+            )
+            row = {
+                "yield_index": ca_step_trace_yield_index,
+                "ca_step": step,
+                "metrics": metrics_vector_to_dict(snap.as_vector()),
+            }
+            ca_step_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+            ca_step_trace_file.flush()
 
     metrics = _metrics_from_final_state(
         life,

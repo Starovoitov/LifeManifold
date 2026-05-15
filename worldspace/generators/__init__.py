@@ -700,8 +700,14 @@ def call_llm(
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
 
-    def _llm_transport_hint(reason: object) -> str:
+    def _llm_url_error_hint(reason: object, api_base: str) -> str:
         text = str(reason)
+        if "Connection refused" in text or "Errno 111" in text:
+            return (
+                f" Hint: no server accepted TCP to {api_base!r} (connection refused). "
+                "If this is a local OpenAI-compatible endpoint (Ollama/LM Studio), start it "
+                "or change ``api_base`` / use ``--llm-spec`` with a reachable URL."
+            )
         if isinstance(reason, ssl.SSLError) or "SSL" in text or "UNEXPECTED_EOF" in text:
             return (
                 " TLS hint: urllib uses system trust and env proxies; set HTTPS_PROXY/HTTP_PROXY "
@@ -718,7 +724,7 @@ def call_llm(
         raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
     except error.URLError as exc:
         r = exc.reason
-        hint = _llm_transport_hint(r)
+        hint = _llm_url_error_hint(r, api_base)
         raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
 
     try:

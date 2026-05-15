@@ -113,7 +113,24 @@ def main() -> None:
         default="",
         help="Path to save PCA embedding scatter. If set without --output, JSONL is written to a temp file then removed.",
     )
+    parser.add_argument(
+        "--metrics-trace",
+        type=str,
+        default="",
+        help="Optional JSONL: one line per yielded world (yield_index, world, metrics) during the first pipeline pass; any --generator.",
+    )
+    parser.add_argument(
+        "--ca-step-trace",
+        type=str,
+        default="",
+        help="Optional JSONL: one line per CA timestep per pipeline run_world (yield_index, ca_step, metrics); any --generator.",
+    )
     args = parser.parse_args()
+
+    trace_arg = args.metrics_trace.strip()
+    metrics_trace_path = Path(trace_arg).expanduser() if trace_arg else None
+    ca_arg = args.ca_step_trace.strip()
+    ca_step_trace_path = Path(ca_arg).expanduser() if ca_arg else None
 
     base = RandomWorldGenerator(grid_size=args.grid, steps=args.steps).generate(1)[0]
     if args.generator == "random":
@@ -177,6 +194,8 @@ def main() -> None:
             out_path,
             k_clusters=4,
             echo_stdout=echo_stdout,
+            metrics_trace_path=metrics_trace_path,
+            ca_step_trace_path=ca_step_trace_path,
         )
 
         if args.plot.strip():
