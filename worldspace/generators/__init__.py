@@ -7,7 +7,7 @@ import json
 import os
 import ssl
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib import error, request
 
 import numpy as np
@@ -17,9 +17,15 @@ from ..simulator import run_world
 from ..specs.spec import WorldSpec
 
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
-_DEFAULT_GENETIC_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "genetic_world_generator.yaml"
-_DEFAULT_LLM_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "llm_world_generator.yaml"
-_DEFAULT_HYBRID_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "hybrid_world_generator.yaml"
+_DEFAULT_GENETIC_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "genetic_world_generator.yaml"
+)
+_DEFAULT_LLM_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "llm_world_generator.yaml"
+)
+_DEFAULT_HYBRID_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "hybrid_world_generator.yaml"
+)
 
 
 def random_walk(
@@ -329,7 +335,7 @@ class GeneticWorldGenerator(WorldGenerator):
             random_mutation_min_val=-abs(self.mutation_scale),
             random_mutation_max_val=abs(self.mutation_scale),
             gene_space=gene_space,
-            gene_type=gene_type,
+            gene_type=cast(Any, gene_type),
             random_seed=self.seed,
             save_best_solutions=False,
             on_generation=on_generation,
@@ -708,7 +714,11 @@ def call_llm(
                 "If this is a local OpenAI-compatible endpoint (Ollama/LM Studio), start it "
                 "or change ``api_base`` / use ``--generator-spec`` with a reachable URL."
             )
-        if isinstance(reason, ssl.SSLError) or "SSL" in text or "UNEXPECTED_EOF" in text:
+        if (
+            isinstance(reason, ssl.SSLError)
+            or "SSL" in text
+            or "UNEXPECTED_EOF" in text
+        ):
             return (
                 " TLS hint: urllib uses system trust and env proxies; set HTTPS_PROXY/HTTP_PROXY "
                 "if required, add your intercept CA to SSL_CERT_FILE (urllib does not read "
@@ -885,5 +895,3 @@ def _apply_world_patch(world: WorldSpec, patch: dict[str, Any], seed: int) -> Wo
         predation=predation,
         seed=seed,
     )
-
-

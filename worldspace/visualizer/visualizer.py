@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> None:
         description=(
             "World-space visualizations: embedding scatter from ``--metrics-trace`` JSONL; "
             "or CA step trace plots from --ca-step-trace output."
-        )
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

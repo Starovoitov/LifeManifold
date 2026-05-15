@@ -173,7 +173,14 @@ def plot_ca_step_metrics_timeseries(
     yids = [int(y) for y in yield_indices if int(y) in present]
     if not metrics or not yids:
         fig, ax = plt.subplots(figsize=(8, 4), dpi=dpi)
-        ax.text(0.5, 0.5, "no data for plot", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "no data for plot",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
         ax.set_axis_off()
         fig.savefig(target, bbox_inches="tight")
         plt.close(fig)
@@ -231,7 +238,14 @@ def plot_ca_step_pca_trajectories(
     ctx = _ca_step_trace_reduction_context(df, yield_indices)
     if ctx is None:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        ax.text(0.5, 0.5, "insufficient data for PCA", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "insufficient data for PCA",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
         ax.set_axis_off()
         fig.savefig(target, bbox_inches="tight")
         plt.close(fig)
@@ -303,7 +317,14 @@ def plot_ca_step_umap_trajectories(
     ctx = _ca_step_trace_reduction_context(df, yield_indices)
     if ctx is None:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        ax.text(0.5, 0.5, "insufficient data for UMAP", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "insufficient data for UMAP",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
         ax.set_axis_off()
         fig.savefig(target, bbox_inches="tight")
         plt.close(fig)

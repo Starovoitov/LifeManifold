@@ -98,9 +98,7 @@ class TestVisualizer(unittest.TestCase):
             Path(jsonl).write_text(
                 json.dumps(row, ensure_ascii=True) + "\n", encoding="utf-8"
             )
-            visualizer_main(
-                ["embedding", jsonl, "--plot", png, "--title", "unit test"]
-            )
+            visualizer_main(["embedding", jsonl, "--plot", png, "--title", "unit test"])
             self.assertGreater(Path(png).stat().st_size, 100)
         finally:
             os.unlink(jsonl)
@@ -110,9 +108,7 @@ class TestVisualizer(unittest.TestCase):
         fd_j, jsonl = tempfile.mkstemp(suffix=".jsonl")
         os.close(fd_j)
         try:
-            rows = [
-                json.dumps(_sample_row(0, t), ensure_ascii=True) for t in range(4)
-            ]
+            rows = [json.dumps(_sample_row(0, t), ensure_ascii=True) for t in range(4)]
             Path(jsonl).write_text("\n".join(rows) + "\n", encoding="utf-8")
             with tempfile.TemporaryDirectory() as d:
                 visualizer_main(["ca-trace", jsonl, "--output-dir", d])

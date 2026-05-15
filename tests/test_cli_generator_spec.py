@@ -32,9 +32,7 @@ class TestCliGeneratorSpec(unittest.TestCase):
         self.assertEqual(p, Path("/tmp/a.yaml"))
 
     def test_genetic_accepts_genetic_yaml(self) -> None:
-        validate_generator_spec_yaml(
-            "genetic", _SPECS / "genetic_world_generator.yaml"
-        )
+        validate_generator_spec_yaml("genetic", _SPECS / "genetic_world_generator.yaml")
 
     def test_genetic_rejects_llm_yaml(self) -> None:
         with self.assertRaises(ValueError) as ctx:
@@ -60,13 +58,17 @@ class TestCliGeneratorSpec(unittest.TestCase):
 
     def test_neural_rejects_genetic_yaml(self) -> None:
         with self.assertRaises(ValueError):
-            validate_generator_spec_yaml("neural", _SPECS / "genetic_world_generator.yaml")
+            validate_generator_spec_yaml(
+                "neural", _SPECS / "genetic_world_generator.yaml"
+            )
 
     def test_cli_rejects_spec_with_non_yaml_generator(self) -> None:
         try:
             import worldspace.cli  # noqa: F401
         except ImportError:
-            raise unittest.SkipTest("worldspace CLI requires full optional dependencies")
+            raise unittest.SkipTest(
+                "worldspace CLI requires full optional dependencies"
+            )
         spec = str(_SPECS / "genetic_world_generator.yaml")
         proc = subprocess.run(
             [

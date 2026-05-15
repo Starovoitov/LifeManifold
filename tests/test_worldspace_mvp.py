@@ -68,7 +68,11 @@ class TestWorldSpaceMVP(unittest.TestCase):
                     metrics_trace_path=trace_path,
                 )
             self.assertEqual(buf.getvalue(), "")
-            tlines = [ln for ln in trace_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            tlines = [
+                ln
+                for ln in trace_path.read_text(encoding="utf-8").splitlines()
+                if ln.strip()
+            ]
             self.assertEqual(len(tlines), 2)
 
     def test_stream_zero_worlds_metrics_trace_not_opened(self):
@@ -176,7 +180,9 @@ class TestWorldSpaceMVP(unittest.TestCase):
         fd, path = tempfile.mkstemp(suffix=".jsonl")
         os.close(fd)
         try:
-            with patch("worldspace.generators.call_llm", return_value=response) as m_llm:
+            with patch(
+                "worldspace.generators.call_llm", return_value=response
+            ) as m_llm:
                 generator = LLMWorldGenerator(grid_size=10, steps=10, seed=1)
                 stream_world_space_to_jsonl(
                     generator, 4, path, k_clusters=2, echo_stdout=False
@@ -265,6 +271,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
         self.assertEqual(axis_name, METRIC_KEYS[j])
         np.testing.assert_allclose(mean, mean_exp)
         self.assertIsNotNone(pca)
+        assert pca is not None  # n >= 2 here; narrows PCA | None for static analysis
         np.testing.assert_allclose(pca.mean_, np.delete(mean_exp, j), rtol=0, atol=1e-9)
         vec = x[3]
         emb = _project_dominant_metric_orthogonal(vec, mean, j, pca)
@@ -433,7 +440,9 @@ class TestWorldSpaceMVP(unittest.TestCase):
         ).encode("utf-8")
 
         with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
-            with patch("worldspace.generators.request.urlopen", return_value=fake_cm) as m_open:
+            with patch(
+                "worldspace.generators.request.urlopen", return_value=fake_cm
+            ) as m_open:
                 out = call_llm(
                     mode="remote",
                     provider_name="qwen",

@@ -155,7 +155,9 @@ _RULE_DIM = 9
 _FLOAT_HEAD = 3  # noise, resource_regen, predation
 _OUT_DIM = 2 * _RULE_DIM + _FLOAT_HEAD
 
-_DEFAULT_SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "neural_world_generator.yaml"
+_DEFAULT_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "neural_world_generator.yaml"
+)
 
 
 def _resolve_torch_device(yaml_device: str, override: str | None) -> torch.device:

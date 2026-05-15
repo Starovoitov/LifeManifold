@@ -28,6 +28,7 @@ dev = [
 pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"
+reportPrivateImportUsage = "none"
 
 [tool.uv]
 package = false
