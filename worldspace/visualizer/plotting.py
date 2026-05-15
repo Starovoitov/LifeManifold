@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .. import math as ws_math
-from ..metrics import METRIC_KEYS, METRICS_VECTOR_DIM
+from ..metrics import METRIC_KEYS
 from ..pipeline import dominant_metric_delta_xy_batch
 from ..simulator import SimulationResult
 
@@ -27,33 +27,35 @@ def plot_world_metrics_pca_scatter_from_jsonl(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
     k_clusters: int = 4,
+    standardize_metrics: bool = False,
 ) -> None:
     """
     2D scatter of worlds in PCA space of the seven ``METRIC_KEYS`` columns
-    (from each line's ``metrics`` object). Points colored by k-means on those metrics
-    (``cluster_id`` from JSONL, or Lloyd k-means with ``k_clusters`` when absent).
+    (from each line's ``metrics`` object).
+
+    Point colors always use ``cluster_id`` from JSONL or Lloyd k-means on **raw**
+    metrics (never on z-scored metrics). When ``standardize_metrics`` is true, PCA
+    is fit on per-batch z-scored columns (``*_norm.png``).
     """
     from sklearn.decomposition import PCA
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     raw, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+    X_fit = _standardize_metrics_matrix(X) if standardize_metrics else X
 
     pca = PCA(n_components=2, svd_solver="full")
-    Z = pca.fit_transform(X)
-    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+    Z = pca.fit_transform(X_fit)
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
     v0, v1 = pca.explained_variance_ratio_
     ax.set_xlabel(f"PC1 ({100.0 * float(v0):.1f}% var)")
     ax.set_ylabel(f"PC2 ({100.0 * float(v1):.1f}% var)")
+    z_note = "z-scored 7D batch; " if standardize_metrics else ""
     ax.set_title(
-        title
-        or (
-            f"PCA scatter of per-world metrics (7D → 2D; "
-            f"k-means on {METRICS_VECTOR_DIM}D, k={k_clusters})"
-        )
+        title or (f"PCA scatter ({z_note}7D → 2D; {_raw_cluster_color_note(raw)})")
     )
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -69,14 +71,16 @@ def plot_world_metrics_umap_scatter_from_jsonl(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
     k_clusters: int = 4,
+    standardize_metrics: bool = False,
 ) -> None:
     """
-    2D UMAP embedding of the same seven per-world ``metrics`` columns as
-    :func:`plot_world_metrics_pca_scatter_from_jsonl`. Points colored by k-means on
-    those metrics (``cluster_id`` from JSONL, or Lloyd k-means when absent).
+    2D UMAP of the seven per-world ``metrics`` columns (same as
+    :func:`plot_world_metrics_pca_scatter_from_jsonl`).
 
-    Requires at least **three** rows (UMAP ``n_neighbors`` must be > 1). Uses
-    ``init="random"`` so small batches do not hit fragile spectral initialization.
+    Colors: ``cluster_id`` / k-means on **raw** metrics only. Layout uses raw or
+    z-scored metrics per ``standardize_metrics``.
+
+    Requires at least **three** rows. Uses ``init="random"`` on small batches.
     """
     import warnings
 
@@ -94,6 +98,8 @@ def plot_world_metrics_umap_scatter_from_jsonl(
             "UMAP requires n_neighbors > 1."
         )
 
+    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+    X_fit = _standardize_metrics_matrix(X) if standardize_metrics else X
     n_neighbors = max(2, min(15, n - 1))
 
     reducer = umap.UMAP(
@@ -105,20 +111,14 @@ def plot_world_metrics_umap_scatter_from_jsonl(
         n_jobs=1,
         init="random",
     )
-    Z = reducer.fit_transform(X)
-    cluster_ids = _world_metrics_cluster_labels(X, raw, k_clusters=k_clusters)
+    Z = np.asarray(reducer.fit_transform(X_fit), dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
     ax.set_xlabel("UMAP 1")
     ax.set_ylabel("UMAP 2")
-    ax.set_title(
-        title
-        or (
-            f"UMAP scatter of per-world final metrics "
-            f"(same 7D as pca.png; k-means, k={k_clusters})"
-        )
-    )
+    z_note = "z-scored 7D batch; " if standardize_metrics else ""
+    ax.set_title(title or (f"UMAP scatter ({z_note}{_raw_cluster_color_note(raw)})"))
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
     fig.savefig(target, bbox_inches="tight")
@@ -133,20 +133,24 @@ def plot_dominant_metric_delta_scatter_from_jsonl(
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
     k_clusters: int = 4,
+    standardize_metrics: bool = False,
 ) -> None:
     """
-    Scatter worlds in pipeline **dominant-metric-delta** layout (``dominant_metric_delta_xy``).
+    Scatter worlds in **dominant-metric-delta** layout.
 
-    **x**: Δ dominant metric (highest variance in batch); **y**: PC1 of the other six
-    metrics. Uses stored ``dominant_metric_delta_xy`` when present (legacy: ``world_space_xy``,
-    ``embedding_2d``); otherwise recomputes via :func:`dominant_metric_delta_xy_batch`.
-    Point color: ``cluster_id`` or k-means (``k_clusters``). See ``docs/WORLDSPACE.md`` §6.1.
+    **x**: Δ dominant metric (highest variance in batch); **y**: PC1 of the other six.
+
+    Raw layout (default) uses stored ``dominant_metric_delta_xy`` when present; z-scored
+    layout (``standardize_metrics``) always recomputes via
+    :func:`dominant_metric_delta_xy_batch` on per-batch z-scored metrics.
+
+    Colors: ``cluster_id`` / k-means on **raw** metrics only.
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    raw = pd.read_json(Path(jsonl_path), lines=True)
+    raw_pd = pd.read_json(Path(jsonl_path), lines=True)
 
-    if raw.empty:
+    if raw_pd.empty:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         ax.text(0.5, 0.5, "no points", ha="center", va="center", transform=ax.transAxes)
         ax.set_axis_off()
@@ -154,20 +158,34 @@ def plot_dominant_metric_delta_scatter_from_jsonl(
         plt.close(fig)
         return
 
-    xy_col = _dominant_metric_delta_xy_jsonl_column(raw)
-    labels_col = _dominant_metric_delta_axis_labels_jsonl_column(raw)
-    has_metrics = "metrics" in raw.columns
+    xy_col = _dominant_metric_delta_xy_jsonl_column(raw_pd)
+    labels_col = _dominant_metric_delta_axis_labels_jsonl_column(raw_pd)
+    has_metrics = "metrics" in raw_pd.columns
+    raw_m: pd.DataFrame | None = None
 
-    if xy_col is not None:
-        Z = np.asarray(raw[xy_col].tolist(), dtype=np.float64)
+    if standardize_metrics:
+        if not has_metrics:
+            raise ValueError(
+                "Metrics JSONL for dominant_metric_delta_norm.png needs per-line "
+                "``metrics`` with all standard keys."
+            )
+        raw_m, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+        cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
+        X_fit = _standardize_metrics_matrix(X)
+        Z, axis_dict = dominant_metric_delta_xy_batch(X_fit)
+        x_label, y_label = _axis_labels_from_labels_dict(axis_dict)
+        x_label = f"z-scored {x_label}"
+        y_label = f"z-scored {y_label}"
+    elif xy_col is not None:
+        Z = np.asarray(raw_pd[xy_col].tolist(), dtype=np.float64)
         x_label, y_label = _axis_labels_from_dominant_metric_delta_labels_series(
-            raw, labels_col
+            raw_pd, labels_col
         )
         if has_metrics:
             raw_m, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
             cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
-        elif "cluster_id" in raw.columns:
-            cluster_ids = raw["cluster_id"].astype(int).to_numpy()
+        elif "cluster_id" in raw_pd.columns:
+            cluster_ids = raw_pd["cluster_id"].astype(int).to_numpy()
         else:
             raise ValueError(
                 "Metrics JSONL with precomputed dominant_metric_delta_xy needs either a full "
@@ -175,9 +193,9 @@ def plot_dominant_metric_delta_scatter_from_jsonl(
             )
     elif has_metrics:
         raw_m, X = _final_world_metrics_matrix_from_jsonl(jsonl_path)
+        cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
         Z, axis_dict = dominant_metric_delta_xy_batch(X)
         x_label, y_label = _axis_labels_from_labels_dict(axis_dict)
-        cluster_ids = _world_metrics_cluster_labels(X, raw_m, k_clusters=k_clusters)
     else:
         raise ValueError(
             "Metrics JSONL for dominant_metric_delta.png needs "
@@ -189,9 +207,13 @@ def plot_dominant_metric_delta_scatter_from_jsonl(
     _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_title(
-        title or "World space: Δ dominant metric vs PC1 of other six (k-means color)"
+    z_note = "z-scored batch; " if standardize_metrics else ""
+    color_note = (
+        _raw_cluster_color_note(raw_m)
+        if raw_m is not None
+        else "colors: cluster_id (raw)"
     )
+    ax.set_title(title or (f"Dominant-metric-delta ({z_note}{color_note})"))
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
     fig.savefig(target, bbox_inches="tight")
@@ -239,7 +261,7 @@ def load_ca_step_trace_jsonl(path: str | Path) -> pd.DataFrame:
         return df
     if "metrics" not in df.columns:
         raise ValueError("CA step trace JSONL must contain a 'metrics' object per line")
-    met = pd.json_normalize(df["metrics"])
+    met = pd.json_normalize(cast(pd.Series, df["metrics"]))
     base = df[["yield_index", "ca_step"]].reset_index(drop=True)
     return pd.concat([base, met], axis=1)
 
@@ -250,7 +272,7 @@ def summarize_ca_step_trace_by_world(df: pd.DataFrame) -> pd.DataFrame:
     if not cols:
         return pd.DataFrame()
     g = df.groupby("yield_index", sort=True)[cols]
-    return g.agg(["mean", "std", "min", "max"])
+    return cast(pd.DataFrame, g.agg(["mean", "std", "min", "max"]))
 
 
 def plot_ca_step_metrics_timeseries(
@@ -294,7 +316,9 @@ def plot_ca_step_metrics_timeseries(
     cmap = plt.get_cmap("tab10")
     for ax, m in zip(np.ravel(axes), metrics):
         for j, yid in enumerate(yids):
-            seg = df[df["yield_index"] == yid].sort_values("ca_step")
+            seg = cast(pd.DataFrame, df.loc[df["yield_index"] == yid]).sort_values(
+                by="ca_step"
+            )
             if seg.empty:
                 continue
             c = cmap(j % 10)
@@ -329,6 +353,7 @@ def plot_ca_step_pca_trajectories(
     title: str | None = None,
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
+    standardize_metrics: bool = False,
 ) -> None:
     """Fit 2D PCA on all metric rows for selected worlds; draw trajectories in PC space over time."""
     from sklearn.decomposition import PCA
@@ -353,8 +378,9 @@ def plot_ca_step_pca_trajectories(
         return
 
     sub, X, yids, _metric_cols = ctx
+    X_fit = _standardize_metrics_matrix(X) if standardize_metrics else X
     pca = PCA(n_components=2)
-    Z = pca.fit_transform(X)
+    Z = pca.fit_transform(X_fit)
     sub = sub.copy()
     sub["_pc1"] = Z[:, 0]
     sub["_pc2"] = Z[:, 1]
@@ -362,7 +388,9 @@ def plot_ca_step_pca_trajectories(
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     cmap = plt.get_cmap("tab10")
     for j, yid in enumerate(yids):
-        seg = sub[sub["yield_index"] == yid].sort_values("ca_step")
+        seg = cast(pd.DataFrame, sub.loc[sub["yield_index"] == yid]).sort_values(
+            by="ca_step"
+        )
         if seg.empty:
             continue
         c = cmap(j % 10)
@@ -386,9 +414,13 @@ def plot_ca_step_pca_trajectories(
     v0, v1 = pca.explained_variance_ratio_
     ax.set_xlabel(f"PC1 ({100.0 * float(v0):.1f}% var)")
     ax.set_ylabel(f"PC2 ({100.0 * float(v1):.1f}% var)")
+    z_note = "z-scored per-step batch; " if standardize_metrics else ""
     ax.set_title(
         title
-        or "PCA of per-step metrics (lines connect increasing ca_step within each world)"
+        or (
+            f"{z_note}PCA of per-step metrics "
+            "(lines connect increasing ca_step within each world)"
+        )
     )
     ax.legend(loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
@@ -404,6 +436,7 @@ def plot_ca_step_umap_trajectories(
     title: str | None = None,
     figsize: tuple[float, float] = (8, 6),
     dpi: int = 120,
+    standardize_metrics: bool = False,
 ) -> None:
     """Fit 2D UMAP on all metric rows for selected worlds; draw trajectories in embedding space over time."""
     import warnings
@@ -432,7 +465,8 @@ def plot_ca_step_umap_trajectories(
         return
 
     sub, X, yids, _metric_cols = ctx
-    n_samples = X.shape[0]
+    X_fit = _standardize_metrics_matrix(X) if standardize_metrics else X
+    n_samples = X_fit.shape[0]
     if n_samples > 2:
         n_neighbors = max(2, min(15, n_samples - 1))
     else:
@@ -446,7 +480,7 @@ def plot_ca_step_umap_trajectories(
         random_state=42,
         n_jobs=1,
     )
-    Z = reducer.fit_transform(X)
+    Z = np.asarray(reducer.fit_transform(X_fit), dtype=np.float64)
     sub = sub.copy()
     sub["_umap1"] = Z[:, 0]
     sub["_umap2"] = Z[:, 1]
@@ -454,7 +488,9 @@ def plot_ca_step_umap_trajectories(
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     cmap = plt.get_cmap("tab10")
     for j, yid in enumerate(yids):
-        seg = sub[sub["yield_index"] == yid].sort_values("ca_step")
+        seg = cast(pd.DataFrame, sub.loc[sub["yield_index"] == yid]).sort_values(
+            by="ca_step"
+        )
         if seg.empty:
             continue
         c = cmap(j % 10)
@@ -477,9 +513,13 @@ def plot_ca_step_umap_trajectories(
         )
     ax.set_xlabel("UMAP 1")
     ax.set_ylabel("UMAP 2")
+    z_note = "z-scored per-step batch; " if standardize_metrics else ""
     ax.set_title(
         title
-        or "UMAP of per-step metrics (lines connect increasing ca_step within each world)"
+        or (
+            f"{z_note}UMAP of per-step metrics "
+            "(lines connect increasing ca_step within each world)"
+        )
     )
     ax.legend(loc="best", fontsize="small")
     ax.grid(True, alpha=0.25)
@@ -520,6 +560,20 @@ def _final_world_metrics_matrix_from_jsonl(
     return raw, X
 
 
+def _standardize_metrics_matrix(X: np.ndarray) -> np.ndarray:
+    """Per-column z-score on batch ``X`` (population std; zero std → scale 1)."""
+    mean = X.mean(axis=0)
+    std = X.std(axis=0, ddof=0)
+    std = np.where(std < 1e-12, 1.0, std)
+    return (X - mean) / std
+
+
+def _raw_cluster_color_note(raw: pd.DataFrame) -> str:
+    if "cluster_id" in raw.columns:
+        return "colors: cluster_id (pipeline k-means on raw 7D)"
+    return "colors: k-means on raw 7D metrics"
+
+
 def _world_metrics_cluster_labels(
     X: np.ndarray,
     raw: pd.DataFrame,
@@ -527,18 +581,22 @@ def _world_metrics_cluster_labels(
     k_clusters: int = 4,
 ) -> np.ndarray:
     """
-    Per-world k-means labels for scatter coloring.
+    Per-world labels for scatter coloring (always from **raw** metrics).
 
-    Uses ``cluster_id`` from JSONL when present (pipeline ``--metrics-trace``);
-    otherwise runs the same Lloyd k-means as ``stream_world_space_to_jsonl`` on the
-    seven metric dimensions.
+    Uses ``cluster_id`` from JSONL when present; otherwise Lloyd k-means on raw ``X``.
+    Never cluster on z-scored metrics (``*_norm.png`` layouts use these labels).
     """
     if "cluster_id" in raw.columns:
         return raw["cluster_id"].astype(int).to_numpy()
     n = int(X.shape[0])
     labels = np.zeros(n, dtype=np.int32)
     rows = np.ascontiguousarray(X, dtype=np.float32)
-    ws_math.kmeans_lloyd_on_memmap(rows, labels, n, k_clusters)
+    ws_math.kmeans_lloyd_on_memmap(
+        cast(np.memmap, rows),
+        cast(np.memmap, labels),
+        n,
+        k_clusters,
+    )
     return labels.astype(int)
 
 
@@ -563,7 +621,7 @@ def _scatter_world_metrics_by_cluster(
             linewidths=0.35,
             s=point_size,
         )
-    ax.legend(title="k-means", loc="best")
+    ax.legend(title="cluster (raw)", loc="best")
 
 
 def _dominant_metric_delta_xy_jsonl_column(raw: pd.DataFrame) -> str | None:
@@ -618,10 +676,10 @@ def _ca_step_trace_reduction_context(
     metric_cols = [c for c in METRIC_KEYS if c in df.columns]
     present = set(int(x) for x in df["yield_index"].unique())
     yids = [int(y) for y in yield_indices if int(y) in present]
-    sub = df[df["yield_index"].isin(yids)].copy()
+    sub = cast(pd.DataFrame, df.loc[df["yield_index"].isin(yids)].copy())
     if sub.empty or len(metric_cols) < 2 or not yids:
         return None
-    X = sub[metric_cols].to_numpy(dtype=np.float64)
+    X = cast(pd.DataFrame, sub[metric_cols]).to_numpy(dtype=np.float64)
     if X.shape[0] < 2:
         return None
     yids_sorted = sorted(yids)

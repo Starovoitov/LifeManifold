@@ -12,11 +12,12 @@ def main(argv: list[str] | None = None) -> None:
         prog="python -m worldspace.visualizer",
         description=(
             "Render visualizations into ``--output-dir`` using fixed filenames. "
-            "From ``--metrics-jsonl``: ``dominant_metric_delta.png`` (Δ-dominant + PC1 "
-            "of six), ``pca.png`` and ``umap.png`` (7D PCA / UMAP scatters, k-means "
-            "color; UMAP needs at least three worlds). "
-            "From ``--ca-step-jsonl``: ``ca_step_timeseries.png``, ``pca_trajectories.png``, "
-            "``umap_trajectories.png``."
+            "From ``--metrics-jsonl``: ``dominant_metric_delta.png``, ``pca.png``, "
+            "``umap.png`` plus ``*_norm.png`` (z-scored layout; same cluster colors "
+            "as raw). UMAP needs ≥3 worlds. "
+            "From ``--ca-step-jsonl``: ``ca_step_timeseries.png``, "
+            "``pca_trajectories.png`` / ``pca_trajectories_norm.png``, "
+            "``umap_trajectories.png`` / ``umap_trajectories_norm.png``."
         ),
     )
     parser.add_argument(
@@ -31,9 +32,9 @@ def main(argv: list[str] | None = None) -> None:
         default="",
         help=(
             "Path to metrics JSONL (``--metrics-trace`` or any JSONL with per-line "
-            "``metrics``). Writes ``dominant_metric_delta.png``, ``pca.png``, ``umap.png`` "
-            "(colored by ``cluster_id`` or ``--k-clusters`` k-means). "
-            "``dominant_metric_delta.png`` / ``pca.png``: ≥2 worlds; ``umap.png``: ≥3."
+            "``metrics``). Writes raw and ``*_norm.png`` scatters (norm layout uses "
+            "z-scored metrics; colors always ``cluster_id`` / k-means on raw 7D). "
+            "``pca*.png``: ≥2 worlds; ``umap*.png``: ≥3."
         ),
     )
     parser.add_argument(
@@ -127,9 +128,12 @@ def _run_metrics_plots(
     # (e.g. old ``umap.png`` from when CA trajectories used that name).
     for name in (
         "dominant_metric_delta.png",
+        "dominant_metric_delta_norm.png",
         "world_space.png",
         "pca.png",
+        "pca_norm.png",
         "umap.png",
+        "umap_norm.png",
         "embedding.png",
     ):
         stale = out_dir / name
@@ -137,36 +141,25 @@ def _run_metrics_plots(
             stale.unlink()
 
     ok = False
-    try:
-        plot_dominant_metric_delta_scatter_from_jsonl(
-            src,
-            out_dir / "dominant_metric_delta.png",
-            title=None,
-            k_clusters=k_clusters,
-        )
-        ok = True
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"Skipping dominant_metric_delta.png: {exc}", file=sys.stderr)
-    try:
-        plot_world_metrics_pca_scatter_from_jsonl(
-            src, out_dir / "pca.png", title=None, k_clusters=k_clusters
-        )
-        ok = True
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(
-            f"Skipping pca.png (PCA scatter of per-world metrics): {exc}",
-            file=sys.stderr,
-        )
-    try:
-        plot_world_metrics_umap_scatter_from_jsonl(
-            src, out_dir / "umap.png", title=None, k_clusters=k_clusters
-        )
-        ok = True
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(
-            f"Skipping umap.png (UMAP scatter of per-world metrics): {exc}",
-            file=sys.stderr,
-        )
+    metrics_stems = (
+        ("dominant_metric_delta", plot_dominant_metric_delta_scatter_from_jsonl),
+        ("pca", plot_world_metrics_pca_scatter_from_jsonl),
+        ("umap", plot_world_metrics_umap_scatter_from_jsonl),
+    )
+    for stem, plot_fn in metrics_stems:
+        for norm, suffix in ((False, ""), (True, "_norm")):
+            out_name = f"{stem}{suffix}.png"
+            try:
+                plot_fn(
+                    src,
+                    out_dir / out_name,
+                    title=None,
+                    k_clusters=k_clusters,
+                    standardize_metrics=norm,
+                )
+                ok = True
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                print(f"Skipping {out_name}: {exc}", file=sys.stderr)
     if not ok and not ca_also:
         print(
             "(Fix --metrics-jsonl or pass --ca-step-jsonl to render other plots.)",
@@ -220,16 +213,16 @@ def _run_ca_trace_plots(
         metric_names=metrics,
         title="CA metrics vs step (selected worlds)",
     )
-    plot_ca_step_pca_trajectories(
-        df,
-        yield_indices,
-        out_dir / "pca_trajectories.png",
-        title="PCA trajectories over ca_step (per-step metric snapshots)",
-    )
-    plot_ca_step_umap_trajectories(
-        df,
-        yield_indices,
-        out_dir / "umap_trajectories.png",
-        title="UMAP trajectories over ca_step (per-step metric snapshots)",
-    )
+    for stem, plot_fn in (
+        ("pca_trajectories", plot_ca_step_pca_trajectories),
+        ("umap_trajectories", plot_ca_step_umap_trajectories),
+    ):
+        for norm, suffix in ((False, ""), (True, "_norm")):
+            plot_fn(
+                df,
+                yield_indices,
+                out_dir / f"{stem}{suffix}.png",
+                title=None,
+                standardize_metrics=norm,
+            )
     return True

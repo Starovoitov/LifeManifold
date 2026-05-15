@@ -249,11 +249,19 @@ class TestVisualizer(unittest.TestCase):
                         jsonl,
                     ]
                 )
-                self.assertGreater(
-                    (Path(d) / "dominant_metric_delta.png").stat().st_size, 100
-                )
-                self.assertGreater((Path(d) / "pca.png").stat().st_size, 100)
-                self.assertGreater((Path(d) / "umap.png").stat().st_size, 100)
+                for name in (
+                    "dominant_metric_delta.png",
+                    "dominant_metric_delta_norm.png",
+                    "pca.png",
+                    "pca_norm.png",
+                    "umap.png",
+                    "umap_norm.png",
+                ):
+                    self.assertGreater(
+                        (Path(d) / name).stat().st_size,
+                        100,
+                        msg=name,
+                    )
         finally:
             os.unlink(jsonl)
 
@@ -329,7 +337,9 @@ class TestVisualizer(unittest.TestCase):
                 self.assertEqual(rc.returncode, 0, msg=rc.stderr + rc.stdout)
                 self.assertTrue((Path(d) / "ca_step_timeseries.png").is_file())
                 self.assertTrue((Path(d) / "pca_trajectories.png").is_file())
+                self.assertTrue((Path(d) / "pca_trajectories_norm.png").is_file())
                 self.assertTrue((Path(d) / "umap_trajectories.png").is_file())
+                self.assertTrue((Path(d) / "umap_trajectories_norm.png").is_file())
         finally:
             os.unlink(bad)
             os.unlink(ca)
@@ -351,6 +361,8 @@ class TestVisualizer(unittest.TestCase):
                 )
                 self.assertTrue((Path(d) / "ca_step_timeseries.png").is_file())
                 self.assertTrue((Path(d) / "pca_trajectories.png").is_file())
+                self.assertTrue((Path(d) / "pca_trajectories_norm.png").is_file())
                 self.assertTrue((Path(d) / "umap_trajectories.png").is_file())
+                self.assertTrue((Path(d) / "umap_trajectories_norm.png").is_file())
         finally:
             os.unlink(jsonl)
