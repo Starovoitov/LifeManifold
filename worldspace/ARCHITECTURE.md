@@ -75,7 +75,7 @@ Simulation model:
 - Predation deaths
 - Resource regeneration and feed bonus
 
-Returns `SimulationResult` with **`metrics: WorldMetrics`** and **`final_life`** for optional plotting.  
+Returns `SimulationResult` with **`metrics: WorldMetrics`**, optional **`final_life`** / **`final_food`** for plotting and diagnostics.  
 Inside the loop there are **no growing Python lists** of per-step grids or full density series: online statistics, a bounded density window for oscillation, and one final grid snapshot.
 
 ### Math helpers

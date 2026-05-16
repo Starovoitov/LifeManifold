@@ -151,9 +151,10 @@ def compressibility_score_joint(life: np.ndarray, food: np.ndarray) -> float:
     returns ``1 - len(compressed)/len(raw)`` clipped to ``[0, 1]``. Highly ordered
     configurations compress well (score near 1); noisy near-random fields do not (near 0).
     """
-    raw = life.astype(np.uint8, copy=False).tobytes() + food.astype(
-        np.uint8, copy=False
-    ).tobytes()
+    raw = (
+        life.astype(np.uint8, copy=False).tobytes()
+        + food.astype(np.uint8, copy=False).tobytes()
+    )
     n = len(raw)
     if n == 0:
         return 0.0
@@ -185,6 +186,48 @@ def ecology_state_entropy_norm(life: np.ndarray, food: np.ndarray) -> float:
     h = float(-(p * np.log2(p + 1e-15)).sum())
     h_max = float(np.log2(k))
     return float(np.clip(h / h_max, 0.0, 1.0)) if h_max > 0.0 else 0.0
+
+
+def topology_interface_strength_map(life: np.ndarray) -> np.ndarray:
+    """
+    Per-cell Moore fraction of neighbors that differ in ``life`` (toroidal). Shape ``(n, n)``, values in ``[0, 1]``.
+    """
+    if life.size == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    g = life.astype(np.float32)
+    diff_sum = np.zeros_like(g, dtype=np.float32)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
+            diff_sum += (nb != g).astype(np.float32)
+    return np.clip(diff_sum / 8.0, 0.0, 1.0).astype(np.float64)
+
+
+def topology_2x2_heterogeneity_map(life: np.ndarray) -> np.ndarray:
+    """
+    Toroidal 2×2 window heterogeneity: ``1.0`` if the four corners are not all equal, else ``0.0``.
+    Value at ``(i, j)`` is for the window with top-left ``(i, j)``. Shape ``(n, n)``.
+    """
+    if life.size == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    a = life
+    b = np.roll(life, -1, axis=0)
+    c = np.roll(life, -1, axis=1)
+    d = np.roll(np.roll(life, -1, axis=0), -1, axis=1)
+    stacked = np.stack([a, b, c, d], axis=0)
+    hetero = (stacked.max(axis=0) != stacked.min(axis=0)).astype(np.float64)
+    return hetero
+
+
+def food_neighbor_fraction_map(food: np.ndarray) -> np.ndarray:
+    """Moore sum of ``food`` in 8 neighbors, divided by 8 (toroidal). Shape matches ``food``."""
+    if food.size == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    return (neighbor_count(food.astype(np.int16)).astype(np.float64) / 8.0).clip(
+        0.0, 1.0
+    )
 
 
 def ecology_resource_adjacency(life: np.ndarray, food: np.ndarray) -> float:

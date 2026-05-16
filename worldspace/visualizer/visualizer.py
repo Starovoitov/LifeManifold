@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +15,9 @@ def main(argv: list[str] | None = None) -> None:
         prog="python -m worldspace.visualizer",
         description=(
             "Render visualizations into ``--output-dir`` using fixed filenames. "
+            "Always writes ``diagnostic_dashboard.png`` (optional ``--world-spec-json`` "
+            "overrides the default random world) and ``gallery_<metric>.png`` for each "
+            "extended metric. "
             "From ``--metrics-jsonl``: ``dominant_metric_delta.png``, ``pca.png``, "
             "``umap.png`` plus ``*_norm.png`` (z-scored layout; same cluster colors "
             "as raw). UMAP needs ≥3 worlds. "
@@ -71,6 +75,15 @@ def main(argv: list[str] | None = None) -> None:
         help="Comma-separated metric names for ``ca_step_timeseries.png`` (CA trace only).",
     )
     parser.add_argument(
+        "--world-spec-json",
+        type=str,
+        default="",
+        help=(
+            "Optional path to a ``WorldSpec`` JSON file for ``diagnostic_dashboard.png``; "
+            "if omitted, a fixed default random world is used."
+        ),
+    )
+    parser.add_argument(
         "--summary",
         action="store_true",
         help=(
@@ -82,8 +95,7 @@ def main(argv: list[str] | None = None) -> None:
 
     metrics_path = args.metrics_jsonl.strip()
     ca_path = args.ca_step_jsonl.strip()
-    if not metrics_path and not ca_path:
-        parser.error("Provide at least one of --metrics-jsonl and/or --ca-step-jsonl.")
+    world_spec = args.world_spec_json.strip()
 
     out_dir = Path(args.output_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +108,9 @@ def main(argv: list[str] | None = None) -> None:
             k_clusters=max(1, args.k_clusters),
             ca_also=bool(ca_path),
         )
+
+    ok |= _run_diagnostic_dashboard(world_spec, out_dir)
+    ok |= _run_metric_galleries_cli(out_dir)
 
     if ca_path:
         ok |= _run_ca_trace_plots(
@@ -168,6 +183,78 @@ def _run_metrics_plots(
             "(Fix --metrics-jsonl or pass --ca-step-jsonl to render other plots.)",
             file=sys.stderr,
         )
+    return ok
+
+
+def _run_diagnostic_dashboard(world_spec_path: str, out_dir: Path) -> bool:
+    from .diagnostics import (
+        DEFAULT_DIAGNOSTIC_DASHBOARD_GRID,
+        DEFAULT_DIAGNOSTIC_DASHBOARD_SEED,
+        DEFAULT_DIAGNOSTIC_DASHBOARD_STEPS,
+        plot_diagnostic_dashboard,
+    )
+    from ..generators import RandomWorldGenerator
+    from ..specs.spec import WorldSpec
+    from ..simulator import run_world
+
+    stale = out_dir / "diagnostic_dashboard.png"
+    if stale.is_file():
+        stale.unlink()
+    if world_spec_path:
+        src = Path(world_spec_path)
+        if not src.is_file():
+            print(f"Not a file: {src.resolve()}", file=sys.stderr)
+            return False
+        try:
+            world = WorldSpec.from_json_dict(
+                json.loads(src.read_text(encoding="utf-8"))
+            )
+        except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+            print(f"Invalid world JSON: {exc}", file=sys.stderr)
+            return False
+    else:
+        gen = RandomWorldGenerator(
+            grid_size=DEFAULT_DIAGNOSTIC_DASHBOARD_GRID,
+            steps=DEFAULT_DIAGNOSTIC_DASHBOARD_STEPS,
+        )
+        world = gen._make_world(seed=DEFAULT_DIAGNOSTIC_DASHBOARD_SEED)
+    try:
+        result = run_world(world)
+        plot_diagnostic_dashboard(result, out_dir / "diagnostic_dashboard.png")
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"Skipping diagnostic_dashboard.png: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
+def _run_metric_galleries_cli(out_dir: Path) -> bool:
+    from .diagnostics import (
+        GALLERY_NEW_METRICS,
+        VISUALIZER_GALLERY_GRID_SIZE,
+        VISUALIZER_GALLERY_SCAN_SEEDS,
+        VISUALIZER_GALLERY_SEED_OFFSET,
+        VISUALIZER_GALLERY_STEPS,
+        plot_metric_tertile_gallery,
+    )
+
+    for key in GALLERY_NEW_METRICS:
+        stale = out_dir / f"gallery_{key}.png"
+        if stale.is_file():
+            stale.unlink()
+    ok = False
+    for key in GALLERY_NEW_METRICS:
+        try:
+            plot_metric_tertile_gallery(
+                key,
+                out_dir / f"gallery_{key}.png",
+                scan_seeds=max(30, VISUALIZER_GALLERY_SCAN_SEEDS),
+                grid_size=max(8, VISUALIZER_GALLERY_GRID_SIZE),
+                steps=max(10, VISUALIZER_GALLERY_STEPS),
+                seed_offset=max(0, VISUALIZER_GALLERY_SEED_OFFSET),
+            )
+            ok = True
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"Skipping gallery_{key}.png: {exc}", file=sys.stderr)
     return ok
 
 

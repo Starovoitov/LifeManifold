@@ -377,3 +377,57 @@ class TestVisualizer(unittest.TestCase):
                 self.assertTrue((Path(d) / "umap_trajectories_norm.png").is_file())
         finally:
             os.unlink(jsonl)
+
+    def test_output_dir_only_writes_dashboard_and_galleries(self):
+        from worldspace.visualizer.diagnostics import GALLERY_NEW_METRICS
+
+        with tempfile.TemporaryDirectory() as d:
+            visualizer_main(["--output-dir", d])
+            dash = Path(d) / "diagnostic_dashboard.png"
+            self.assertTrue(dash.is_file())
+            self.assertGreater(dash.stat().st_size, 5000)
+            for key in GALLERY_NEW_METRICS:
+                p = Path(d) / f"gallery_{key}.png"
+                self.assertTrue(p.is_file(), msg=key)
+                self.assertGreater(p.stat().st_size, 2000, msg=key)
+
+    def test_world_spec_json_writes_diagnostic_dashboard(self):
+        from worldspace.generators import RandomWorldGenerator
+
+        w = RandomWorldGenerator(grid_size=14, steps=16)._make_world(seed=42)
+        fd, jpath = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        try:
+            Path(jpath).write_text(
+                json.dumps(w.to_json_dict(), ensure_ascii=True),
+                encoding="utf-8",
+            )
+            with tempfile.TemporaryDirectory() as d:
+                visualizer_main(
+                    [
+                        "--output-dir",
+                        d,
+                        "--world-spec-json",
+                        jpath,
+                    ]
+                )
+                dash = Path(d) / "diagnostic_dashboard.png"
+                self.assertTrue(dash.is_file())
+                self.assertGreater(dash.stat().st_size, 5000)
+        finally:
+            os.unlink(jpath)
+
+    def test_metric_tertile_gallery_smoke(self):
+        from worldspace.visualizer.diagnostics import plot_metric_tertile_gallery
+
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "gallery_compressibility_score.png"
+            plot_metric_tertile_gallery(
+                "compressibility_score",
+                out,
+                scan_seeds=35,
+                grid_size=14,
+                steps=18,
+                seed_offset=0,
+            )
+            self.assertGreater(out.stat().st_size, 3000)

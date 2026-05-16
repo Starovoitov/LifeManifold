@@ -18,11 +18,12 @@ from .specs.spec import WorldSpec
 
 @dataclass
 class SimulationResult:
-    """Outcome of one simulation: metrics and optional final grid for plotting."""
+    """Outcome of one simulation: metrics and optional final grids for plotting."""
 
     world: WorldSpec
     metrics: WorldMetrics
     final_life: np.ndarray | None = None
+    final_food: np.ndarray | None = None
 
 
 def run_world(
@@ -95,7 +96,12 @@ def run_world(
         death_age_sum,
         death_count,
     )
-    return SimulationResult(world=world, metrics=metrics, final_life=life.copy())
+    return SimulationResult(
+        world=world,
+        metrics=metrics,
+        final_life=life.copy(),
+        final_food=food.copy(),
+    )
 
 
 def _initial_grids(
