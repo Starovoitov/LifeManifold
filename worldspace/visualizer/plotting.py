@@ -290,7 +290,7 @@ def plot_ca_step_metrics_timeseries(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    metrics = metric_names or ["interestingness", "entropy", "density_mean"]
+    metrics = metric_names or ["mo_eoc_indicator", "entropy", "density_mean"]
     metrics = [m for m in metrics if m in df.columns]
     present = set(int(x) for x in df["yield_index"].unique())
     yids = [int(y) for y in yield_indices if int(y) in present]

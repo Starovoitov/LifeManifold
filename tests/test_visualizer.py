@@ -30,7 +30,7 @@ def _sample_row(yield_index: int, ca_step: int) -> dict:
             "density_mean": 0.2 + 0.001 * yield_index,
             "oscillation_score": 0.1,
             "diversity": 0.3,
-            "interestingness": 0.6 + 0.02 * ca_step + 0.01 * yield_index,
+            "mo_eoc_indicator": 0.6 + 0.02 * ca_step + 0.01 * yield_index,
         },
     }
 
@@ -42,7 +42,7 @@ _METRICS_7 = {
     "density_mean": 0.2,
     "oscillation_score": 0.35,
     "diversity": 0.25,
-    "interestingness": 0.55,
+    "mo_eoc_indicator": 0.55,
 }
 
 
@@ -56,7 +56,7 @@ class TestVisualizer(unittest.TestCase):
             rows = [
                 {"metrics": dict(_METRICS_7), "cluster_id": 0},
                 {
-                    "metrics": {**_METRICS_7, "interestingness": 0.9},
+                    "metrics": {**_METRICS_7, "mo_eoc_indicator": 0.9},
                     "cluster_id": 1,
                 },
             ]
@@ -78,7 +78,7 @@ class TestVisualizer(unittest.TestCase):
         try:
             rows = [
                 {"metrics": dict(_METRICS_7)},
-                {"metrics": {**_METRICS_7, "interestingness": 0.95}},
+                {"metrics": {**_METRICS_7, "mo_eoc_indicator": 0.95}},
                 {"metrics": {**_METRICS_7, "entropy": 0.9, "density_mean": 0.5}},
                 {"metrics": {**_METRICS_7, "stability": 0.1, "diversity": 0.9}},
             ]
@@ -101,7 +101,7 @@ class TestVisualizer(unittest.TestCase):
             rows = [
                 {"metrics": dict(_METRICS_7), "cluster_id": 0},
                 {
-                    "metrics": {**_METRICS_7, "interestingness": 0.9},
+                    "metrics": {**_METRICS_7, "mo_eoc_indicator": 0.9},
                     "cluster_id": 1,
                 },
                 {
@@ -131,7 +131,7 @@ class TestVisualizer(unittest.TestCase):
             Path(p).write_text("\n".join(lines) + "\n", encoding="utf-8")
             df = load_ca_step_trace_jsonl(p)
             self.assertEqual(len(df), 3)
-            self.assertIn("interestingness", df.columns)
+            self.assertIn("mo_eoc_indicator", df.columns)
             summ = summarize_ca_step_trace_by_world(df)
             self.assertGreater(len(summ), 0)
         finally:
@@ -157,7 +157,7 @@ class TestVisualizer(unittest.TestCase):
                 df,
                 [0, 1],
                 out_ts,
-                metric_names=["interestingness", "entropy"],
+                metric_names=["mo_eoc_indicator", "entropy"],
             )
             plot_ca_step_pca_trajectories(df, [0, 1], out_pc)
             plot_ca_step_umap_trajectories(df, [0, 1], out_um)
@@ -178,7 +178,7 @@ class TestVisualizer(unittest.TestCase):
         try:
             rows = [
                 {"metrics": dict(_METRICS_7)},
-                {"metrics": {**_METRICS_7, "interestingness": 0.95}},
+                {"metrics": {**_METRICS_7, "mo_eoc_indicator": 0.95}},
                 {"metrics": {**_METRICS_7, "entropy": 0.9}},
             ]
             Path(jsonl).write_text(
@@ -227,7 +227,7 @@ class TestVisualizer(unittest.TestCase):
                 {"world": {"seed": 1}, "metrics": dict(_METRICS_7), "cluster_id": 0},
                 {
                     "world": {"seed": 2},
-                    "metrics": {**_METRICS_7, "interestingness": 0.9},
+                    "metrics": {**_METRICS_7, "mo_eoc_indicator": 0.9},
                     "cluster_id": 1,
                 },
                 {

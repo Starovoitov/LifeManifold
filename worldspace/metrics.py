@@ -13,7 +13,7 @@ METRIC_KEYS = (
     "density_mean",
     "oscillation_score",
     "diversity",
-    "interestingness",
+    "mo_eoc_indicator",
 )
 
 
@@ -27,7 +27,7 @@ class WorldMetrics:
     density_mean: float
     oscillation_score: float
     diversity: float
-    interestingness: float
+    mo_eoc_indicator: float
 
     def as_vector(self) -> np.ndarray:
         """Return metrics as a fixed-order numeric vector."""
@@ -39,10 +39,40 @@ class WorldMetrics:
                 self.density_mean,
                 self.oscillation_score,
                 self.diversity,
-                self.interestingness,
+                self.mo_eoc_indicator,
             ],
             dtype=float,
         )
+
+
+def multi_objective_edge_of_chaos_indicator(
+    entropy: float,
+    stability: float,
+    diversity: float,
+    oscillation_score: float,
+    average_lifespan: float,
+    extinction_penalty: float,
+) -> float:
+    """
+    **Multi-Objective + Edge-of-Chaos (MO+EoC) indicator** — scalar fitness for GA / LLM / hybrid.
+
+    Uses **curvature** ``C_H = H(1-H)`` on binary entropy ``H`` (not raw ``H`` alone in the EoC
+    gate) and **activity × persistence** ``C_AP = A · P`` with ``A = oscillation_score``,
+    ``P = clip(average_lifespan/10, 0, 1)``. See project docs (WORLDSPACE §5.1) for coefficients.
+    """
+    h = float(entropy)
+    c_h = h * (1.0 - h)
+    c_h_norm = c_h / 0.25
+    p = float(np.clip(average_lifespan / 10.0, 0.0, 1.0))
+    a = float(oscillation_score)
+    c_ap = a * p
+    mo = h + float(stability) + float(diversity)
+    return float(
+        mo * (0.50 + 0.30 * c_h_norm + 0.20 * c_ap)
+        + 0.15 * a * c_h_norm
+        + 0.10 * p
+        - float(extinction_penalty)
+    )
 
 
 def metrics_vector_to_dict(v: np.ndarray) -> dict[str, float]:

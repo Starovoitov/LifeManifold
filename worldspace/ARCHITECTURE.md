@@ -44,7 +44,7 @@ Implemented generator levels:
    - `MarkovWorldGenerator` (base class)
    - `TwoStateNoiseMarkovGenerator` (calm/chaos switching)
    - `RuleBiasMarkovGenerator` (survival/reproduction bias)
-5. `GeneticWorldGenerator` (PyGAD-backed evolution on `interestingness`)
+5. `GeneticWorldGenerator` (PyGAD-backed evolution on `mo_eoc_indicator`)
    - chromosome encoding: rule masks + scalar params
    - YAML-driven GA knobs via `genetic_world_generator.yaml`
 6. `LLMWorldGenerator` (iterative LLM-guided local search)
@@ -91,7 +91,7 @@ File: `worldspace/metrics.py`
 `WorldMetrics` holds the behavioral coordinates (filled by `run_world`). There are **`METRICS_VECTOR_DIM` (= 7)** entries in `as_vector()` / JSON metrics:
 
 - `entropy`, `stability`, `average_lifespan`, `density_mean`, `oscillation_score`, `diversity`
-- `interestingness` — favors high entropy, stability, and diversity; subtracts **extinction penalty** `clamp(1 - final_density, 0, 1)` (empty final grid ⇒ penalty 1).
+- `mo_eoc_indicator` — **Multi-Objective + Edge-of-Chaos** scalar; see `multi_objective_edge_of_chaos_indicator` in `metrics.py` and `docs/WORLDSPACE.md` §5.1.
 
 Constants and vector layout live in `metrics.py` (`METRICS_VECTOR_DIM`).
 

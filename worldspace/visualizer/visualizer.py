@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--metrics",
         type=str,
-        default="interestingness,entropy,density_mean,oscillation_score",
+        default="mo_eoc_indicator,entropy,density_mean,oscillation_score",
         help="Comma-separated metric names for ``ca_step_timeseries.png`` (CA trace only).",
     )
     parser.add_argument(

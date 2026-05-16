@@ -303,7 +303,7 @@ class GeneticWorldGenerator(WorldGenerator):
             world = self._decode_solution(
                 solution, seed=self._solution_seed(solution, generation_idx)
             )
-            fit = float(run_world(world).metrics.interestingness)
+            fit = float(run_world(world).metrics.mo_eoc_indicator)
             fitness_cache[key] = fit
             return fit
 
@@ -431,7 +431,7 @@ class LLMWorldGenerator(WorldGenerator):
         yield current
         for generation in range(1, n_worlds):
             result = run_world(current)
-            score = float(result.metrics.interestingness)
+            score = float(result.metrics.mo_eoc_indicator)
             prompt = self._build_improvement_prompt(current, score)
             response = call_llm(
                 mode=self.mode,
@@ -469,8 +469,11 @@ class LLMWorldGenerator(WorldGenerator):
     def _build_improvement_prompt(self, world: WorldSpec, score: float) -> str:
         payload = {
             "current_world": world.to_json_dict(),
-            "current_interestingness": score,
-            "goal": "Increase interestingness while staying within valid bounds.",
+            "current_mo_eoc_indicator": score,
+            "goal": (
+                "Increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator) "
+                "while staying within valid bounds."
+            ),
             "constraints": {
                 "birth": "unique integers in [0,8], at least 1 item",
                 "survival": "unique integers in [0,8], at least 1 item",
@@ -582,7 +585,7 @@ class HybridGALlmWorldGenerator(WorldGenerator):
         for world in population:
             metrics = run_world(world).metrics
             scored.append((world, metrics))
-        scored.sort(key=lambda x: float(x[1].interestingness), reverse=True)
+        scored.sort(key=lambda x: float(x[1].mo_eoc_indicator), reverse=True)
         return scored
 
     def _select_with_diversity(
@@ -640,17 +643,16 @@ class HybridGALlmWorldGenerator(WorldGenerator):
     def _build_prompt(self, world: WorldSpec, metrics: Any) -> str:
         return (
             "You are improving a cellular automaton world.\n\n"
-            "Goal: increase interestingness.\n\n"
+            "Goal: increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator).\n\n"
             f"Current world:\n{json.dumps(world.to_json_dict(), ensure_ascii=True)}\n\n"
             "Metrics:\n"
             f"density: {float(metrics.density_mean):.6f}\n"
             f"entropy: {float(metrics.entropy):.6f}\n"
-            f"dynamics: {float(metrics.oscillation_score):.6f}\n"
             f"stability: {float(metrics.stability):.6f}\n"
-            f"survival: {float(metrics.average_lifespan):.6f}\n"
+            f"survival (avg lifespan): {float(metrics.average_lifespan):.6f}\n"
             f"diversity: {float(metrics.diversity):.6f}\n"
-            f"oscillation: {float(metrics.oscillation_score):.6f}\n"
-            f"score: {float(metrics.interestingness):.6f}\n\n"
+            f"oscillation_score: {float(metrics.oscillation_score):.6f}\n"
+            f"mo_eoc_indicator: {float(metrics.mo_eoc_indicator):.6f}\n\n"
             "Suggest a slightly improved version.\n\n"
             "Rules:\n"
             "- change at most 2 parameters\n"

@@ -48,7 +48,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
             st = row["metrics"]["stability"]
             self.assertGreaterEqual(st, 0.0)
             self.assertLessEqual(st, 1.0)
-            self.assertIn("interestingness", row["metrics"])
+            self.assertIn("mo_eoc_indicator", row["metrics"])
         finally:
             os.unlink(path)
 
@@ -218,7 +218,7 @@ class TestWorldSpaceMVP(unittest.TestCase):
                 self.assertIn("world", row)
                 self.assertIn("birth", row["world"])
                 self.assertIn("metrics", row)
-                self.assertIn("interestingness", row["metrics"])
+                self.assertIn("mo_eoc_indicator", row["metrics"])
                 self.assertIn("dominant_metric_delta_xy", row)
                 self.assertEqual(len(row["dominant_metric_delta_xy"]), 2)
                 self.assertIn("cluster_id", row)
@@ -305,13 +305,13 @@ class TestWorldSpaceMVP(unittest.TestCase):
         generator = GeneticWorldGenerator(
             grid_size=10,
             steps=10,
-            population_size=8,
-            elite_count=3,
+            population_size=10,
+            elite_count=2,
             mutation_scale=0.02,
             seed=0,
         )
-        worlds = generator.generate(20)
-        self.assertEqual(len(worlds), 20)
+        worlds = generator.generate(25)
+        self.assertEqual(len(worlds), 25)
         signatures = {
             (
                 tuple(w.birth),

@@ -8,7 +8,11 @@ from typing import TextIO
 import numpy as np
 
 from . import math as ws_math
-from .metrics import WorldMetrics, metrics_vector_to_dict
+from .metrics import (
+    WorldMetrics,
+    metrics_vector_to_dict,
+    multi_objective_edge_of_chaos_indicator,
+)
 from .specs.spec import WorldSpec
 
 
@@ -188,7 +192,14 @@ def _metrics_from_final_state(
     diversity = ws_math.pattern_diversity_from_frame(life.copy())
     final_density = float(life.mean())
     extinction_penalty = float(np.clip(1.0 - final_density, 0.0, 1.0))
-    interestingness = float(entropy + stability + diversity - extinction_penalty)
+    mo_eoc = multi_objective_edge_of_chaos_indicator(
+        entropy=entropy,
+        stability=stability,
+        diversity=diversity,
+        oscillation_score=oscillation,
+        average_lifespan=avg_lifespan,
+        extinction_penalty=extinction_penalty,
+    )
     return WorldMetrics(
         entropy=entropy,
         stability=stability,
@@ -196,5 +207,5 @@ def _metrics_from_final_state(
         density_mean=density_mean_val,
         oscillation_score=oscillation,
         diversity=diversity,
-        interestingness=interestingness,
+        mo_eoc_indicator=mo_eoc,
     )
