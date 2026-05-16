@@ -259,6 +259,26 @@ class TestWorldSpaceMVP(unittest.TestCase):
             os.unlink(out_path)
             os.unlink(trace_path)
 
+    def test_extended_metrics_helpers_from_grids(self):
+        from worldspace.math import (
+            compressibility_score_joint,
+            ecology_resource_adjacency,
+            ecology_state_entropy_norm,
+            topology_interface_index,
+            topology_window_heterogeneity,
+        )
+
+        life = np.zeros((6, 6), dtype=np.uint8)
+        food = np.zeros((6, 6), dtype=np.uint8)
+        self.assertEqual(topology_interface_index(life), 0.0)
+        life[2:5, 2:5] = 1
+        self.assertGreater(topology_interface_index(life), 0.0)
+        self.assertGreaterEqual(topology_window_heterogeneity(life), 0.0)
+        self.assertLessEqual(ecology_state_entropy_norm(life, food), 1.0)
+        food[1, 1] = 1
+        self.assertGreaterEqual(ecology_resource_adjacency(life, food), 0.0)
+        self.assertLessEqual(compressibility_score_joint(life, food), 1.0)
+
     def test_dominant_metric_delta_xy_axes(self):
         rng = np.random.default_rng(0)
         n, d = 50, METRICS_VECTOR_DIM

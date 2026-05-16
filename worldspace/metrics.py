@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 # Length of ``WorldMetrics.as_vector()`` — keep mmap / PCA / k-means in sync.
-METRICS_VECTOR_DIM = 7
+METRICS_VECTOR_DIM = 12
 METRIC_KEYS = (
     "entropy",
     "stability",
@@ -14,12 +14,17 @@ METRIC_KEYS = (
     "oscillation_score",
     "diversity",
     "mo_eoc_indicator",
+    "topology_interface_index",
+    "topology_window_heterogeneity",
+    "compressibility_score",
+    "ecology_state_entropy_norm",
+    "ecology_resource_adjacency",
 )
 
 
 @dataclass
 class WorldMetrics:
-    """Behavioral metric vector used as world-space coordinates."""
+    """Behavioral metric vector used as world-space coordinates (``METRICS_VECTOR_DIM`` scalars)."""
 
     entropy: float
     stability: float
@@ -28,6 +33,11 @@ class WorldMetrics:
     oscillation_score: float
     diversity: float
     mo_eoc_indicator: float
+    topology_interface_index: float
+    topology_window_heterogeneity: float
+    compressibility_score: float
+    ecology_state_entropy_norm: float
+    ecology_resource_adjacency: float
 
     def as_vector(self) -> np.ndarray:
         """Return metrics as a fixed-order numeric vector."""
@@ -40,6 +50,11 @@ class WorldMetrics:
                 self.oscillation_score,
                 self.diversity,
                 self.mo_eoc_indicator,
+                self.topology_interface_index,
+                self.topology_window_heterogeneity,
+                self.compressibility_score,
+                self.ecology_state_entropy_norm,
+                self.ecology_resource_adjacency,
             ],
             dtype=float,
         )

@@ -24,12 +24,18 @@ def _sample_row(yield_index: int, ca_step: int) -> dict:
         "yield_index": yield_index,
         "ca_step": ca_step,
         "metrics": {
+            **{
+                k: v
+                for k, v in _METRICS_7.items()
+                if k
+                not in (
+                    "entropy",
+                    "density_mean",
+                    "mo_eoc_indicator",
+                )
+            },
             "entropy": 0.5 + 0.01 * ca_step,
-            "stability": 0.4,
-            "average_lifespan": 1.0,
             "density_mean": 0.2 + 0.001 * yield_index,
-            "oscillation_score": 0.1,
-            "diversity": 0.3,
             "mo_eoc_indicator": 0.6 + 0.02 * ca_step + 0.01 * yield_index,
         },
     }
@@ -43,6 +49,11 @@ _METRICS_7 = {
     "oscillation_score": 0.35,
     "diversity": 0.25,
     "mo_eoc_indicator": 0.55,
+    "topology_interface_index": 0.4,
+    "topology_window_heterogeneity": 0.35,
+    "compressibility_score": 0.2,
+    "ecology_state_entropy_norm": 0.45,
+    "ecology_resource_adjacency": 0.3,
 }
 
 

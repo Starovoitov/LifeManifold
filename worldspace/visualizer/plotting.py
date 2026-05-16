@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .. import math as ws_math
-from ..metrics import METRIC_KEYS
+from ..metrics import METRIC_KEYS, METRICS_VECTOR_DIM
 from ..pipeline import dominant_metric_delta_xy_batch
 from ..simulator import SimulationResult
 
@@ -30,7 +30,7 @@ def plot_world_metrics_pca_scatter_from_jsonl(
     standardize_metrics: bool = False,
 ) -> None:
     """
-    2D scatter of worlds in PCA space of the seven ``METRIC_KEYS`` columns
+    2D scatter of worlds in PCA space of all ``METRIC_KEYS`` columns
     (from each line's ``metrics`` object).
 
     Point colors always use ``cluster_id`` from JSONL or Lloyd k-means on **raw**
@@ -53,9 +53,12 @@ def plot_world_metrics_pca_scatter_from_jsonl(
     v0, v1 = pca.explained_variance_ratio_
     ax.set_xlabel(f"PC1 ({100.0 * float(v0):.1f}% var)")
     ax.set_ylabel(f"PC2 ({100.0 * float(v1):.1f}% var)")
-    z_note = "z-scored 7D batch; " if standardize_metrics else ""
+    z_note = f"z-scored {METRICS_VECTOR_DIM}D batch; " if standardize_metrics else ""
     ax.set_title(
-        title or (f"PCA scatter ({z_note}7D → 2D; {_raw_cluster_color_note(raw)})")
+        title
+        or (
+            f"PCA scatter ({z_note}{METRICS_VECTOR_DIM}D → 2D; {_raw_cluster_color_note(raw)})"
+        )
     )
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -74,7 +77,7 @@ def plot_world_metrics_umap_scatter_from_jsonl(
     standardize_metrics: bool = False,
 ) -> None:
     """
-    2D UMAP of the seven per-world ``metrics`` columns (same as
+    2D UMAP of all per-world ``metrics`` columns (same as
     :func:`plot_world_metrics_pca_scatter_from_jsonl`).
 
     Colors: ``cluster_id`` / k-means on **raw** metrics only. Layout uses raw or
@@ -117,7 +120,7 @@ def plot_world_metrics_umap_scatter_from_jsonl(
     _scatter_world_metrics_by_cluster(ax, Z, cluster_ids)
     ax.set_xlabel("UMAP 1")
     ax.set_ylabel("UMAP 2")
-    z_note = "z-scored 7D batch; " if standardize_metrics else ""
+    z_note = f"z-scored {METRICS_VECTOR_DIM}D batch; " if standardize_metrics else ""
     ax.set_title(title or (f"UMAP scatter ({z_note}{_raw_cluster_color_note(raw)})"))
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -138,7 +141,8 @@ def plot_dominant_metric_delta_scatter_from_jsonl(
     """
     Scatter worlds in **dominant-metric-delta** layout.
 
-    **x**: Δ dominant metric (highest variance in batch); **y**: PC1 of the other six.
+    **x**: Δ dominant metric (highest variance in batch); **y**: PC1 of the remaining
+    metrics (all columns except the batch-dominant one).
 
     Raw layout (default) uses stored ``dominant_metric_delta_xy`` when present; z-scored
     layout (``standardize_metrics``) always recomputes via
@@ -532,7 +536,7 @@ def _final_world_metrics_matrix_from_jsonl(
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """
     Load metrics-trace JSONL (one world per line): require ``metrics`` with all
-    ``METRIC_KEYS``. Returns ``(raw, X)`` with ``X`` of shape ``(n, 7)``.
+    ``METRIC_KEYS``. Returns ``(raw, X)`` with ``X`` of shape ``(n, METRICS_VECTOR_DIM)``.
     """
     raw = pd.read_json(Path(jsonl_path), lines=True)
     if raw.empty:
@@ -570,8 +574,8 @@ def _standardize_metrics_matrix(X: np.ndarray) -> np.ndarray:
 
 def _raw_cluster_color_note(raw: pd.DataFrame) -> str:
     if "cluster_id" in raw.columns:
-        return "colors: cluster_id (pipeline k-means on raw 7D)"
-    return "colors: k-means on raw 7D metrics"
+        return "colors: cluster_id (pipeline k-means on raw metrics vector)"
+    return f"colors: k-means on raw {METRICS_VECTOR_DIM}D metrics"
 
 
 def _world_metrics_cluster_labels(
@@ -645,14 +649,15 @@ def _dominant_metric_delta_axis_labels_jsonl_column(raw: pd.DataFrame) -> str | 
 
 
 def _axis_labels_from_labels_dict(labels: dict | None) -> tuple[str, str]:
+    om = METRICS_VECTOR_DIM - 1
     if not isinstance(labels, dict):
-        return "Δ metric (unknown)", "PC1 of 6 other metrics"
+        return "Δ metric (unknown)", f"PC1 of {om} other metrics"
     x_metric = labels.get("x_metric")
     if x_metric:
-        return f"Δ {x_metric}", f"PC1 of 6 metrics (excluding {x_metric})"
+        return f"Δ {x_metric}", f"PC1 of {om} metrics (excluding {x_metric})"
     return (
         str(labels.get("x_label", "Δ metric")),
-        str(labels.get("y_label", "PC1 of 6 other metrics")),
+        str(labels.get("y_label", f"PC1 of {om} other metrics")),
     )
 
 
@@ -660,12 +665,13 @@ def _axis_labels_from_dominant_metric_delta_labels_series(
     raw: pd.DataFrame,
     labels_col: str | None,
 ) -> tuple[str, str]:
+    om = METRICS_VECTOR_DIM - 1
     if labels_col is None or labels_col not in raw.columns:
-        return "Δ metric (unknown)", "PC1 of 6 other metrics"
+        return "Δ metric (unknown)", f"PC1 of {om} other metrics"
     for val in raw[labels_col].iloc[::-1]:
         if isinstance(val, dict):
             return _axis_labels_from_labels_dict(val)
-    return "Δ metric (unknown)", "PC1 of 6 other metrics"
+    return "Δ metric (unknown)", f"PC1 of {om} other metrics"
 
 
 def _ca_step_trace_reduction_context(

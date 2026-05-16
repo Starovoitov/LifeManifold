@@ -6,6 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from ..metrics import METRICS_VECTOR_DIM
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
@@ -33,7 +35,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Path to metrics JSONL (``--metrics-trace`` or any JSONL with per-line "
             "``metrics``). Writes raw and ``*_norm.png`` scatters (norm layout uses "
-            "z-scored metrics; colors always ``cluster_id`` / k-means on raw 7D). "
+            f"z-scored metrics; colors always ``cluster_id`` / k-means on raw "
+            f"{METRICS_VECTOR_DIM}D). "
             "``pca*.png``: ≥2 worlds; ``umap*.png``: ≥3."
         ),
     )

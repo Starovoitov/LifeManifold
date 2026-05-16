@@ -59,7 +59,7 @@ def stream_world_space_to_jsonl(
 
     Per-world 2D layout ``dominant_metric_delta_xy`` (see :func:`dominant_metric_delta_xy_batch`): **x** is
     the batch's highest-variance metric minus its batch mean; **y** is sklearn PC1 on the
-    other six metrics (centering only inside that PCA). Not the same as 7D PCA/UMAP plots.
+    other ``METRICS_VECTOR_DIM - 1`` metrics (centering only inside that PCA). Not the same as full-vector PCA/UMAP plots.
 
     Metrics rows live on a temporary memory-mapped file during k-means. If ``path`` is
     set, append each record as one JSON line to that file. If ``path`` is ``None``,
@@ -137,23 +137,25 @@ def stream_world_space_to_jsonl(
 
 def dominant_metric_delta_axis_labels(x_axis_metric: str) -> dict[str, str]:
     """Axis metadata for ``dominant_metric_delta_xy`` (written to ``--metrics-trace`` JSONL)."""
+    om = METRICS_VECTOR_DIM - 1
     return {
         "x_metric": x_axis_metric,
         "x_label": f"Δ {x_axis_metric}",
-        "y_label": f"PC1 of 6 metrics (excluding {x_axis_metric})",
+        "y_label": f"PC1 of {om} metrics (excluding {x_axis_metric})",
     }
 
 
 def dominant_metric_delta_xy_batch(X: np.ndarray) -> tuple[np.ndarray, dict[str, str]]:
     """
-    Batch 2D dominant-metric-delta layout for metric rows ``X`` of shape ``(n, 7)``.
+    Batch 2D dominant-metric-delta layout for metric rows ``X`` of shape ``(n, d)`` with
+    ``d = METRICS_VECTOR_DIM``.
 
     **x** (``dominant_metric_delta_xy[0]``): value of the batch's highest-variance metric minus
     that metric's batch mean (one coordinate, not PCA).
 
-    **y** (``dominant_metric_delta_xy[1]``): sklearn ``PCA(n_components=1)`` on the **other six**
-    columns only; sklearn centers those six inside ``fit``/``transform``. The dominant
-    metric is excluded from the PCA subspace entirely.
+    **y** (``dominant_metric_delta_xy[1]``): sklearn ``PCA(n_components=1)`` on the **other
+    ``d - 1``** columns only; sklearn centers those columns inside ``fit``/``transform``.
+    The dominant metric is excluded from the PCA subspace entirely.
 
     For ``n < 2``, **y** is always ``0``. See ``docs/WORLDSPACE.md`` §6.1.
     """
@@ -223,8 +225,8 @@ def _fit_dominant_metric_orthogonal_pca(
     """
     Horizontal axis: most variable metric in the batch minus its mean.
 
-    Vertical axis: ``sklearn.decomposition.PCA(n_components=1)`` on the **raw** six
-    remaining columns of ``X``. sklearn centers those columns internally
+    Vertical axis: ``sklearn.decomposition.PCA(n_components=1)`` on the **raw**
+    remaining ``METRICS_VECTOR_DIM - 1`` columns of ``X``. sklearn centers those columns internally
     (``mean_`` equals their column means);
     training rows are **not** pre-centered so centering happens only inside PCA.
     """

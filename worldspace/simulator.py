@@ -69,6 +69,7 @@ def run_world(
         if ca_step_trace_file is not None:
             snap = _metrics_from_final_state(
                 life,
+                food,
                 density_mean,
                 density_m2,
                 density_n,
@@ -86,6 +87,7 @@ def run_world(
 
     metrics = _metrics_from_final_state(
         life,
+        food,
         density_mean,
         density_m2,
         density_n,
@@ -170,6 +172,7 @@ def _welford_append(
 
 def _metrics_from_final_state(
     life: np.ndarray,
+    food: np.ndarray,
     density_mean: float,
     density_m2: float,
     density_n: int,
@@ -177,7 +180,7 @@ def _metrics_from_final_state(
     death_age_sum: int,
     death_count: int,
 ) -> WorldMetrics:
-    """Aggregate scalar metrics from the final grid and online statistics."""
+    """Aggregate scalar metrics from the final grids and online statistics."""
     density_std = (
         float(np.sqrt(density_m2 / max(density_n - 1, 1))) if density_n > 1 else 0.0
     )
@@ -200,6 +203,11 @@ def _metrics_from_final_state(
         average_lifespan=avg_lifespan,
         extinction_penalty=extinction_penalty,
     )
+    topo_if = ws_math.topology_interface_index(life)
+    topo_win = ws_math.topology_window_heterogeneity(life)
+    comp = ws_math.compressibility_score_joint(life, food)
+    eco_h = ws_math.ecology_state_entropy_norm(life, food)
+    eco_adj = ws_math.ecology_resource_adjacency(life, food)
     return WorldMetrics(
         entropy=entropy,
         stability=stability,
@@ -208,4 +216,9 @@ def _metrics_from_final_state(
         oscillation_score=oscillation,
         diversity=diversity,
         mo_eoc_indicator=mo_eoc,
+        topology_interface_index=topo_if,
+        topology_window_heterogeneity=topo_win,
+        compressibility_score=comp,
+        ecology_state_entropy_norm=eco_h,
+        ecology_resource_adjacency=eco_adj,
     )

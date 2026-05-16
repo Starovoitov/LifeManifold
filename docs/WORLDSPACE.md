@@ -37,8 +37,8 @@ flowchart LR
 
 
 - `**WorldSpec**` — статическое описание одного мира (правила и числовые параметры).
-- `**run_world**` — динамика поля и **семимерные** метрики по завершении прогона (опционально — пошаговая запись в JSONL при вызове из пайплайна с `**ca_step_trace_*`**).
-- `**stream_world_space_to_jsonl**` — двухпроходный прогон: PCA/k-means по memmap, запись JSONL; список `**WorldSpec**` по одному на мир держится в RAM для второго прохода (малые JSON-структуры; зато `**iter_worlds**` не вызывается дважды — важно для LLM без дублирования HTTP). Матрица метрик по-прежнему в **memmap** O(1) по числу миров для n\times 7.
+- `**run_world**` — динамика поля и **12-мерные** метрики по завершении прогона (опционально — пошаговая запись в JSONL при вызове из пайплайна с `**ca_step_trace_*`**).
+- `**stream_world_space_to_jsonl**` — двухпроходный прогон: PCA/k-means по memmap, запись JSONL; список `**WorldSpec**` по одному на мир держится в RAM для второго прохода (малые JSON-структуры; зато `**iter_worlds**` не вызывается дважды — важно для LLM без дублирования HTTP). Матрица метрик по-прежнему в **memmap** O(1) по числу миров для ``n \\times`` **METRICS_VECTOR_DIM** (см. ``metrics.py``).
 
 Пакет **не зависит** от legacy-слоёв приложения (`celery`, `redis`, веб-сокеты и т.д.) и задуман как автономный исследовательский пайплайн.
 
@@ -255,7 +255,7 @@ sequenceDiagram
 
 ---
 
-## 5. Метрики: вектор M(\text{world}) \in \mathbb{R}^7
+## 5. Метрики: вектор M(\text{world}) \in \mathbb{R}^{12}
 
 Метрики `**WorldMetrics**` вычисляются **внутри `run_world`** по онлайн-накопителям (см. §4.7). Отдельной функции `compute_metrics` нет.
 
@@ -268,13 +268,18 @@ sequenceDiagram
 | `**density_mean**`      | Онлайн-среднее плотности по шагам                                                                       | Средняя заполненность поля живыми за прогон                                                                |
 | `**oscillation_score**` | Автокорреляция по **окну** из последних 512 значений плотности                                          | Приближение к «есть ли циклы» без хранения всего ряда                                                      |
 | `**diversity`**         | Доля уникальных подписей среди `**sample_size**` случайных патчей 3\times3 на **финальном** поле `life` | Грубая оценка «сколько разных локальных паттернов»                                                         |
-| `**mo_eoc_indicator`**   | §5.1, функция `multi_objective_edge_of_chaos_indicator` в `**metrics.py**` | Скаляр **Multi-Objective + Edge-of-Chaos** для GA/LLM/Hybrid (см. разложение по коэффициентам в §5.1). |
+| `**mo_eoc_indicator`** | §5.1, `multi_objective_edge_of_chaos_indicator` в `**metrics.py**` | Скаляр **Multi-Objective + Edge-of-Chaos** для GA/LLM/Hybrid (коэффициенты в §5.1). |
+| `**topology_interface_index**` | `worldspace.math.topology_interface_index(life)` | Доля отличающихся соседей по тору (Moore, 8 направлений), усреднённая по клеткам и делённая на 8; в ``[0,1]`` — **топологическая / морфологическая сложность границ** живой фазы. |
+| `**topology_window_heterogeneity**` | `topology_window_heterogeneity(life)` | Доля торических окон ``2\\times2``, где четыре угла **не все одинаковы**; в ``[0,1]`` — мезомасштабная **нетривиальность** паттерна (прокси к локальной «седловости» / смешению без полного persistent homology). |
+| `**compressibility_score**` | `compressibility_score_joint(life, food)` | ``1 - len(zlib.compress(raw))/len(raw)`` по конкатенации байтов ``life`` и ``food`` (zlib level 6), в ``[0,1]`` — **приближённая вычислимость / описательная длина**: упорядоченные поля сжимаются сильнее. |
+| `**ecology_state_entropy_norm**` | `ecology_state_entropy_norm(life, food)` | Энтропия Шеннона по классам ``code = life + 2*food`` (до 4 классов), нормированная на ``\\log_2 k`` для числа **ненулевых** классов; в ``[0,1]`` — **экологическое разнообразие** совместного состояния «жизнь + ресурс». |
+| `**ecology_resource_adjacency**` | `ecology_resource_adjacency(life, food)` | Среднее по живым клеткам доли соседей с ``food==1`` (Moore, тор); в ``[0,1]`` — **пространственная связность** потребителей и ресурса. |
 
 
 Фиксированный порядок вектора задаётся методом `**WorldMetrics.as_vector()**`:
 
 ```text
-[entropy, stability, average_lifespan, density_mean, oscillation_score, diversity, mo_eoc_indicator]
+[entropy, stability, average_lifespan, density_mean, oscillation_score, diversity, mo_eoc_indicator, topology_interface_index, topology_window_heterogeneity, compressibility_score, ecology_state_entropy_norm, ecology_resource_adjacency]
 ```
 
 ```mermaid
@@ -369,33 +374,41 @@ flowchart LR
 
 Сумма весов внутри скобки при «идеальных» \(\widehat C_H=1\), \(C_{AP}=1\) даёт \(1{,}00\); при нулях — \(0{,}50\). Это намеренно **не** выпуклая нормализация на \([0,1]\): скаляр остаётся неограниченным сверху за счёт \(\mathrm{MO}\) и дополнительных слагаемых, что удобно для **ранжирования** миров в GA/сортировке популяции.
 
+### 5.2. Топология, сжатие и экология (последние пять координат)
+
+Пять дополнительных скаляров считаются **по финальным** сеткам `life` и `food` внутри `_metrics_from_final_state` (см. `worldspace/simulator.py`, функции в `worldspace/math.py`). Они расширяют «поведенческий» вектор мира без участия в формуле `mo_eoc_indicator` §5.1.
+
+- **Топология (приближённые, быстрые):** `topology_interface_index` — нормированная плотность границ живой/мёртвой фазы на торе; `topology_window_heterogeneity` — доля локально неоднородных окон `2×2`. Это **не** Betti-числа и не persistent homology: дешёвые прокси морфологической сложности.
+- **Сжатие:** `compressibility_score` — отношение длины zlib-сжатия к длине сырых байтов `life‖food`; отражает **алгоритмическую простоту** конфигурации (высокий балл ≈ «короткое описание»).
+- **Экология двух типов на клетку** (`life` ∈ {0,1}, `food` ∈ {0,1}, как в симуляторе): `ecology_state_entropy_norm` — энтропия совместного 4-типного распределения; `ecology_resource_adjacency` — насколько рядом с живыми клетками лежит еда. Список `WorldSpec.cell_types` задаёт **имена** типов в спеке; в текущем MVP динамика остаётся бинарной по жизни + отдельной сетке ресурса.
+
 ---
 
 ## 6. Пространство миров: PCA и кластеры
 
 Функция `**stream_world_space_to_jsonl(..., metrics_trace_path=..., ca_step_trace_path=...)**` (`worldspace/pipeline.py`):
 
-1. **Проход 1:** для каждого мира из `**generator.iter_worlds(n)`** — `**run_world**` (вектор метрик **после полного прогона** пишется в **memmap** `(n × 7)`). Список `**WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного `**iter_worlds**`, что убирает второй круг HTTP у `**LLMWorldGenerator**`). Если задан `**ca_step_trace_path**`, в `**run_world**` передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с `**yield_index`**, `**ca_step**`, `**metrics**` (только вызовы из этого прохода пайплайна).
-2. По матрице метрик батча: `**_fit_dominant_metric_orthogonal_pca**` — ось **x** как отклонение метрики с **максимальной дисперсией** по батчу от её среднего; ось **y** — **первый главный компонент sklearn `PCA(n_components=1)`**, обученный на **шести остальных** столбцах (sklearn центрирует эти признаки внутри `fit`).
-3. **k-means Lloyd** по строкам memmap (центроиды `**k×7`**, метки в отдельном memmap).
+1. **Проход 1:** для каждого мира из `**generator.iter_worlds(n)`** — `**run_world**` (вектор метрик **после полного прогона** пишется в **memmap** `(n × 12)`). Список `**WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного `**iter_worlds**`, что убирает второй круг HTTP у `**LLMWorldGenerator**`). Если задан `**ca_step_trace_path**`, в `**run_world**` передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с `**yield_index`**, `**ca_step**`, `**metrics**` (только вызовы из этого прохода пайплайна).
+2. По матрице метрик батча: `**_fit_dominant_metric_orthogonal_pca**` — ось **x** как отклонение метрики с **максимальной дисперсией** по батчу от её среднего; ось **y** — **первый главный компонент sklearn `PCA(n_components=1)`**, обученный на **остальных 11** столбцах (sklearn центрирует эти признаки внутри `fit`).
+3. **k-means Lloyd** по строкам memmap (центроиды `**k×12`**, метки в отдельном memmap).
 4. **Проход 2:** для индекса `**i`** берётся `**worlds[i]**` и строка memmap; раскладка в 2D (`**dominant_metric_delta_xy**`), `**cluster_id**`, запись **одной JSON-строки** в основной файл (если задан `**path`**) и при `**echo_stdout=True**` — в stdout. Если задан `**metrics_trace_path**`, после прохода 2 в этот файл пишется по строке на мир: `**yield_index**` плюс те же поля, что и в основной записи (`world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`) — вход для `**python -m worldspace.visualizer --metrics-jsonl**`.
 
 Основной JSONL (если задан аргумент `**path**` в `**stream_world_space_to_jsonl**`) и строки в `**--metrics-trace**` после прохода 2 содержат поля `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`; в `**--metrics-trace**` дополнительно есть `**yield_index**`. Временный memmap метрик удаляется после завершения функции. При `**n_worlds ≤ 0**` trace-файлы **не открываются**.
 
 ### 6.1. Поля `dominant_metric_delta_xy` и `dominant_metric_delta_axis_labels`
 
-Это **не** нейросетевый embedding и **не** то же самое, что `**pca.png**` / `**umap.png**` (там снижение размерности по **всем семи** финальным метрикам).
+Это **не** нейросетевый embedding и **не** то же самое, что `**pca.png**` / `**umap.png**` (там снижение размерности по **всем 12** финальным метрикам).
 
 | Поле | Смысл |
 |------|--------|
-| `**dominant_metric_delta_xy**` | `[x, y]` — координаты мира: Δ доминирующей метрики и PC1 шести остальных |
+| `**dominant_metric_delta_xy**` | `[x, y]` — координаты мира: Δ доминирующей метрики и PC1 **остальных 11** |
 | `**dominant_metric_delta_axis_labels**` | Подписи осей: какая метрика на **x**, текст для **y** |
 
 **Ось x:** метрика с **наибольшей дисперсией в текущем батче** минус её среднее по батчу: «насколько мир отклоняется по самой «размазанной» метрике».
 
-**Ось y:** **PC1 sklearn** по **остальным шести** метрикам (доминирующая на x **не входит** в PCA). Центрирование только внутри `PCA` по этим шести столбцам (`pca.mean_` — средние шести признаков). При `**n < 2**` миров **y = 0** у всех.
+**Ось y:** **PC1 sklearn** по **остальным 11** метрикам (доминирующая на x **не входит** в PCA). Центрирование только внутри `PCA` по этим столбцам (`pca.mean_` — их средние). При `**n < 2**` миров **y = 0** у всех.
 
-**Цвет точек** на графиках: `**cluster_id**` (k-means Lloyd по полному 7D-вектору метрик в пайплайне) или пересчёт k-means в visualizer (`**--k-clusters**`).
+**Цвет точек** на графиках: `**cluster_id**` (k-means Lloyd по полному 12D-вектору метрик в пайплайне) или пересчёт k-means в visualizer (`**--k-clusters**`).
 
 Старые trace: visualizer читает алиасы `embedding_2d` / `embedding_axes`, `world_space_xy` / `world_space_axis_labels`. Пайплайн пишет только `dominant_metric_delta_*`.
 
@@ -403,9 +416,9 @@ flowchart LR
 
 | PNG | Геометрия |
 |-----|-----------|
-| `**dominant_metric_delta.png**` | Δ доминирующей метрики vs PC1 шести остальных (как в trace) |
-| `**pca.png**` | 2D PCA по всем 7 метрикам |
-| `**umap.png**` | 2D UMAP по всем 7 метрикам (≥3 мира) |
+| `**dominant_metric_delta.png**` | Δ доминирующей метрики vs PC1 остальных 11 (как в trace) |
+| `**pca.png**` | 2D PCA по всем 12 метрикам |
+| `**umap.png**` | 2D UMAP по всем 12 метрикам (≥3 мира) |
 
 ```mermaid
 flowchart TB
@@ -413,11 +426,11 @@ flowchart TB
     W1["WorldSpec 1"]
     WN["WorldSpec N"]
   end
-  subgraph metrics_mat["Матрица N×7"]
+  subgraph metrics_mat["Матрица N×12"]
     MROW["каждая строка — as_vector(metrics)"]
   end
   subgraph proj["Проекция и группы"]
-    PCA["доминирующая метрика + sklearn PCA(1) на 6 столбцах → (x,y)"]
+    PCA["доминирующая метрика + sklearn PCA(1) на 11 столбцах → (x,y)"]
     KM["k-means → cluster_id"]
   end
   W1 --> MROW

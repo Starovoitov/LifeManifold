@@ -88,10 +88,13 @@ Shared numeric routines used by the simulator, metrics, and pipeline (neighbor c
 
 File: `worldspace/metrics.py`
 
-`WorldMetrics` holds the behavioral coordinates (filled by `run_world`). There are **`METRICS_VECTOR_DIM` (= 7)** entries in `as_vector()` / JSON metrics:
+`WorldMetrics` holds the behavioral coordinates (filled by `run_world`). There are **`METRICS_VECTOR_DIM` (= 12)** entries in `as_vector()` / JSON metrics:
 
 - `entropy`, `stability`, `average_lifespan`, `density_mean`, `oscillation_score`, `diversity`
 - `mo_eoc_indicator` — **Multi-Objective + Edge-of-Chaos** scalar; see `multi_objective_edge_of_chaos_indicator` in `metrics.py` and `docs/WORLDSPACE.md` §5.1.
+- `topology_interface_index`, `topology_window_heterogeneity` — fast morphological / mesoscale proxies (`worldspace/math.py`).
+- `compressibility_score` — zlib length vs raw `life‖food` bytes (description-length proxy).
+- `ecology_state_entropy_norm`, `ecology_resource_adjacency` — joint `(life, food)` diversity and food–live spatial coupling.
 
 Constants and vector layout live in `metrics.py` (`METRICS_VECTOR_DIM`).
 
@@ -102,7 +105,7 @@ File: `worldspace/pipeline.py`
 `stream_world_space_to_jsonl(generator, n_worlds, path, k_clusters, echo_stdout=..., metrics_trace_path=..., ca_step_trace_path=...)`:
 
 1. **Pass 1:** for each `WorldSpec` from `generator.iter_worlds(n)`, run `run_world` (passing CA trace file/handle into `run_world` when `ca_step_trace_path` is set). Append each final metrics vector to a **temporary float32 memmap** (`n × METRICS_VECTOR_DIM`). **Materialize** the list of `WorldSpec` objects for pass 2 (small structs; avoids a second `iter_worlds` pass, which halves remote LLM calls for `LLMWorldGenerator`).
-2. Fit **dominant-metric + orthogonal sklearn PCA** on the memmap matrix (`_fit_dominant_metric_orthogonal_pca`): x-axis = deviation of the batch-highest-variance metric from its batch mean; y-axis = first PC of the remaining six columns (`sklearn.decomposition.PCA(n_components=1)`).
+2. Fit **dominant-metric + orthogonal sklearn PCA** on the memmap matrix (`_fit_dominant_metric_orthogonal_pca`): x-axis = deviation of the batch-highest-variance metric from its batch mean; y-axis = first PC of the remaining `METRICS_VECTOR_DIM - 1` columns (`sklearn.decomposition.PCA(n_components=1)`).
 3. Run Lloyd k-means **row-wise** on the memmap (centroids `k × METRICS_VECTOR_DIM`, labels on a separate memmap).
 4. **Pass 2:** for each index `i`, use cached `worlds[i]` plus memmap row `i`, project to 2D, assign `cluster_id`, emit one JSON line to the main output path (if any) and optionally stdout. If `metrics_trace_path` is set, write the same space record plus `yield_index` per line to that file (suitable for `python -m worldspace.visualizer --metrics-jsonl ...` from CLI `--metrics-trace`).
 
