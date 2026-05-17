@@ -41,6 +41,15 @@ def random_walk(
 class WorldGenerator(ABC):
     """Abstract sequence of :class:`WorldSpec` for simulation batches or streaming pipelines."""
 
+    @property
+    def fallback_count(self) -> int:
+        """Number of non-LLM recovery steps (e.g. random-walk) after failed LLM patches."""
+        return int(getattr(self, "_fallback_count", 0))
+
+    def _record_fallback(self) -> None:
+        """Increment :attr:`fallback_count` (LLM / hybrid generators)."""
+        self._fallback_count = self.fallback_count + 1
+
     @abstractmethod
     def generate(self, n_worlds: int) -> list[WorldSpec]:
         """Generate a list of world specifications."""
@@ -457,6 +466,7 @@ class LLMWorldGenerator(WorldGenerator):
         ).generate(1)[0]
 
     def _fallback_step(self, world: WorldSpec, generation: int) -> WorldSpec:
+        self._record_fallback()
         walker = RandomWalkWorldGenerator(
             start_world=world, scale=self.config.fallback_scale
         )
@@ -677,6 +687,7 @@ class HybridGALlmWorldGenerator(WorldGenerator):
         except RuntimeError:
             patch = None
         if patch is None:
+            self._record_fallback()
             return self._random_mutate(parent, rng, seed=seed)
         return _apply_world_patch(parent, patch, seed=seed)
 

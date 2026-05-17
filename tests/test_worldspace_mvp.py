@@ -386,6 +386,36 @@ class TestWorldSpaceMVP(unittest.TestCase):
         self.assertAlmostEqual(worlds[1].resource_regen, 0.12)
         self.assertAlmostEqual(worlds[1].predation, 0.31)
 
+    def test_llm_generator_counts_invalid_patch_fallbacks(self):
+        with patch("worldspace.generators.call_llm", return_value="not json"):
+            generator = LLMWorldGenerator(grid_size=8, steps=8, seed=0)
+            worlds = generator.generate(4)
+        self.assertEqual(len(worlds), 4)
+        self.assertEqual(generator.fallback_count, 3)
+
+    def test_echo_lines_prints_fallback_summary_on_stderr(self):
+        import io
+        from contextlib import redirect_stderr
+
+        fd, path = tempfile.mkstemp(suffix=".jsonl")
+        os.close(fd)
+        stderr_buf = io.StringIO()
+        try:
+            with patch("worldspace.generators.call_llm", return_value="not json"):
+                generator = LLMWorldGenerator(grid_size=8, steps=8, seed=0)
+                with redirect_stderr(stderr_buf):
+                    stream_world_space_to_jsonl(
+                        generator,
+                        3,
+                        path,
+                        k_clusters=2,
+                        echo_stdout=True,
+                    )
+            err = stderr_buf.getvalue().strip()
+            self.assertIn('"generator_fallback_count": 2', err)
+        finally:
+            os.unlink(path)
+
     def test_hybrid_generator_emits_world_per_generation(self):
         response = json.dumps(
             {

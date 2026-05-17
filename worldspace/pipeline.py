@@ -4,6 +4,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import TextIO
@@ -128,6 +129,9 @@ def stream_world_space_to_jsonl(
                         json.dumps({"yield_index": i, **row}, ensure_ascii=True) + "\n"
                     )
                 trace_file.flush()
+
+            if echo_stdout:
+                _print_generator_fallback_summary(generator)
     finally:
         if trace_file is not None:
             trace_file.close()
@@ -296,6 +300,15 @@ def _iter_space_point_dicts(
         yield _space_point_row(
             world, vec, mean, dominant_index, x_axis_metric, pca, lab
         )
+
+
+def _print_generator_fallback_summary(generator: WorldGenerator) -> None:
+    """After echoed JSONL lines, print fallback stats on stderr (keeps stdout JSON-clean)."""
+    summary = json.dumps(
+        {"generator_fallback_count": generator.fallback_count},
+        ensure_ascii=True,
+    )
+    print(summary, file=sys.stderr, flush=True)
 
 
 def _write_jsonl_to_path(
