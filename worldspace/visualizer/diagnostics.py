@@ -254,9 +254,7 @@ def _interpretation_block(m: WorldMetrics) -> str:
             'Many locally "mixed" 2×2 windows — mesoscale heterogeneity (edges / pattern blending).'
         )
     elif m.topology_window_heterogeneity < 0.08:
-        lines.append(
-            "Nearly uniform 2×2 windows — large-scale smooth or empty field."
-        )
+        lines.append("Nearly uniform 2×2 windows — large-scale smooth or empty field.")
     if m.compressibility_score > 0.55:
         lines.append(
             'High compressibility — configuration is close to a "short description" (substantial order).'

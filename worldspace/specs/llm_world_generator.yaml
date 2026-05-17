@@ -3,9 +3,14 @@ version: 1
 llm:
   mode: remote
   active_provider: qwen
+  global_search: false
   temperature: 0.2
   max_tokens: 350
   fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
   providers:
     openai:
       provider: openai

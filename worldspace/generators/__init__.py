@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import base64
 from collections.abc import Iterator
 from dataclasses import replace
 import json
@@ -13,19 +14,16 @@ from urllib import error, request
 import numpy as np
 import yaml
 
-from ..simulator import run_world
+from ..simulator import SimulationResult, run_world
 from ..specs.spec import WorldSpec
+from .llm_config import (
+    LLMGeneratorConfig,
+    load_llm_config,
+    load_llm_generator_yaml as load_llm_generator_yaml,
+)
+from .llm_patch import LLMPatchAdvisor
 
 DEFAULT_CELL_TYPES = ["empty", "life", "food"]
-_DEFAULT_GENETIC_SPEC_PATH = (
-    Path(__file__).resolve().parent.parent / "specs" / "genetic_world_generator.yaml"
-)
-_DEFAULT_LLM_SPEC_PATH = (
-    Path(__file__).resolve().parent.parent / "specs" / "llm_world_generator.yaml"
-)
-_DEFAULT_HYBRID_SPEC_PATH = (
-    Path(__file__).resolve().parent.parent / "specs" / "hybrid_world_generator.yaml"
-)
 
 
 def random_walk(
@@ -399,7 +397,7 @@ def load_genetic_generator_yaml(path: str | Path) -> dict[str, Any]:
 
 
 class LLMWorldGenerator(WorldGenerator):
-    """LLM-driven iterative world optimizer with YAML-configured providers."""
+    """LLM-driven iterative local search (single lineage, scalar fitness)."""
 
     def __init__(
         self,
@@ -407,19 +405,23 @@ class LLMWorldGenerator(WorldGenerator):
         steps: int = 300,
         seed: int = 0,
         spec_path: str | Path | None = None,
+        *,
+        config: LLMGeneratorConfig | None = None,
     ):
-        cfg = load_llm_generator_yaml(spec_path or _DEFAULT_LLM_SPEC_PATH)
-        llm_cfg = cfg["llm"]
+        self.config = config or load_llm_config(spec_path or _DEFAULT_LLM_SPEC_PATH)
+        if self.config.global_search:
+            raise ValueError(
+                "global_search is enabled in the LLM spec; use LLMGlobalSearchWorldGenerator "
+                "or make_llm_world_generator() instead of LLMWorldGenerator."
+            )
         self.grid_size = grid_size
         self.steps = steps
         self.seed = seed
-        self.mode = str(llm_cfg["mode"]).strip().lower()
-        self.active_provider = str(llm_cfg["active_provider"]).strip()
-        self.providers = dict(llm_cfg["providers"])
-        self.temperature = float(llm_cfg.get("temperature", 0.2))
-        self.max_tokens = int(llm_cfg.get("max_tokens", 350))
-        self.fallback_scale = float(llm_cfg.get("fallback_scale", 0.02))
-        self.initial_generator = str(llm_cfg.get("initial_generator", "random"))
+        self._advisor = LLMPatchAdvisor.from_config(
+            self.config,
+            call_llm_text=call_llm,
+            call_llm_vision=call_llm_vision,
+        )
 
     def generate(self, n_worlds: int) -> list[WorldSpec]:
         return list(self.iter_worlds(n_worlds))
@@ -432,15 +434,8 @@ class LLMWorldGenerator(WorldGenerator):
         for generation in range(1, n_worlds):
             result = run_world(current)
             score = float(result.metrics.mo_eoc_indicator)
-            prompt = self._build_improvement_prompt(current, score)
-            response = call_llm(
-                mode=self.mode,
-                provider_name=self.active_provider,
-                providers=self.providers,
-                prompt=prompt,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            prompt = self._advisor.build_local_prompt(current, score)
+            response = self._advisor.request_patch(prompt)
             suggested = _extract_world_patch_from_text(response)
             if suggested is None:
                 current = self._fallback_step(current, generation)
@@ -449,54 +444,97 @@ class LLMWorldGenerator(WorldGenerator):
             yield current
 
     def _initial_world(self) -> WorldSpec:
-        if self.initial_generator == "random_walk":
+        if self.config.initial_generator == "random_walk":
             base = RandomWorldGenerator(
                 grid_size=self.grid_size,
                 steps=self.steps,
             ).generate(1)[0]
             return RandomWalkWorldGenerator(
-                start_world=base, scale=self.fallback_scale
+                start_world=base, scale=self.config.fallback_scale
             ).generate(1)[0]
         return RandomWorldGenerator(
             grid_size=self.grid_size, steps=self.steps
         ).generate(1)[0]
 
     def _fallback_step(self, world: WorldSpec, generation: int) -> WorldSpec:
-        walker = RandomWalkWorldGenerator(start_world=world, scale=self.fallback_scale)
+        walker = RandomWalkWorldGenerator(
+            start_world=world, scale=self.config.fallback_scale
+        )
         nxt = walker.generate(2)[-1]
         return replace(nxt, seed=self.seed + generation)
-
-    def _build_improvement_prompt(self, world: WorldSpec, score: float) -> str:
-        payload = {
-            "current_world": world.to_json_dict(),
-            "current_mo_eoc_indicator": score,
-            "goal": (
-                "Increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator) "
-                "while staying within valid bounds."
-            ),
-            "constraints": {
-                "birth": "unique integers in [0,8], at least 1 item",
-                "survival": "unique integers in [0,8], at least 1 item",
-                "noise": "[0.0,0.2]",
-                "resource_regen": "[0.0,0.5]",
-                "predation": "[0.0,1.0]",
-            },
-            "output_format": {
-                "birth": [3],
-                "survival": [2, 3],
-                "noise": 0.05,
-                "resource_regen": 0.1,
-                "predation": 0.2,
-                "reasoning": "short explanation",
-            },
-            "instruction": "Return JSON only.",
-        }
-        return json.dumps(payload, ensure_ascii=True)
 
     def _apply_world_patch(
         self, world: WorldSpec, patch: dict[str, Any], generation: int
     ) -> WorldSpec:
         return _apply_world_patch(world, patch, seed=self.seed + generation)
+
+
+class LLMGlobalSearchWorldGenerator(LLMWorldGenerator):
+    """LLM iterative search with vision/text simulation description before each patch."""
+
+    def __init__(
+        self,
+        grid_size: int = 50,
+        steps: int = 300,
+        seed: int = 0,
+        spec_path: str | Path | None = None,
+        *,
+        config: LLMGeneratorConfig | None = None,
+    ):
+        loaded = config or load_llm_config(spec_path or _DEFAULT_LLM_SPEC_PATH)
+        if not loaded.global_search:
+            raise ValueError(
+                "LLMGlobalSearchWorldGenerator requires global_search: true in the LLM spec."
+            )
+        self.config = loaded
+        self.grid_size = grid_size
+        self.steps = steps
+        self.seed = seed
+        self._advisor = LLMPatchAdvisor.from_config(
+            self.config,
+            call_llm_text=call_llm,
+            call_llm_vision=call_llm_vision,
+        )
+
+    def iter_worlds(self, n_worlds: int) -> Iterator[WorldSpec]:
+        if n_worlds <= 0:
+            return
+        current = self._initial_world()
+        yield current
+        for generation in range(1, n_worlds):
+            result = run_world(current)
+            description = self._advisor.describe(result)
+            prompt = self._advisor.build_global_prompt(current, result, description)
+            response = self._advisor.request_patch(prompt)
+            suggested = _extract_world_patch_from_text(response)
+            if suggested is None:
+                current = self._fallback_step(current, generation)
+            else:
+                current = self._apply_world_patch(current, suggested, generation)
+            yield current
+
+
+def make_llm_world_generator(
+    grid_size: int = 50,
+    steps: int = 300,
+    seed: int = 0,
+    spec_path: str | Path | None = None,
+) -> WorldGenerator:
+    """Instantiate local-search or global-search LLM generator per YAML ``global_search``."""
+    config = load_llm_config(spec_path or _DEFAULT_LLM_SPEC_PATH)
+    if config.global_search:
+        return LLMGlobalSearchWorldGenerator(
+            grid_size=grid_size,
+            steps=steps,
+            seed=seed,
+            config=config,
+        )
+    return LLMWorldGenerator(
+        grid_size=grid_size,
+        steps=steps,
+        seed=seed,
+        config=config,
+    )
 
 
 class HybridGALlmWorldGenerator(WorldGenerator):
@@ -524,11 +562,12 @@ class HybridGALlmWorldGenerator(WorldGenerator):
         self.mutation_scale = float(evo.get("mutation_scale", 0.02))
         self.llm_top_fraction = float(evo.get("llm_top_fraction", 0.2))
 
-        self.mode = str(llm_cfg["mode"]).strip().lower()
-        self.active_provider = str(llm_cfg["active_provider"]).strip()
-        self.providers = dict(llm_cfg["providers"])
-        self.temperature = float(llm_cfg.get("temperature", 0.2))
-        self.max_tokens = int(llm_cfg.get("max_tokens", 350))
+        llm_config = LLMGeneratorConfig.from_llm_dict(llm_cfg)
+        self._llm_advisor = LLMPatchAdvisor.from_config(
+            llm_config,
+            call_llm_text=call_llm,
+            call_llm_vision=call_llm_vision,
+        )
 
     def generate(self, n_worlds: int) -> list[WorldSpec]:
         return list(self.iter_worlds(n_worlds))
@@ -565,8 +604,10 @@ class HybridGALlmWorldGenerator(WorldGenerator):
                 seed_counter += 1
 
             for _ in range(self.llm_mutations):
-                parent, metrics = llm_pool[int(rng.integers(0, len(llm_pool)))]
-                child = self._llm_mutate(parent, metrics, generation, seed_counter, rng)
+                parent, parent_result = llm_pool[int(rng.integers(0, len(llm_pool)))]
+                child = self._llm_mutate(
+                    parent, parent_result, generation, seed_counter, rng
+                )
                 next_population.append(child)
                 seed_counter += 1
 
@@ -580,17 +621,18 @@ class HybridGALlmWorldGenerator(WorldGenerator):
 
     def _score_population(
         self, population: list[WorldSpec]
-    ) -> list[tuple[WorldSpec, Any]]:
-        scored: list[tuple[WorldSpec, Any]] = []
+    ) -> list[tuple[WorldSpec, SimulationResult]]:
+        scored: list[tuple[WorldSpec, SimulationResult]] = []
         for world in population:
-            metrics = run_world(world).metrics
-            scored.append((world, metrics))
-        scored.sort(key=lambda x: float(x[1].mo_eoc_indicator), reverse=True)
+            scored.append((world, run_world(world)))
+        scored.sort(key=lambda x: float(x[1].metrics.mo_eoc_indicator), reverse=True)
         return scored
 
     def _select_with_diversity(
-        self, scored: list[tuple[WorldSpec, Any]], rng: np.random.Generator
-    ) -> list[tuple[WorldSpec, Any]]:
+        self,
+        scored: list[tuple[WorldSpec, SimulationResult]],
+        rng: np.random.Generator,
+    ) -> list[tuple[WorldSpec, SimulationResult]]:
         top = scored[: min(self.select_top_k, len(scored))]
         rest = scored[len(top) :]
         if not rest:
@@ -618,53 +660,25 @@ class HybridGALlmWorldGenerator(WorldGenerator):
     def _llm_mutate(
         self,
         parent: WorldSpec,
-        metrics: Any,
+        parent_result: SimulationResult,
         generation: int,
         seed: int,
         rng: np.random.Generator,
     ) -> WorldSpec:
-        prompt = self._build_prompt(parent, metrics)
+        description = ""
+        if self._llm_advisor.config.global_search:
+            description = self._llm_advisor.describe(parent_result)
+        prompt = self._llm_advisor.build_hybrid_prompt(
+            parent, parent_result, description=description
+        )
         try:
-            response = call_llm(
-                mode=self.mode,
-                provider_name=self.active_provider,
-                providers=self.providers,
-                prompt=prompt,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            response = self._llm_advisor.request_patch(prompt)
             patch = _extract_world_patch_from_text(response)
         except RuntimeError:
             patch = None
         if patch is None:
             return self._random_mutate(parent, rng, seed=seed)
         return _apply_world_patch(parent, patch, seed=seed)
-
-    def _build_prompt(self, world: WorldSpec, metrics: Any) -> str:
-        return (
-            "You are improving a cellular automaton world.\n\n"
-            "Goal: increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator).\n\n"
-            f"Current world:\n{json.dumps(world.to_json_dict(), ensure_ascii=True)}\n\n"
-            "Metrics:\n"
-            f"density: {float(metrics.density_mean):.6f}\n"
-            f"entropy: {float(metrics.entropy):.6f}\n"
-            f"stability: {float(metrics.stability):.6f}\n"
-            f"survival (avg lifespan): {float(metrics.average_lifespan):.6f}\n"
-            f"diversity: {float(metrics.diversity):.6f}\n"
-            f"oscillation_score: {float(metrics.oscillation_score):.6f}\n"
-            f"topology_interface_index: {float(metrics.topology_interface_index):.6f}\n"
-            f"topology_window_heterogeneity: {float(metrics.topology_window_heterogeneity):.6f}\n"
-            f"compressibility_score: {float(metrics.compressibility_score):.6f}\n"
-            f"ecology_state_entropy_norm: {float(metrics.ecology_state_entropy_norm):.6f}\n"
-            f"ecology_resource_adjacency: {float(metrics.ecology_resource_adjacency):.6f}\n"
-            f"mo_eoc_indicator: {float(metrics.mo_eoc_indicator):.6f}\n\n"
-            "Suggest a slightly improved version.\n\n"
-            "Rules:\n"
-            "- change at most 2 parameters\n"
-            "- keep system stable (avoid extinction or explosion)\n"
-            "- aim for balance between order and chaos\n\n"
-            "Output ONLY JSON."
-        )
 
 
 def call_llm(
@@ -675,8 +689,65 @@ def call_llm(
     prompt: str,
     temperature: float = 0.2,
     max_tokens: int = 350,
+    system_content: str = "You optimize simulation parameters.",
 ) -> str:
     """Call an OpenAI-compatible chat completions endpoint and return message content."""
+    return call_llm_messages(
+        mode=mode,
+        provider_name=provider_name,
+        providers=providers,
+        messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def call_llm_vision(
+    *,
+    mode: str,
+    provider_name: str,
+    providers: dict[str, Any],
+    system_content: str,
+    user_text: str,
+    image_png_bytes: bytes,
+    temperature: float = 0.1,
+    max_tokens: int = 300,
+) -> str:
+    """Multimodal chat completion: text prompt plus one PNG frame."""
+    b64 = base64.standard_b64encode(image_png_bytes).decode("ascii")
+    user_content: list[dict[str, Any]] = [
+        {"type": "text", "text": user_text},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}"},
+        },
+    ]
+    return call_llm_messages(
+        mode=mode,
+        provider_name=provider_name,
+        providers=providers,
+        messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def call_llm_messages(
+    *,
+    mode: str,
+    provider_name: str,
+    providers: dict[str, Any],
+    messages: list[dict[str, Any]],
+    temperature: float = 0.2,
+    max_tokens: int = 350,
+) -> str:
+    """POST chat completions with a pre-built ``messages`` list."""
     provider = providers.get(provider_name)
     if not isinstance(provider, dict):
         raise ValueError(f"Unknown provider in llm config: {provider_name!r}")
@@ -687,10 +758,7 @@ def call_llm(
 
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": "You optimize simulation parameters."},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
@@ -712,27 +780,6 @@ def call_llm(
         req.add_header("Authorization", f"Bearer {token}")
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
-
-    def _llm_url_error_hint(reason: object, api_base: str) -> str:
-        text = str(reason)
-        if "Connection refused" in text or "Errno 111" in text:
-            return (
-                f" Hint: no server accepted TCP to {api_base!r} (connection refused). "
-                "If this is a local OpenAI-compatible endpoint (Ollama/LM Studio), start it "
-                "or change ``api_base`` / use ``--generator-spec`` with a reachable URL."
-            )
-        if (
-            isinstance(reason, ssl.SSLError)
-            or "SSL" in text
-            or "UNEXPECTED_EOF" in text
-        ):
-            return (
-                " TLS hint: urllib uses system trust and env proxies; set HTTPS_PROXY/HTTP_PROXY "
-                "if required, add your intercept CA to SSL_CERT_FILE (urllib does not read "
-                "REQUESTS_CA_BUNDLE), or try another network/VPN. DashScope intl endpoint can be "
-                "blocked or reset by some paths."
-            )
-        return ""
 
     try:
         with request.urlopen(req, timeout=45) as resp:
@@ -756,30 +803,6 @@ def call_llm(
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("LLM response missing message.content")
     return content
-
-
-def load_llm_generator_yaml(path: str | Path) -> dict[str, Any]:
-    """Load and validate llm world generator YAML."""
-    src = Path(path)
-    if not src.is_file():
-        raise FileNotFoundError(
-            f"LLM generator YAML not found: {src.resolve()}. "
-            "Pass --generator-spec in CLI or place default llm_world_generator.yaml in worldspace/specs/."
-        )
-    raw = yaml.safe_load(src.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise ValueError(f"YAML root must be a mapping: {src}")
-    if raw.get("version") != 1:
-        raise ValueError(f"{src}: expected version: 1")
-    llm = raw.get("llm")
-    if not isinstance(llm, dict):
-        raise ValueError(f"{src}: expected top-level key 'llm'")
-    for key in ("mode", "active_provider", "providers"):
-        if key not in llm:
-            raise ValueError(f"{src}: llm.{key} is required")
-    if not isinstance(llm["providers"], dict):
-        raise ValueError(f"{src}: llm.providers must be a mapping")
-    return raw
 
 
 def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:
@@ -826,6 +849,37 @@ def __getattr__(name: str) -> Any:
 
         return _NWG
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# --- module-private defaults and helpers ---
+
+_DEFAULT_GENETIC_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "genetic_world_generator.yaml"
+)
+_DEFAULT_LLM_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "llm_world_generator.yaml"
+)
+_DEFAULT_HYBRID_SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "specs" / "hybrid_world_generator.yaml"
+)
+
+
+def _llm_url_error_hint(reason: object, api_base: str) -> str:
+    text = str(reason)
+    if "Connection refused" in text or "Errno 111" in text:
+        return (
+            f" Hint: no server accepted TCP to {api_base!r} (connection refused). "
+            "If this is a local OpenAI-compatible endpoint (Ollama/LM Studio), start it "
+            "or change ``api_base`` / use ``--generator-spec`` with a reachable URL."
+        )
+    if isinstance(reason, ssl.SSLError) or "SSL" in text or "UNEXPECTED_EOF" in text:
+        return (
+            " TLS hint: urllib uses system trust and env proxies; set HTTPS_PROXY/HTTP_PROXY "
+            "if required, add your intercept CA to SSL_CERT_FILE (urllib does not read "
+            "REQUESTS_CA_BUNDLE), or try another network/VPN. DashScope intl endpoint can be "
+            "blocked or reset by some paths."
+        )
+    return ""
 
 
 def _extract_world_patch_from_text(text: str) -> dict[str, Any] | None:

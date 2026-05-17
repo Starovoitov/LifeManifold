@@ -8,7 +8,7 @@ from pathlib import Path
 from .generators import (
     GeneticWorldGenerator,
     HybridGALlmWorldGenerator,
-    LLMWorldGenerator,
+    make_llm_world_generator,
     RandomWalkWorldGenerator,
     RandomWorldGenerator,
     RuleBiasMarkovGenerator,
@@ -146,7 +146,7 @@ def main() -> None:
             spec_path=gen_spec_path,
         )
     elif args.generator == "llm":
-        generator = LLMWorldGenerator(
+        generator = make_llm_world_generator(
             grid_size=args.grid,
             steps=args.steps,
             seed=args.ga_seed,
