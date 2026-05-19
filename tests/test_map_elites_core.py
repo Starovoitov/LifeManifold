@@ -199,9 +199,9 @@ class TestCanonicalSeed(unittest.TestCase):
         payload = json.dumps(
             spec.to_canonical_dict(), sort_keys=True, separators=(",", ":")
         )
-        expected = int(
-            hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8], 16
-        ) % (2**32)
+        expected = int(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8], 16) % (
+            2**32
+        )
         self.assertEqual(canonical_seed(spec), expected)
 
 

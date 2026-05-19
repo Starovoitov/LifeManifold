@@ -95,6 +95,10 @@ File: `worldspace/illuminators/archive.py`
 
 `load_and_collapse_jsonl(path, resolution=50)` reads JSONL and keeps one elite per `bin` (maximum `fitness`; first line wins on ties). Invalid lines are skipped with a log warning by default (`on_invalid_line="raise"` for strict mode). `merge_archives(base, incoming)` applies the same strict-improvement rule across two in-memory archives. Typical resume flow: load collapsed archive, run new candidates with `insert_and_persist`, append only improvements to the file.
 
+File: `worldspace/illuminators/scheduler.py`
+
+Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm). `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size`). `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
+
 ### Math helpers
 
 File: `worldspace/math.py`
@@ -147,6 +151,7 @@ Files:
 - `worldspace/specs/llm_world_generator.yaml`
 - `worldspace/specs/hybrid_world_generator.yaml`
 - `worldspace/specs/neural_world_generator.yaml`
+- `worldspace/specs/map_elites_scheduler.yaml` (MAP-Elites illuminator iteration mix and limits)
 
 These files define default generator behavior and provider/model routing; the CLI flag `--generator-spec PATH` overrides the path when using `--generator genetic|llm|hybrid|neural` (the YAML shape is validated for that generator).
 

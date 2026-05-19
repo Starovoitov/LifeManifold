@@ -17,6 +17,8 @@ __all__ = [
     "EvalResult",
     "ILLUMINATOR_MIN_STEPS",
     "apply_canonical_seed",
+    "bin_center",
+    "bin_edges",
     "bin_index",
     "bin_index_from_measures",
     "canonical_seed",
@@ -99,9 +101,23 @@ def compute_fitness(
     )
 
 
+def bin_edges(resolution: int) -> np.ndarray:
+    """BC bin boundaries on ``[0.0, 1.0]`` (length ``resolution + 1``)."""
+    return np.linspace(0.0, 1.0, resolution + 1)
+
+
+def bin_center(i: int, j: int, resolution: int) -> tuple[float, float]:
+    """Midpoint of archive cell ``(i, j)`` in stability / diversity coordinates."""
+    edges = bin_edges(resolution)
+    return (
+        float((edges[i] + edges[i + 1]) / 2.0),
+        float((edges[j] + edges[j + 1]) / 2.0),
+    )
+
+
 def bin_index(stability: float, diversity: float, resolution: int) -> tuple[int, int]:
     """Map BC values to archive cell indices."""
-    edges = _bin_edges(resolution)
+    edges = bin_edges(resolution)
     s = _clip_unit(stability)
     d = _clip_unit(diversity)
     i = int(np.minimum(np.searchsorted(edges, s, side="right") - 1, resolution - 1))
@@ -153,10 +169,6 @@ def evaluate_candidate(
 
 def _canonical_payload(world_spec: WorldSpec) -> str:
     return json.dumps(world_spec.to_canonical_dict(), **_CANONICAL_JSON_KWARGS)
-
-
-def _bin_edges(resolution: int) -> np.ndarray:
-    return np.linspace(0.0, 1.0, resolution + 1)
 
 
 def _clip_unit(value: float) -> float:

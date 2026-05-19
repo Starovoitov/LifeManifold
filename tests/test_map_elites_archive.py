@@ -12,7 +12,6 @@ from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
     DEFAULT_GRID_RESOLUTION,
     ArchiveElite,
-    EliteMetadata,
     GridArchive,
     InsertResult,
     append_archive_line,
@@ -68,7 +67,9 @@ def _record_for_bin(
     *,
     elite_id: str,
 ) -> dict:
-    return elite_to_archive_record(_minimal_elite(bin_coord, fitness, elite_id=elite_id))
+    return elite_to_archive_record(
+        _minimal_elite(bin_coord, fitness, elite_id=elite_id)
+    )
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
@@ -139,7 +140,9 @@ class TestGridArchiveInsert(unittest.TestCase):
         archive = GridArchive(5)
         elite = _minimal_elite((2, 3), 0.0)
         result = archive.try_insert(elite)
-        self.assertEqual(result, InsertResult(accepted=True, improved=False, rejected=False))
+        self.assertEqual(
+            result, InsertResult(accepted=True, improved=False, rejected=False)
+        )
         stored = archive.get(2, 3)
         self.assertIsNotNone(stored)
         assert stored is not None
@@ -149,7 +152,9 @@ class TestGridArchiveInsert(unittest.TestCase):
         archive = GridArchive(5)
         archive.try_insert(_minimal_elite((1, 1), 0.5, elite_id="a"))
         improved = archive.try_insert(_minimal_elite((1, 1), 0.6, elite_id="b"))
-        self.assertEqual(improved, InsertResult(accepted=True, improved=True, rejected=False))
+        self.assertEqual(
+            improved, InsertResult(accepted=True, improved=True, rejected=False)
+        )
         stored = archive.get(1, 1)
         assert stored is not None
         self.assertEqual(stored.fitness, 0.6)
@@ -158,7 +163,9 @@ class TestGridArchiveInsert(unittest.TestCase):
         archive = GridArchive(5)
         archive.try_insert(_minimal_elite((0, 0), 0.5))
         result = archive.try_insert(_minimal_elite((0, 0), 0.5, elite_id="other"))
-        self.assertEqual(result, InsertResult(accepted=False, improved=False, rejected=True))
+        self.assertEqual(
+            result, InsertResult(accepted=False, improved=False, rejected=True)
+        )
 
     def test_insert_lower_fitness_rejected(self) -> None:
         archive = GridArchive(5)

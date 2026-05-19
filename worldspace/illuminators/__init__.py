@@ -26,6 +26,8 @@ from .evaluation import (
     ILLUMINATOR_MIN_STEPS,
     EvalResult,
     apply_canonical_seed,
+    bin_center,
+    bin_edges,
     bin_index,
     bin_index_from_measures,
     canonical_seed,
@@ -35,6 +37,14 @@ from .evaluation import (
     measures_from_metrics,
     topology_complexity,
 )
+from .scheduler import (
+    DEFAULT_SCHEDULER_PATH,
+    EmitterKind,
+    SchedulerConfig,
+    TargetBin,
+    load_scheduler,
+    select_target_bin,
+)
 
 __all__ = [
     "ARCHIVE_SCHEMA_VERSION",
@@ -42,8 +52,10 @@ __all__ = [
     "BC_MIN",
     "DEFAULT_ARCHIVE_JSONL_PATH",
     "DEFAULT_GRID_RESOLUTION",
+    "DEFAULT_SCHEDULER_PATH",
     "ArchiveElite",
     "EliteMetadata",
+    "EmitterKind",
     "EvalResult",
     "GridArchive",
     "ILLUMINATOR_MIN_STEPS",
@@ -53,6 +65,8 @@ __all__ = [
     "append_archive_line",
     "apply_canonical_seed",
     "archive_record_to_elite",
+    "bin_center",
+    "bin_edges",
     "bin_index",
     "bin_index_from_measures",
     "canonical_seed",
@@ -64,8 +78,12 @@ __all__ = [
     "insert_and_persist",
     "insert_evaluated",
     "load_and_collapse_jsonl",
+    "load_scheduler",
     "measures_from_metrics",
     "merge_archives",
     "new_elite_metadata",
+    "SchedulerConfig",
+    "select_target_bin",
+    "TargetBin",
     "topology_complexity",
 ]
