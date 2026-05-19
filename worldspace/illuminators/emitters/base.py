@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 
 import numpy as np
 
 from worldspace.illuminators.archive import EliteMetadata, GridArchive
-from worldspace.illuminators.scheduler import EmitterKind, TargetBin
+from worldspace.illuminators.scheduler import (
+    EmitterKind,
+    SchedulerConfig,
+    TargetBin,
+    resolve_surrogate_stub,
+)
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
 __all__ = [
@@ -54,10 +62,18 @@ class CandidateEmitter(Protocol):
 
 
 class MapElitesEmitter:
-    """Dispatch batch slots to random or genetic emitters."""
+    """Dispatch batch slots to random, genetic, or LLM emitters."""
 
-    def __init__(self, *, mutation_scale: float = 0.02) -> None:
+    def __init__(
+        self,
+        *,
+        mutation_scale: float = 0.02,
+        scheduler: SchedulerConfig | None = None,
+        llm_emitter: LlmEmitter | None = None,
+    ) -> None:
+        from worldspace.generators.llm_config import load_llm_config
         from worldspace.illuminators.emitters.genetic_emitter import GeneticEmitter
+        from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
         from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 
         self._random = RandomEmitter()
@@ -65,6 +81,24 @@ class MapElitesEmitter:
             mutation_scale=mutation_scale,
             random_emitter=self._random,
         )
+        llm_cfg = load_llm_config()
+        if llm_emitter is not None:
+            self._llm = llm_emitter
+        elif scheduler is not None:
+            stub_mean, stub_uncertainty = resolve_surrogate_stub(scheduler)
+            self._llm = LlmEmitter(
+                grid_resolution=scheduler.grid_resolution,
+                surrogate_mean=stub_mean,
+                surrogate_uncertainty=stub_uncertainty,
+                fallback_scale=llm_cfg.fallback_scale,
+            )
+        else:
+            self._llm = LlmEmitter(
+                grid_resolution=50,
+                surrogate_mean=0.5,
+                surrogate_uncertainty=1.0,
+                fallback_scale=llm_cfg.fallback_scale,
+            )
 
     def emit(
         self,
@@ -78,6 +112,14 @@ class MapElitesEmitter:
     ) -> EmitterOutput:
         if emitter_kind == "genetic":
             return self._genetic.emit(
+                target=target,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
+        if emitter_kind == "llm":
+            return self._llm.emit(
                 target=target,
                 archive=archive,
                 rng=rng,

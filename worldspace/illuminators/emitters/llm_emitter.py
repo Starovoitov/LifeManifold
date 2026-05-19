@@ -1,26 +1,177 @@
-"""MAP-Elites LLM user prompt assembly and few-shot selection."""
+"""MAP-Elites LLM emitter: prompts, API call, parse, and random-walk fallback."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 
-from worldspace.illuminators.archive import ArchiveElite, GridArchive
-from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
+from worldspace.generators import RandomWalkWorldGenerator
+from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
+from worldspace.illuminators.archive import (
+    ArchiveElite,
+    GridArchive,
+    new_elite_metadata,
+)
+from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
+from worldspace.illuminators.emitters.llm_prompts import (
+    render_system_prompt,
+    system_prompt_version,
+)
+from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.grid_neighbors import moore_neighbors_bounded
 from worldspace.illuminators.scheduler import TargetBin
+from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
+from worldspace.specs.world_spec_from_llm import (
+    extract_json_object_from_text,
+    world_spec_from_llm_payload,
+)
 
 _DEFAULT_FEW_SHOT = 4
 _EMPTY_FEW_SHOT_TEXT = "(no occupied neighboring niches)"
+_DEFAULT_LLM_SPEC = (
+    Path(__file__).resolve().parents[2] / "specs" / "llm_world_generator.yaml"
+)
+_EMITTER_TYPE_LLM = "llm"
+_EMITTER_TYPE_LLM_FALLBACK = "llm_fallback"
 
 __all__ = [
+    "LlmEmitter",
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
     "moore_neighbor_elites",
 ]
+
+
+class LlmEmitter:
+    """Generate candidates via LLM JSON or one random-walk step from parent 1."""
+
+    def __init__(
+        self,
+        *,
+        grid_resolution: int,
+        surrogate_mean: float,
+        surrogate_uncertainty: float,
+        fallback_scale: float = 0.02,
+        llm_spec_path: str | Path | None = None,
+        call_llm_text: LlmTextCaller | None = None,
+        random_emitter: RandomEmitter | None = None,
+    ) -> None:
+        self._grid_resolution = int(grid_resolution)
+        self._surrogate_mean = float(surrogate_mean)
+        self._surrogate_uncertainty = float(surrogate_uncertainty)
+        self._fallback_scale = float(fallback_scale)
+        self._llm_config = load_llm_config(llm_spec_path or _DEFAULT_LLM_SPEC)
+        self._random = random_emitter or RandomEmitter()
+        self._call_llm_text = call_llm_text
+        self._prompt_version = system_prompt_version()
+
+    def emit(
+        self,
+        *,
+        target: TargetBin,
+        archive: GridArchive,
+        rng: np.random.Generator,
+        grid_size: int,
+        steps: int,
+    ) -> EmitterOutput:
+        parent_spec, parent_id = self._resolve_parent_one(
+            target=target,
+            archive=archive,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        system_prompt = render_system_prompt(self._grid_resolution)
+        user_prompt = build_user_prompt(
+            target=target,
+            archive=archive,
+            surrogate_mean=self._surrogate_mean,
+            surrogate_uncertainty=self._surrogate_uncertainty,
+            rng=rng,
+        )
+        response = self._request_llm(system_prompt, user_prompt)
+        parsed = extract_json_object_from_text(response)
+        if parsed is not None:
+            spec = world_spec_from_llm_payload(
+                parsed,
+                grid_size=grid_size,
+                steps=steps,
+                base=parent_spec,
+            )
+            if spec is not None:
+                return EmitterOutput(
+                    world_spec=strip_seed(spec),
+                    metadata=new_elite_metadata(
+                        generated_by="llm",
+                        emitter_type=_EMITTER_TYPE_LLM,
+                        parent_id=parent_id,
+                        prompt_version=self._prompt_version,
+                    ),
+                )
+        fallback_spec = _random_walk_step(
+            parent_spec,
+            scale=self._fallback_scale,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        return EmitterOutput(
+            world_spec=fallback_spec,
+            metadata=new_elite_metadata(
+                generated_by="llm",
+                emitter_type=_EMITTER_TYPE_LLM_FALLBACK,
+                parent_id=parent_id,
+                prompt_version=self._prompt_version,
+            ),
+        )
+
+    def _resolve_parent_one(
+        self,
+        *,
+        target: TargetBin,
+        archive: GridArchive,
+        rng: np.random.Generator,
+        grid_size: int,
+        steps: int,
+    ) -> tuple[WorldSpec, str | None]:
+        elite = archive.get(*target.bin)
+        if elite is not None and elite.world_spec is not None:
+            parent_id = elite.metadata.id if elite.metadata is not None else None
+            return (
+                replace(elite.world_spec, grid_size=grid_size, steps=steps),
+                parent_id,
+            )
+        random_out = self._random.emit(
+            target=target,
+            archive=archive,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        return random_out.world_spec, None
+
+    def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
+        if self._call_llm_text is None:
+            from worldspace.generators import call_llm
+
+            caller: LlmTextCaller = call_llm
+        else:
+            caller = self._call_llm_text
+        cfg = self._llm_config
+        return caller(
+            mode=cfg.mode,
+            provider_name=cfg.active_provider,
+            providers=cfg.providers,
+            prompt=user_prompt,
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
+            system_content=system_prompt,
+        )
 
 
 def build_user_prompt(
@@ -33,6 +184,8 @@ def build_user_prompt(
     max_few_shot: int = _DEFAULT_FEW_SHOT,
 ) -> str:
     """Build the LLM user prompt for one emitter slot."""
+    from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
+
     neighbors = moore_neighbor_elites(
         archive, target.bin, rng=rng, max_count=max_few_shot
     )
@@ -84,6 +237,25 @@ def format_few_shot_block(elites: list[ArchiveElite]) -> str:
         return _EMPTY_FEW_SHOT_TEXT
     records = [_elite_prompt_record(elite) for elite in elites]
     return json.dumps(records, ensure_ascii=True, indent=2)
+
+
+def _random_walk_step(
+    parent: WorldSpec,
+    *,
+    scale: float,
+    rng: np.random.Generator,
+    grid_size: int,
+    steps: int,
+) -> WorldSpec:
+    walker = RandomWalkWorldGenerator(
+        start_world=replace(parent, seed=0, grid_size=grid_size, steps=steps),
+        scale=scale,
+    )
+    step_seed = int(rng.integers(0, 2**31))
+    child = walker._step(
+        replace(parent, seed=0, grid_size=grid_size, steps=steps), step_seed
+    )
+    return strip_seed(replace(child, grid_size=grid_size, steps=steps))
 
 
 def _elite_prompt_record(elite: ArchiveElite) -> dict:

@@ -30,6 +30,7 @@ __all__ = [
     "load_scheduler",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
+    "resolve_surrogate_stub",
     "select_target_bin",
     "slot_emitter_for_candidate",
 ]
@@ -165,6 +166,11 @@ def resolve_emitter_kind(
     if slot_emitter == "llm" and not config.llm_enabled:
         return "random"
     return slot_emitter
+
+
+def resolve_surrogate_stub(config: SchedulerConfig) -> tuple[float, float]:
+    """Return surrogate mean and uncertainty for LLM user prompts (MVP stub only)."""
+    return (config.surrogate_stub_mean, config.surrogate_stub_uncertainty)
 
 
 def resolve_emitter_for_slot(

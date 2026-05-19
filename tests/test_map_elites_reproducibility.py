@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive
+
+from worldspace.illuminators.emitters.base import EmitterOutput, MapElitesEmitter
+from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.stub import StubCandidateEmitter
 from worldspace.illuminators.loop import run_scheduler
 from worldspace.illuminators.scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
     SchedulerConfig,
+    TargetBin,
     load_scheduler,
 )
 
@@ -61,6 +66,59 @@ class TestLoadMiniScheduler(unittest.TestCase):
         self.assertEqual(len(config.batch_emitters), 4)
         self.assertFalse(config.llm_enabled)
         self.assertEqual(config.grid_resolution, 10)
+
+
+class _FailingLlmEmitter(LlmEmitter):
+    """Raises if ``emit`` is invoked (used when LLM slots are disabled)."""
+
+    emit_calls = 0
+
+    def emit(
+        self,
+        *,
+        target: TargetBin,
+        archive: GridArchive,
+        rng: np.random.Generator,
+        grid_size: int,
+        steps: int,
+    ) -> EmitterOutput:
+        del target, archive, rng, grid_size, steps
+        _FailingLlmEmitter.emit_calls += 1
+        raise AssertionError("LlmEmitter.emit must not run when llm.enabled is false")
+
+
+class TestLlmDisabledIntegration(unittest.TestCase):
+    def setUp(self) -> None:
+        _FailingLlmEmitter.emit_calls = 0
+
+    def test_mini_scheduler_never_calls_llm_emitter(self) -> None:
+        config = replace(
+            load_scheduler(DEFAULT_MINI_SCHEDULER_PATH),
+            initial_random_candidates=0,
+            iterations=2,
+        )
+        self.assertFalse(config.llm_enabled)
+        archive = GridArchive(config.grid_resolution)
+        rng = np.random.default_rng(_MINI_SEED)
+        emitter = MapElitesEmitter(
+            mutation_scale=config.genetic_mutation_scale,
+            scheduler=config,
+            llm_emitter=_FailingLlmEmitter(
+                grid_resolution=config.grid_resolution,
+                surrogate_mean=0.5,
+                surrogate_uncertainty=1.0,
+            ),
+        )
+        run_scheduler(
+            config,
+            archive,
+            rng,
+            emitter,
+            grid_size=_MINI_GRID_SIZE,
+            steps=_MINI_STEPS,
+        )
+        self.assertEqual(_FailingLlmEmitter.emit_calls, 0)
+        self.assertGreater(archive.filled_count(), 0)
 
 
 class TestColdStartReproducibility(unittest.TestCase):

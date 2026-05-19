@@ -14,6 +14,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.emitters import (
     GeneticEmitter,
+    LlmEmitter,
     MapElitesEmitter,
     RandomEmitter,
     decode_genome,
@@ -203,6 +204,35 @@ class TestMapElitesEmitter(unittest.TestCase):
             steps=200,
         )
         self.assertEqual(genetic_out.metadata.emitter_type, "genetic")
+
+    def test_dispatch_llm_with_mock(self) -> None:
+        captured: list[str] = []
+
+        def mock_llm(**kwargs: object) -> str:
+            captured.append("ok")
+            return (
+                '{"reasoning":"x","world_spec":{"birth":[1],"survival":[2],'
+                '"noise":0.03,"resource_regen":0.05,"predation":0.1}}'
+            )
+
+        emitter = MapElitesEmitter(
+            llm_emitter=LlmEmitter(
+                grid_resolution=5,
+                surrogate_mean=0.5,
+                surrogate_uncertainty=1.0,
+                call_llm_text=mock_llm,
+            ),
+        )
+        out = emitter.emit(
+            emitter_kind="llm",
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(out.metadata.emitter_type, "llm")
 
 
 if __name__ == "__main__":
