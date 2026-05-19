@@ -1,5 +1,13 @@
 """MAP-Elites illuminator package."""
 
+from .archive import (
+    BC_MAX,
+    BC_MIN,
+    DEFAULT_GRID_RESOLUTION,
+    ArchiveElite,
+    GridArchive,
+    InsertResult,
+)
 from .evaluation import (
     MEASURE_KEYS,
     ILLUMINATOR_MIN_STEPS,
@@ -16,9 +24,15 @@ from .evaluation import (
 )
 
 __all__ = [
-    "MEASURE_KEYS",
-    "ILLUMINATOR_MIN_STEPS",
+    "BC_MAX",
+    "BC_MIN",
+    "DEFAULT_GRID_RESOLUTION",
+    "ArchiveElite",
     "EvalResult",
+    "GridArchive",
+    "ILLUMINATOR_MIN_STEPS",
+    "InsertResult",
+    "MEASURE_KEYS",
     "apply_canonical_seed",
     "bin_index",
     "bin_index_from_measures",

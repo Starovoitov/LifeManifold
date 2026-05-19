@@ -87,6 +87,10 @@ Package: `worldspace/illuminators/`
 
 `evaluate_candidate(world_spec, *, resolution=50, early_extinction_step=200) -> EvalResult` wires canonical seed, `run_world`, behavioral `measures` (`stability`, `diversity`), `fitness`, and archive `bin`. Used by the illuminator loop before archive insert (see project MAP-Elites docs).
 
+File: `worldspace/illuminators/archive.py`
+
+`GridArchive(resolution=40)` holds at most one `ArchiveElite` per cell over BC range `[0, 1]`. `try_insert(elite) -> InsertResult` accepts any fitness into an empty cell, replaces only when `fitness_new > fitness_old` (strict), otherwise rejects without mutating the stored elite.
+
 ### Math helpers
 
 File: `worldspace/math.py`
