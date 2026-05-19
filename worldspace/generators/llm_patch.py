@@ -7,14 +7,7 @@ from typing import Any
 
 from ..simulator import SimulationResult
 from ..specs.spec import WorldSpec
-from ..specs.world_param_bounds import (
-    NOISE_MAX,
-    NOISE_MIN,
-    PREDATION_MAX,
-    PREDATION_MIN,
-    RESOURCE_REGEN_MAX,
-    RESOURCE_REGEN_MIN,
-)
+from ..specs.world_spec_constraints import WORLD_SPEC_CONSTRAINTS
 from .llm_config import LLMGeneratorConfig, LlmTextCaller, LlmVisionCaller
 from .llm_descriptive import describe_simulation
 
@@ -60,7 +53,7 @@ class LLMPatchAdvisor:
                 "Increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator) "
                 "while staying within valid bounds."
             ),
-            "constraints": _CONSTRAINTS,
+            "constraints": WORLD_SPEC_CONSTRAINTS,
             "output_format": _OUTPUT_FORMAT,
             "instruction": "Return JSON only.",
         }
@@ -95,7 +88,7 @@ class LLMPatchAdvisor:
                 "Ground reasoning in observed patterns; do not invent structures not supported "
                 "by the description."
             ),
-            "constraints": _CONSTRAINTS,
+            "constraints": WORLD_SPEC_CONSTRAINTS,
             "rules": [
                 "change at most 2 parameters",
                 "keep system stable (avoid extinction or explosion)",
@@ -153,14 +146,6 @@ class LLMPatchAdvisor:
             "Output ONLY JSON."
         )
 
-
-_CONSTRAINTS = {
-    "birth": "unique integers in [0,8], at least 1 item",
-    "survival": "unique integers in [0,8], at least 1 item",
-    "noise": f"[{NOISE_MIN},{NOISE_MAX}]",
-    "resource_regen": f"[{RESOURCE_REGEN_MIN},{RESOURCE_REGEN_MAX}]",
-    "predation": f"[{PREDATION_MIN},{PREDATION_MAX}]",
-}
 
 _OUTPUT_FORMAT = {
     "birth": [3],

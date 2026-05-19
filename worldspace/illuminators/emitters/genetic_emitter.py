@@ -17,6 +17,7 @@ from worldspace.illuminators.emitters.genetics import (
     uniform_crossover,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
+from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
 from worldspace.illuminators.scheduler import TargetBin
 
 DEFAULT_MUTATION_SCALE = 0.02
@@ -130,7 +131,7 @@ def _occupied_cardinal_neighbors(
     i, j = target_bin
     resolution = archive.resolution
     occupied: list[ArchiveElite] = []
-    for ni, nj in _cardinal_neighbors(i, j, resolution):
+    for ni, nj in cardinal_neighbors_bounded(i, j, resolution):
         elite = archive.get(ni, nj)
         if elite is not None:
             occupied.append(elite)
@@ -155,16 +156,3 @@ def _min_fitness_elite(archive: GridArchive) -> ArchiveElite | None:
                 best_bin = (i, j)
                 best_fitness = elite.fitness
     return best
-
-
-def _cardinal_neighbors(i: int, j: int, resolution: int) -> tuple[tuple[int, int], ...]:
-    neighbors: list[tuple[int, int]] = []
-    if i > 0:
-        neighbors.append((i - 1, j))
-    if i + 1 < resolution:
-        neighbors.append((i + 1, j))
-    if j > 0:
-        neighbors.append((i, j - 1))
-    if j + 1 < resolution:
-        neighbors.append((i, j + 1))
-    return tuple(neighbors)

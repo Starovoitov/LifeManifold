@@ -1,0 +1,36 @@
+[
+  {
+    "bin": [2, 3],
+    "fitness": 0.81,
+    "measures": { "stability": 0.55, "diversity": 0.68 },
+    "reasoning": "Stable oscillation with moderate diversity in the target niche.",
+    "world_spec": {
+      "birth": [1, 3],
+      "survival": [2, 3],
+      "noise": 0.02,
+      "resource_regen": 0.05,
+      "predation": 0.1,
+      "cell_types": ["life", "food"],
+      "neighborhood": "moore",
+      "grid_size": 8,
+      "steps": 200
+    }
+  },
+  {
+    "bin": [1, 2],
+    "fitness": 0.74,
+    "measures": { "stability": 0.52, "diversity": 0.71 },
+    "reasoning": "Neighbor niche with similar stability and slightly higher diversity.",
+    "world_spec": {
+      "birth": [2],
+      "survival": [2, 3, 4],
+      "noise": 0.03,
+      "resource_regen": 0.08,
+      "predation": 0.15,
+      "cell_types": ["life", "food"],
+      "neighborhood": "moore",
+      "grid_size": 8,
+      "steps": 200
+    }
+  }
+]

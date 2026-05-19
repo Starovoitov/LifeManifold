@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worldspace.illuminators.archive import GridArchive
 from worldspace.illuminators.evaluation import bin_center
+from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
 
 EmitterKind = Literal["random", "genetic", "llm"]
 _SCHEDULER_SCHEMA_VERSION = "1.2"
@@ -224,7 +225,7 @@ def _boundary_bins(archive: GridArchive) -> list[tuple[int, int]]:
         for j in range(resolution):
             if archive.is_empty(i, j):
                 continue
-            for ni, nj in _cardinal_neighbors(i, j, resolution):
+            for ni, nj in cardinal_neighbors_bounded(i, j, resolution):
                 if archive.is_empty(ni, nj):
                     boundary.append((i, j))
                     break
@@ -250,16 +251,3 @@ def _min_fitness_bin(
         msg = "boundary bins must contain elites"
         raise RuntimeError(msg)
     return best
-
-
-def _cardinal_neighbors(i: int, j: int, resolution: int) -> tuple[tuple[int, int], ...]:
-    neighbors: list[tuple[int, int]] = []
-    if i > 0:
-        neighbors.append((i - 1, j))
-    if i + 1 < resolution:
-        neighbors.append((i + 1, j))
-    if j > 0:
-        neighbors.append((i, j - 1))
-    if j + 1 < resolution:
-        neighbors.append((i, j + 1))
-    return tuple(neighbors)
