@@ -62,9 +62,12 @@ Implemented generator levels:
 
 File: `worldspace/simulator.py`
 
-`run_world(world, *, ca_step_trace_file=None, ca_step_trace_yield_index=0) -> SimulationResult`
+`run_world(world, *, ca_step_trace_file=None, ca_step_trace_yield_index=0, early_extinction_step=None) -> SimulationResult`
 
-Optional keyword-only args (used by the pipeline when `--ca-step-trace` is set): after each CA timestep, append one JSON line (`yield_index`, `ca_step`, `metrics`) to `ca_step_trace_file`. Other callers omit them.
+Optional keyword-only args:
+
+- `ca_step_trace_file` (pipeline / `--ca-step-trace`): after each CA timestep, append one JSON line (`yield_index`, `ca_step`, `metrics`).
+- `early_extinction_step` (MAP-Elites illuminator, default `200`): stop when `life.mean() == 0` at post-init timestep `t` with `0 <= t < early_extinction_step`. `None` = legacy full `world.steps` run with no early stop.
 
 Simulation model:
 

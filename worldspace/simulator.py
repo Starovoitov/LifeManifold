@@ -31,12 +31,17 @@ def run_world(
     *,
     ca_step_trace_file: TextIO | None = None,
     ca_step_trace_yield_index: int = 0,
+    early_extinction_step: int | None = None,
 ) -> SimulationResult:
     """Run one world; metrics use online accumulators.
 
     If ``ca_step_trace_file`` is set, append one JSON object per CA timestep after that
     step (``yield_index``, ``ca_step``, ``metrics``). Used by the pipeline batch path only;
     other ``run_world`` callers omit it.
+
+    When ``early_extinction_step`` is set (illuminator: ``200``), stop as soon as
+    ``life.mean() == 0`` at timestep ``t`` with ``0 <= t < early_extinction_step``
+    (``t = 0`` is post-init, before the first CA step). ``None`` keeps legacy full runs.
     """
     rng = np.random.default_rng(world.seed)
     life, food, ages = _initial_grids(rng, world)
@@ -48,43 +53,61 @@ def run_world(
     death_count = 0
     density_tail: deque[float] = deque(maxlen=ws_math.OSCILLATION_DENSITY_WINDOW)
 
-    for step in range(world.steps):
-        neighbors = ws_math.neighbor_count(life)
-        next_life = _next_life_from_rules(rng, life, neighbors, world)
-        food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
-
-        died_now = (life == 1) & (next_life == 0)
-        death_age_sum, death_count = _accumulate_deaths(
-            died_now, ages, death_age_sum, death_count
-        )
-
-        ages = np.where(next_life == 1, ages + 1 + feed_bonus, 0).astype(np.int16)
-        life = next_life
-
+    run_ca_loop = True
+    if early_extinction_step is not None and float(life.mean()) == 0.0:
+        run_ca_loop = False
         d = float(life.mean())
         density_tail.append(d)
         density_mean, density_m2, density_n = _welford_append(
             d, density_mean, density_m2, density_n
         )
 
-        if ca_step_trace_file is not None:
-            snap = _metrics_from_final_state(
-                life,
-                food,
-                density_mean,
-                density_m2,
-                density_n,
-                density_tail,
-                death_age_sum,
-                death_count,
+    if run_ca_loop:
+        for step in range(world.steps):
+            neighbors = ws_math.neighbor_count(life)
+            next_life = _next_life_from_rules(rng, life, neighbors, world)
+            food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
+
+            died_now = (life == 1) & (next_life == 0)
+            death_age_sum, death_count = _accumulate_deaths(
+                died_now, ages, death_age_sum, death_count
             )
-            row = {
-                "yield_index": ca_step_trace_yield_index,
-                "ca_step": step,
-                "metrics": metrics_vector_to_dict(snap.as_vector()),
-            }
-            ca_step_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
-            ca_step_trace_file.flush()
+
+            ages = np.where(next_life == 1, ages + 1 + feed_bonus, 0).astype(np.int16)
+            life = next_life
+
+            d = float(life.mean())
+            density_tail.append(d)
+            density_mean, density_m2, density_n = _welford_append(
+                d, density_mean, density_m2, density_n
+            )
+
+            if ca_step_trace_file is not None:
+                snap = _metrics_from_final_state(
+                    life,
+                    food,
+                    density_mean,
+                    density_m2,
+                    density_n,
+                    density_tail,
+                    death_age_sum,
+                    death_count,
+                )
+                row = {
+                    "yield_index": ca_step_trace_yield_index,
+                    "ca_step": step,
+                    "metrics": metrics_vector_to_dict(snap.as_vector()),
+                }
+                ca_step_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+                ca_step_trace_file.flush()
+
+            t = step + 1
+            if (
+                early_extinction_step is not None
+                and t < early_extinction_step
+                and float(life.mean()) == 0.0
+            ):
+                break
 
     metrics = _metrics_from_final_state(
         life,

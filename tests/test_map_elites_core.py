@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
+import numpy as np
+
+from worldspace.illuminators.evaluation import apply_canonical_seed, canonical_seed
+from worldspace.simulator import run_world
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
 _CANONICAL_JSON_KWARGS = {"sort_keys": True, "separators": (",", ":")}
@@ -121,6 +129,146 @@ class TestWorldSpecCanonicalDict(unittest.TestCase):
         self.assertEqual(raw["cell_types"], ["empty", "life", "food"])
         self.assertEqual(canonical["birth"], [1, 2])
         self.assertEqual(raw["birth"], [2, 1])
+
+
+_BASE_WORLD_SPEC = WorldSpec(
+    birth=[1],
+    survival=[2],
+    noise=0.0,
+    resource_regen=0.0,
+    predation=0.0,
+    cell_types=["life", "food"],
+    grid_size=4,
+    steps=300,
+    seed=0,
+)
+
+
+def _minimal_world_spec(**overrides: object) -> WorldSpec:
+    return replace(_BASE_WORLD_SPEC, **overrides)
+
+
+class TestCanonicalSeed(unittest.TestCase):
+    def test_canonical_seed_stable(self) -> None:
+        a = _minimal_world_spec(seed=1)
+        b = _minimal_world_spec(
+            birth=[1],
+            survival=[2],
+            seed=99,
+            cell_types=["empty", "life", "food"],
+        )
+        self.assertEqual(canonical_seed(a), canonical_seed(b))
+
+    def test_canonical_seed_differs(self) -> None:
+        a = _minimal_world_spec(grid_size=4)
+        b = _minimal_world_spec(grid_size=8)
+        self.assertNotEqual(canonical_seed(a), canonical_seed(b))
+
+    def test_canonical_seed_ignores_spec_seed_field(self) -> None:
+        a = _minimal_world_spec(seed=1)
+        b = _minimal_world_spec(seed=99)
+        self.assertEqual(canonical_seed(a), canonical_seed(b))
+
+    def test_canonical_seed_range(self) -> None:
+        seed = canonical_seed(_minimal_world_spec())
+        self.assertGreaterEqual(seed, 0)
+        self.assertLess(seed, 2**32)
+
+    def test_apply_canonical_seed_mutates_spec(self) -> None:
+        spec = _minimal_world_spec(seed=0)
+        applied = apply_canonical_seed(spec)
+        self.assertEqual(spec.seed, applied)
+        self.assertEqual(spec.seed, canonical_seed(spec))
+
+    def test_canonical_seed_matches_tz_formula(self) -> None:
+        spec = _minimal_world_spec()
+        payload = json.dumps(
+            spec.to_canonical_dict(), sort_keys=True, separators=(",", ":")
+        )
+        expected = int(
+            hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8], 16
+        ) % (2**32)
+        self.assertEqual(canonical_seed(spec), expected)
+
+
+class TestEarlyExtinction(unittest.TestCase):
+    def test_early_extinct_at_init_zero_ca_steps(self) -> None:
+        n = 4
+        zeros = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        spec = _minimal_world_spec(steps=500)
+
+        with patch(
+            "worldspace.simulator._initial_grids",
+            return_value=(zeros, zeros, ages),
+        ):
+            buf = io.StringIO()
+            run_world(
+                spec,
+                early_extinction_step=200,
+                ca_step_trace_file=buf,
+            )
+            lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 0)
+
+    def test_early_extinct_before_threshold(self) -> None:
+        n = 4
+        life = np.ones((n, n), dtype=np.uint8)
+        food = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        spec = _minimal_world_spec(steps=500)
+
+        with (
+            patch(
+                "worldspace.simulator._initial_grids",
+                return_value=(life, food, ages),
+            ),
+            patch(
+                "worldspace.simulator._next_life_from_rules",
+                return_value=np.zeros((n, n), dtype=np.uint8),
+            ),
+        ):
+            buf = io.StringIO()
+            run_world(
+                spec,
+                early_extinction_step=200,
+                ca_step_trace_file=buf,
+            )
+            lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 1)
+
+    def test_early_extinction_disabled_runs_full_steps(self) -> None:
+        n = 4
+        life = np.ones((n, n), dtype=np.uint8)
+        food = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        steps = 30
+        spec = _minimal_world_spec(steps=steps)
+
+        with (
+            patch(
+                "worldspace.simulator._initial_grids",
+                return_value=(life, food, ages),
+            ),
+            patch(
+                "worldspace.simulator._next_life_from_rules",
+                return_value=np.zeros((n, n), dtype=np.uint8),
+            ),
+        ):
+            buf = io.StringIO()
+            run_world(
+                spec,
+                early_extinction_step=None,
+                ca_step_trace_file=buf,
+            )
+            lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), steps)
+
+    def test_early_extinction_none_matches_default(self) -> None:
+        spec = _minimal_world_spec(grid_size=6, steps=12, seed=7)
+        explicit = run_world(spec, early_extinction_step=None).metrics.as_vector()
+        default = run_world(spec).metrics.as_vector()
+        np.testing.assert_allclose(explicit, default)
 
 
 if __name__ == "__main__":
