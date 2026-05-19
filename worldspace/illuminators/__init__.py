@@ -40,6 +40,7 @@ from .evaluation import (
 from .emitters import CandidateEmitter, EmitterOutput, StubCandidateEmitter
 from .loop import IterationStats, SlotOutcome, run_iteration, run_scheduler
 from .scheduler import (
+    DEFAULT_MINI_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
     RunCounters,
@@ -58,6 +59,7 @@ __all__ = [
     "BC_MIN",
     "DEFAULT_ARCHIVE_JSONL_PATH",
     "DEFAULT_GRID_RESOLUTION",
+    "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "ArchiveElite",
     "EliteMetadata",

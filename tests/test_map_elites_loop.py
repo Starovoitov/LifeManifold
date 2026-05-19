@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
-from worldspace.illuminators.emitters.base import CandidateEmitter, EmitterOutput
+from worldspace.illuminators.emitters.base import EmitterOutput
 from worldspace.illuminators.emitters.stub import StubCandidateEmitter
 from worldspace.illuminators.loop import run_iteration, run_scheduler
 from worldspace.illuminators.scheduler import (
@@ -52,7 +52,9 @@ _FIXED_SPEC = WorldSpec(
 class FixedSpecEmitter:
     """Deterministic emitter for tie-break and reproducibility tests."""
 
-    def __init__(self, world_spec: WorldSpec, *, elite_id_prefix: str = "fixed") -> None:
+    def __init__(
+        self, world_spec: WorldSpec, *, elite_id_prefix: str = "fixed"
+    ) -> None:
         self._spec = world_spec
         self._prefix = elite_id_prefix
         self._calls = 0
@@ -189,7 +191,9 @@ class TestBatchEqualFitness(unittest.TestCase):
                 steps=200,
                 jsonl_path=path,
             )
-            lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+            lines = [
+                line for line in path.read_text(encoding="utf-8").splitlines() if line
+            ]
             self.assertEqual(len(lines), 1)
 
 

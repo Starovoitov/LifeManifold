@@ -1,0 +1,23 @@
+schema_version: "1.2"
+iterations: 20
+batch_size: 4
+grid_resolution: 10
+early_extinction_step: 200
+min_steps: 200
+
+# CI / reproducibility mini run (20 x 4 = 80 evaluations).
+batch_emitters:
+  - random
+  - genetic
+  - genetic
+  - llm
+
+initial_random_candidates: 100
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: false
+  stub_mean: 0.5
+  stub_uncertainty: 1.0

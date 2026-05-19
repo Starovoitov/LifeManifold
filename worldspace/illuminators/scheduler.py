@@ -17,8 +17,10 @@ EmitterKind = Literal["random", "genetic", "llm"]
 _SCHEDULER_SCHEMA_VERSION = "1.2"
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
 DEFAULT_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler.yaml"
+DEFAULT_MINI_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini.yaml"
 
 __all__ = [
+    "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
     "RunCounters",
@@ -154,8 +156,10 @@ def resolve_emitter_kind(
     slot_emitter: EmitterKind,
     candidates_evaluated: int,
 ) -> EmitterKind:
-    """Apply initial-fill override: force ``random`` until the global threshold."""
+    """Apply initial-fill and disabled-LLM overrides before using the YAML slot."""
     if candidates_evaluated < config.initial_random_candidates:
+        return "random"
+    if slot_emitter == "llm" and not config.llm_enabled:
         return "random"
     return slot_emitter
 

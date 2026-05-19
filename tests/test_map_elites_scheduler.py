@@ -16,6 +16,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.evaluation import bin_center
 from worldspace.illuminators.scheduler import (
+    DEFAULT_MINI_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
     RunCounters,
@@ -65,6 +66,15 @@ def _minimal_elite(
 
 
 class TestLoadScheduler(unittest.TestCase):
+    def test_load_mini_scheduler(self) -> None:
+        config = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)
+        self.assertEqual(config.iterations, 20)
+        self.assertEqual(config.batch_size, 4)
+        self.assertFalse(config.llm_enabled)
+        self.assertEqual(
+            tuple(config.batch_emitters), ("random", "genetic", "genetic", "llm")
+        )
+
     def test_load_production_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_SCHEDULER_PATH)
         self.assertEqual(config.schema_version, "1.2")
@@ -213,9 +223,7 @@ class TestInitialRandomPhase(unittest.TestCase):
         config = _mini_config(initial_random_candidates=100)
         for slot in ("genetic", "llm"):
             self.assertEqual(
-                resolve_emitter_kind(
-                    config, slot_emitter=slot, candidates_evaluated=0
-                ),
+                resolve_emitter_kind(config, slot_emitter=slot, candidates_evaluated=0),
                 "random",
             )
             self.assertEqual(
@@ -234,10 +242,32 @@ class TestInitialRandomPhase(unittest.TestCase):
             "genetic",
         )
         self.assertEqual(
-            resolve_emitter_kind(
-                config, slot_emitter="llm", candidates_evaluated=100
-            ),
+            resolve_emitter_kind(config, slot_emitter="llm", candidates_evaluated=100),
             "llm",
+        )
+
+    def test_llm_disabled_maps_slot_to_random(self) -> None:
+        config = SchedulerConfig(
+            schema_version="1.2",
+            iterations=1,
+            batch_size=4,
+            grid_resolution=5,
+            early_extinction_step=200,
+            min_steps=200,
+            batch_emitters=("random", "genetic", "genetic", "llm"),
+            initial_random_candidates=0,
+            llm_enabled=False,
+            surrogate_enabled=False,
+            surrogate_stub_mean=0.5,
+            surrogate_stub_uncertainty=1.0,
+        )
+        self.assertEqual(
+            resolve_emitter_kind(config, slot_emitter="llm", candidates_evaluated=0),
+            "random",
+        )
+        self.assertEqual(
+            resolve_emitter_for_slot(config, candidate_id=3, candidates_evaluated=0),
+            "random",
         )
 
     def test_resolve_for_slot_by_candidate_id(self) -> None:

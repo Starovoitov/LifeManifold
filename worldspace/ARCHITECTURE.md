@@ -97,7 +97,7 @@ File: `worldspace/illuminators/archive.py`
 
 File: `worldspace/illuminators/scheduler.py`
 
-Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm, `initial_random_candidates` 100). `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size`). `resolve_emitter_for_slot(config, candidate_id, candidates_evaluated)` returns the effective emitter: while `candidates_evaluated < initial_random_candidates`, always `random` (ignoring the YAML slot); afterward the slot entry from `batch_emitters`. `RunCounters` holds `candidates_evaluated` across iterations; call `record_evaluation()` after each candidate run. `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
+Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm, `initial_random_candidates` 100). CI reproducibility uses `worldspace/specs/map_elites_scheduler_mini.yaml` (`iterations` 20, `batch_size` 4, `grid_resolution` 10, `llm.enabled: false`) via `DEFAULT_MINI_SCHEDULER_PATH`; not the production CLI default. `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size`). `resolve_emitter_for_slot(config, candidate_id, candidates_evaluated)` returns the effective emitter: while `candidates_evaluated < initial_random_candidates`, always `random` (ignoring the YAML slot); afterward the slot entry from `batch_emitters`. `RunCounters` holds `candidates_evaluated` across iterations; call `record_evaluation()` after each candidate run. `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
 
 File: `worldspace/illuminators/loop.py`
 
@@ -158,6 +158,7 @@ Files:
 - `worldspace/specs/hybrid_world_generator.yaml`
 - `worldspace/specs/neural_world_generator.yaml`
 - `worldspace/specs/map_elites_scheduler.yaml` (MAP-Elites illuminator iteration mix and limits)
+- `worldspace/specs/map_elites_scheduler_mini.yaml` (fast CI / reproducibility scheduler)
 
 These files define default generator behavior and provider/model routing; the CLI flag `--generator-spec PATH` overrides the path when using `--generator genetic|llm|hybrid|neural` (the YAML shape is validated for that generator).
 

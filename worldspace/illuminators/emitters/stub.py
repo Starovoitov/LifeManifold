@@ -10,7 +10,7 @@ from worldspace.generators import RandomWorldGenerator
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
 from worldspace.illuminators.emitters.base import EmitterOutput
 from worldspace.illuminators.scheduler import EmitterKind, TargetBin
-from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+from worldspace.specs.spec import CANONICAL_CELL_TYPES
 
 __all__ = ["StubCandidateEmitter"]
 
