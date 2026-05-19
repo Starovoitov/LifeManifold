@@ -99,6 +99,12 @@ File: `worldspace/illuminators/scheduler.py`
 
 Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm, `initial_random_candidates` 100). `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size`). `resolve_emitter_for_slot(config, candidate_id, candidates_evaluated)` returns the effective emitter: while `candidates_evaluated < initial_random_candidates`, always `random` (ignoring the YAML slot); afterward the slot entry from `batch_emitters`. `RunCounters` holds `candidates_evaluated` across iterations; call `record_evaluation()` after each candidate run. `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
 
+File: `worldspace/illuminators/loop.py`
+
+`run_iteration(config, archive, rng, counters, emitter, grid_size=..., steps=..., jsonl_path=None)` processes one batch: for `candidate_id` in `0 .. batch_size-1`, resolves the emitter, selects a target bin, calls `CandidateEmitter.emit`, runs `evaluate_candidate`, then `insert_evaluated` or `insert_and_persist`, and increments `RunCounters`. `run_scheduler` repeats for `config.iterations`. Batch tie-break: strict `>` insert plus fixed slot order means equal fitness in the same bin within one iteration keeps the first accepted elite.
+
+Package `worldspace/illuminators/emitters/`: `CandidateEmitter` protocol and `StubCandidateEmitter` (random worlds for all kinds until E4 genetic/llm).
+
 ### Math helpers
 
 File: `worldspace/math.py`

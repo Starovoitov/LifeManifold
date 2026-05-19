@@ -37,6 +37,8 @@ from .evaluation import (
     measures_from_metrics,
     topology_complexity,
 )
+from .emitters import CandidateEmitter, EmitterOutput, StubCandidateEmitter
+from .loop import IterationStats, SlotOutcome, run_iteration, run_scheduler
 from .scheduler import (
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
@@ -73,14 +75,17 @@ __all__ = [
     "bin_edges",
     "bin_index",
     "bin_index_from_measures",
+    "CandidateEmitter",
     "canonical_seed",
     "compute_fitness",
+    "EmitterOutput",
     "elite_from_eval",
     "elite_to_archive_record",
     "evaluate_candidate",
     "extinction_probability",
     "insert_and_persist",
     "insert_evaluated",
+    "IterationStats",
     "load_and_collapse_jsonl",
     "load_scheduler",
     "measures_from_metrics",
@@ -88,10 +93,14 @@ __all__ = [
     "new_elite_metadata",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
+    "run_iteration",
+    "run_scheduler",
     "RunCounters",
     "SchedulerConfig",
     "select_target_bin",
+    "SlotOutcome",
     "slot_emitter_for_candidate",
+    "StubCandidateEmitter",
     "TargetBin",
     "topology_complexity",
 ]

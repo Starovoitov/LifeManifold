@@ -116,7 +116,7 @@ class GridArchive:
         return len(self._cells) - self.filled_count()
 
     def try_insert(self, elite: ArchiveElite) -> InsertResult:
-        """Insert or replace the elite at ``elite.bin`` using strict fitness improvement."""
+        """Insert or replace at ``elite.bin``; replace only when fitness strictly improves."""
         i, j = elite.bin
         idx = self._cell_index(i, j)
         current = self._cells[idx]
