@@ -14,10 +14,15 @@ import numpy as np
 from worldspace.illuminators.evaluation import (
     MEASURE_KEYS,
     apply_canonical_seed,
+    bin_index,
+    bin_index_from_measures,
     canonical_seed,
+    compute_fitness,
+    extinction_probability,
     measures_from_metrics,
+    topology_complexity,
 )
-from worldspace.metrics import WorldMetrics
+from worldspace.metrics import METRICS_VECTOR_DIM, WorldMetrics
 from worldspace.simulator import run_world
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
@@ -320,6 +325,122 @@ class TestMeasuresFromMetrics(unittest.TestCase):
             self.assertIn(key, measures)
             self.assertGreaterEqual(measures[key], 0.0)
             self.assertLessEqual(measures[key], 1.0)
+
+
+class TestTopologyComplexity(unittest.TestCase):
+    def test_topology_complexity_formula(self) -> None:
+        metrics = _example_metrics(
+            topology_interface_index=0.6,
+            topology_window_heterogeneity=0.4,
+        )
+        self.assertAlmostEqual(topology_complexity(metrics), 0.5)
+
+    def test_topology_complexity_clips(self) -> None:
+        metrics = _example_metrics(
+            topology_interface_index=2.0,
+            topology_window_heterogeneity=2.0,
+        )
+        self.assertEqual(topology_complexity(metrics), 1.0)
+
+    def test_topology_complexity_not_in_measures(self) -> None:
+        measures = measures_from_metrics(_example_metrics())
+        self.assertNotIn("topology_complexity", measures)
+
+
+class TestExtinctionProbabilityAndFitness(unittest.TestCase):
+    def test_extinction_probability_bounds(self) -> None:
+        self.assertEqual(extinction_probability(1.0), 0.0)
+        self.assertEqual(extinction_probability(0.0), 1.0)
+
+    def test_compute_fitness_early_extinct_is_zero(self) -> None:
+        measures = measures_from_metrics(_example_metrics(stability=0.8, diversity=0.9))
+        fitness = compute_fitness(
+            _example_metrics(),
+            measures,
+            early_extinct=True,
+            final_density=0.0,
+        )
+        self.assertEqual(fitness, 0.0)
+
+    def test_compute_fitness_formula(self) -> None:
+        metrics = _example_metrics(
+            oscillation_score=0.4,
+            topology_interface_index=0.2,
+            topology_window_heterogeneity=0.6,
+        )
+        measures = {"stability": 0.5, "diversity": 0.68}
+        final_density = 0.3
+        expected = 0.45 * 0.68 + 0.25 * (1.0 - 0.7) + 0.20 * 0.4 + 0.10 * 0.4
+        fitness = compute_fitness(
+            metrics,
+            measures,
+            early_extinct=False,
+            final_density=final_density,
+        )
+        self.assertAlmostEqual(fitness, expected)
+
+    def test_compute_fitness_integration_early_extinct(self) -> None:
+        n = 4
+        zeros = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        spec = _minimal_world_spec(steps=500, seed=5)
+
+        with patch(
+            "worldspace.simulator._initial_grids",
+            return_value=(zeros, zeros, ages),
+        ):
+            result = run_world(spec, early_extinction_step=200)
+
+        self.assertTrue(result.early_extinct)
+        self.assertIsNotNone(result.final_life)
+        measures = measures_from_metrics(result.metrics)
+        fitness = compute_fitness(
+            result.metrics,
+            measures,
+            early_extinct=result.early_extinct,
+            final_density=float(result.final_life.mean()),
+        )
+        self.assertEqual(fitness, 0.0)
+
+    def test_compute_fitness_integration_normal_run(self) -> None:
+        spec = _minimal_world_spec(grid_size=8, steps=20, seed=13)
+        result = run_world(spec, early_extinction_step=200)
+        self.assertFalse(result.early_extinct)
+        self.assertIsNotNone(result.final_life)
+        measures = measures_from_metrics(result.metrics)
+        fitness = compute_fitness(
+            result.metrics,
+            measures,
+            early_extinct=result.early_extinct,
+            final_density=float(result.final_life.mean()),
+        )
+        self.assertGreaterEqual(fitness, 0.0)
+        self.assertLessEqual(fitness, 1.0)
+
+    def test_metrics_vector_dim_unchanged(self) -> None:
+        self.assertEqual(METRICS_VECTOR_DIM, 12)
+
+
+class TestBinIndex(unittest.TestCase):
+    def test_bin_index_unity_goes_to_last_cell(self) -> None:
+        resolution = 50
+        self.assertEqual(bin_index(1.0, 1.0, resolution), (49, 49))
+
+    def test_bin_index_zero_at_origin(self) -> None:
+        self.assertEqual(bin_index(0.0, 0.0, 50), (0, 0))
+
+    def test_bin_index_clips_out_of_range(self) -> None:
+        self.assertEqual(bin_index(-0.5, 1.5, 50), bin_index(0.0, 1.0, 50))
+
+    def test_bin_index_from_measures_matches(self) -> None:
+        measures = {"stability": 0.55, "diversity": 0.68}
+        self.assertEqual(
+            bin_index_from_measures(measures, 50),
+            bin_index(0.55, 0.68, 50),
+        )
+
+    def test_bin_index_resolution_one(self) -> None:
+        self.assertEqual(bin_index(0.5, 0.9, 1), (0, 0))
 
 
 def _example_metrics(**overrides: float) -> WorldMetrics:

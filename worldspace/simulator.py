@@ -24,6 +24,7 @@ class SimulationResult:
     metrics: WorldMetrics
     final_life: np.ndarray | None = None
     final_food: np.ndarray | None = None
+    early_extinct: bool = False
 
 
 def run_world(
@@ -52,10 +53,12 @@ def run_world(
     death_age_sum = 0
     death_count = 0
     density_tail: deque[float] = deque(maxlen=ws_math.OSCILLATION_DENSITY_WINDOW)
+    early_extinct = False
 
     run_ca_loop = True
     if early_extinction_step is not None and float(life.mean()) == 0.0:
         run_ca_loop = False
+        early_extinct = True
         d = float(life.mean())
         density_tail.append(d)
         density_mean, density_m2, density_n = _welford_append(
@@ -107,6 +110,7 @@ def run_world(
                 and t < early_extinction_step
                 and float(life.mean()) == 0.0
             ):
+                early_extinct = True
                 break
 
     metrics = _metrics_from_final_state(
@@ -124,6 +128,7 @@ def run_world(
         metrics=metrics,
         final_life=life.copy(),
         final_food=food.copy(),
+        early_extinct=early_extinct,
     )
 
 
