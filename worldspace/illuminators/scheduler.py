@@ -50,6 +50,7 @@ class SchedulerConfig:
     surrogate_enabled: bool
     surrogate_stub_mean: float
     surrogate_stub_uncertainty: float
+    genetic_mutation_scale: float
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ def load_scheduler(
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_stub_mean=doc.surrogate.stub_mean,
         surrogate_stub_uncertainty=doc.surrogate.stub_uncertainty,
+        genetic_mutation_scale=doc.genetic.mutation_scale,
     )
 
 
@@ -193,6 +195,12 @@ class _SurrogateSchedulerBlock(BaseModel):
     stub_uncertainty: float = Field(..., ge=0.0)
 
 
+class _GeneticSchedulerBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mutation_scale: float = Field(default=0.02, ge=0.0)
+
+
 class _MapElitesSchedulerYaml(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -206,6 +214,7 @@ class _MapElitesSchedulerYaml(BaseModel):
     initial_random_candidates: int = Field(..., ge=0)
     llm: _LlmSchedulerBlock
     surrogate: _SurrogateSchedulerBlock
+    genetic: _GeneticSchedulerBlock = Field(default_factory=_GeneticSchedulerBlock)
 
 
 def _boundary_bins(archive: GridArchive) -> list[tuple[int, int]]:

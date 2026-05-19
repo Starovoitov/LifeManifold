@@ -14,6 +14,9 @@ batch_emitters:
 
 initial_random_candidates: 100
 
+genetic:
+  mutation_scale: 0.02
+
 llm:
   enabled: false
 

@@ -37,7 +37,15 @@ from .evaluation import (
     measures_from_metrics,
     topology_complexity,
 )
-from .emitters import CandidateEmitter, EmitterOutput, StubCandidateEmitter
+from .emitters import (
+    CandidateEmitter,
+    EmitterOutput,
+    GeneticEmitter,
+    MapElitesEmitter,
+    RandomEmitter,
+    StubCandidateEmitter,
+    strip_seed,
+)
 from .loop import IterationStats, SlotOutcome, run_iteration, run_scheduler
 from .scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
@@ -65,6 +73,7 @@ __all__ = [
     "EliteMetadata",
     "EmitterKind",
     "EvalResult",
+    "GeneticEmitter",
     "GridArchive",
     "ILLUMINATOR_MIN_STEPS",
     "InsertResult",
@@ -91,8 +100,10 @@ __all__ = [
     "load_and_collapse_jsonl",
     "load_scheduler",
     "measures_from_metrics",
+    "MapElitesEmitter",
     "merge_archives",
     "new_elite_metadata",
+    "RandomEmitter",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
     "run_iteration",
@@ -102,6 +113,7 @@ __all__ = [
     "select_target_bin",
     "SlotOutcome",
     "slot_emitter_for_candidate",
+    "strip_seed",
     "StubCandidateEmitter",
     "TargetBin",
     "topology_complexity",

@@ -34,6 +34,7 @@ _MINI_CONFIG = SchedulerConfig(
     surrogate_enabled=False,
     surrogate_stub_mean=0.5,
     surrogate_stub_uncertainty=1.0,
+    genetic_mutation_scale=0.02,
 )
 
 _FIXED_SPEC = WorldSpec(

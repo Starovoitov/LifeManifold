@@ -1,4 +1,4 @@
-"""Stub emitters until full random / genetic / llm implementations (E4)."""
+"""Random MAP-Elites emitter (independent ``WorldSpec`` samples)."""
 
 from __future__ import annotations
 
@@ -7,18 +7,17 @@ import numpy as np
 from worldspace.generators import RandomWorldGenerator
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
-from worldspace.illuminators.scheduler import EmitterKind, TargetBin
+from worldspace.illuminators.scheduler import TargetBin
 
-__all__ = ["StubCandidateEmitter"]
+__all__ = ["RandomEmitter"]
 
 
-class StubCandidateEmitter:
-    """Random-world stub for all emitter kinds (genetic / llm defer to E4)."""
+class RandomEmitter:
+    """Generate a new random world using ``RandomWorldGenerator`` bounds."""
 
     def emit(
         self,
         *,
-        emitter_kind: EmitterKind,
         target: TargetBin,
         archive: GridArchive,
         rng: np.random.Generator,
@@ -30,8 +29,8 @@ class StubCandidateEmitter:
         draw_seed = int(rng.integers(0, 2**31))
         spec = strip_seed(generator._make_world(seed=draw_seed))
         metadata = new_elite_metadata(
-            generated_by=emitter_kind,
-            emitter_type=emitter_kind,
+            generated_by="random",
+            emitter_type="random",
             parent_id=None,
         )
         return EmitterOutput(world_spec=spec, metadata=metadata)

@@ -16,6 +16,16 @@ import yaml
 
 from ..simulator import SimulationResult, run_world
 from ..specs.spec import WorldSpec
+from ..specs.world_param_bounds import (
+    FLOAT_PARAM_BOUNDS,
+    NOISE_MAX,
+    NOISE_MIN,
+    PREDATION_MAX,
+    PREDATION_MIN,
+    RESOURCE_REGEN_MAX,
+    RESOURCE_REGEN_MIN,
+    clip_scalar,
+)
 from .llm_config import (
     LLMGeneratorConfig,
     load_llm_config,
@@ -122,9 +132,17 @@ class RandomWalkWorldGenerator(WorldGenerator):
             world,
             birth=self._mutate_rule_set(world.birth, rng),
             survival=self._mutate_rule_set(world.survival, rng),
-            noise=random_walk(world.noise, self.scale, rng, 0.0, 0.2),
-            resource_regen=random_walk(world.resource_regen, self.scale, rng, 0.0, 0.5),
-            predation=random_walk(world.predation, self.scale, rng, 0.0, 1.0),
+            noise=random_walk(world.noise, self.scale, rng, NOISE_MIN, NOISE_MAX),
+            resource_regen=random_walk(
+                world.resource_regen,
+                self.scale,
+                rng,
+                RESOURCE_REGEN_MIN,
+                RESOURCE_REGEN_MAX,
+            ),
+            predation=random_walk(
+                world.predation, self.scale, rng, PREDATION_MIN, PREDATION_MAX
+            ),
             seed=seed,
         )
 
@@ -281,9 +299,7 @@ class GeneticWorldGenerator(WorldGenerator):
         import pygad
 
         gene_space: list = ([[0, 1] for _ in range(18)]) + [
-            {"low": 0.0, "high": 0.2},
-            {"low": 0.0, "high": 0.5},
-            {"low": 0.0, "high": 1.0},
+            {"low": low, "high": high} for low, high in FLOAT_PARAM_BOUNDS
         ]
         gene_type: list[type] = ([int] * 18) + [float, float, float]
 
@@ -370,9 +386,11 @@ class GeneticWorldGenerator(WorldGenerator):
         return WorldSpec(
             birth=sorted(set(birth)),
             survival=sorted(set(survival)),
-            noise=float(np.clip(vals[18], 0.0, 0.2)),
-            resource_regen=float(np.clip(vals[19], 0.0, 0.5)),
-            predation=float(np.clip(vals[20], 0.0, 1.0)),
+            noise=clip_scalar(vals[18], NOISE_MIN, NOISE_MAX),
+            resource_regen=clip_scalar(
+                vals[19], RESOURCE_REGEN_MIN, RESOURCE_REGEN_MAX
+            ),
+            predation=clip_scalar(vals[20], PREDATION_MIN, PREDATION_MAX),
             cell_types=DEFAULT_CELL_TYPES.copy(),
             grid_size=self.grid_size,
             steps=self.steps,
@@ -659,11 +677,19 @@ class HybridGALlmWorldGenerator(WorldGenerator):
             world,
             birth=_mutate_rule_set(world.birth, rng),
             survival=_mutate_rule_set(world.survival, rng),
-            noise=random_walk(world.noise, self.mutation_scale, rng, 0.0, 0.2),
-            resource_regen=random_walk(
-                world.resource_regen, self.mutation_scale, rng, 0.0, 0.5
+            noise=random_walk(
+                world.noise, self.mutation_scale, rng, NOISE_MIN, NOISE_MAX
             ),
-            predation=random_walk(world.predation, self.mutation_scale, rng, 0.0, 1.0),
+            resource_regen=random_walk(
+                world.resource_regen,
+                self.mutation_scale,
+                rng,
+                RESOURCE_REGEN_MIN,
+                RESOURCE_REGEN_MAX,
+            ),
+            predation=random_walk(
+                world.predation, self.mutation_scale, rng, PREDATION_MIN, PREDATION_MAX
+            ),
             seed=seed,
         )
 
@@ -950,14 +976,16 @@ def _mutate_rule_set(rule_set: list[int], rng: np.random.Generator) -> list[int]
 def _apply_world_patch(world: WorldSpec, patch: dict[str, Any], seed: int) -> WorldSpec:
     birth = _normalize_rule_list(patch.get("birth"), world.birth)
     survival = _normalize_rule_list(patch.get("survival"), world.survival)
-    noise = _clip_float(patch.get("noise"), world.noise, 0.0, 0.2)
+    noise = _clip_float(patch.get("noise"), world.noise, NOISE_MIN, NOISE_MAX)
     resource_regen = _clip_float(
         patch.get("resource_regen"),
         world.resource_regen,
-        0.0,
-        0.5,
+        RESOURCE_REGEN_MIN,
+        RESOURCE_REGEN_MAX,
     )
-    predation = _clip_float(patch.get("predation"), world.predation, 0.0, 1.0)
+    predation = _clip_float(
+        patch.get("predation"), world.predation, PREDATION_MIN, PREDATION_MAX
+    )
     return replace(
         world,
         birth=birth,

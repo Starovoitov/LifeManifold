@@ -88,6 +88,7 @@ class TestLoadScheduler(unittest.TestCase):
         self.assertEqual(config.initial_random_candidates, 100)
         self.assertTrue(config.llm_enabled)
         self.assertFalse(config.surrogate_enabled)
+        self.assertAlmostEqual(config.genetic_mutation_scale, 0.02)
 
     def test_iterations_override(self) -> None:
         config = load_scheduler(DEFAULT_SCHEDULER_PATH, iterations_override=42)
@@ -206,6 +207,7 @@ def _mini_config(*, initial_random_candidates: int = 10) -> SchedulerConfig:
         surrogate_enabled=False,
         surrogate_stub_mean=0.5,
         surrogate_stub_uncertainty=1.0,
+        genetic_mutation_scale=0.02,
     )
 
 
@@ -260,6 +262,7 @@ class TestInitialRandomPhase(unittest.TestCase):
             surrogate_enabled=False,
             surrogate_stub_mean=0.5,
             surrogate_stub_uncertainty=1.0,
+            genetic_mutation_scale=0.02,
         )
         self.assertEqual(
             resolve_emitter_kind(config, slot_emitter="llm", candidates_evaluated=0),

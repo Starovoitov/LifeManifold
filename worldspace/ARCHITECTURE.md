@@ -103,7 +103,7 @@ File: `worldspace/illuminators/loop.py`
 
 `run_iteration(config, archive, rng, counters, emitter, grid_size=..., steps=..., jsonl_path=None)` processes one batch: for `candidate_id` in `0 .. batch_size-1`, resolves the emitter, selects a target bin, calls `CandidateEmitter.emit`, runs `evaluate_candidate`, then `insert_evaluated` or `insert_and_persist`, and increments `RunCounters`. `run_scheduler` repeats for `config.iterations`. Batch tie-break: strict `>` insert plus fixed slot order means equal fitness in the same bin within one iteration keeps the first accepted elite.
 
-Package `worldspace/illuminators/emitters/`: `CandidateEmitter` protocol and `StubCandidateEmitter` (random worlds for all kinds until E4 genetic/llm).
+Package `worldspace/illuminators/emitters/`: `CandidateEmitter` protocol; `RandomEmitter` (independent random worlds, §8.7); `GeneticEmitter` (uniform crossover + Gaussian mutation on 21-gene encoding, parent selection §8.8, `mutation_scale` from scheduler YAML); `MapElitesEmitter` dispatches by slot kind; `StubCandidateEmitter` remains for simple tests. Emitters return specs with `seed=0` and canonical `cell_types`; `evaluate_candidate` assigns the canonical hash seed.
 
 ### Math helpers
 

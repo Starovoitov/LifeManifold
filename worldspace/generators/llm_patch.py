@@ -7,6 +7,14 @@ from typing import Any
 
 from ..simulator import SimulationResult
 from ..specs.spec import WorldSpec
+from ..specs.world_param_bounds import (
+    NOISE_MAX,
+    NOISE_MIN,
+    PREDATION_MAX,
+    PREDATION_MIN,
+    RESOURCE_REGEN_MAX,
+    RESOURCE_REGEN_MIN,
+)
 from .llm_config import LLMGeneratorConfig, LlmTextCaller, LlmVisionCaller
 from .llm_descriptive import describe_simulation
 
@@ -149,9 +157,9 @@ class LLMPatchAdvisor:
 _CONSTRAINTS = {
     "birth": "unique integers in [0,8], at least 1 item",
     "survival": "unique integers in [0,8], at least 1 item",
-    "noise": "[0.0,0.2]",
-    "resource_regen": "[0.0,0.5]",
-    "predation": "[0.0,1.0]",
+    "noise": f"[{NOISE_MIN},{NOISE_MAX}]",
+    "resource_regen": f"[{RESOURCE_REGEN_MIN},{RESOURCE_REGEN_MAX}]",
+    "predation": f"[{PREDATION_MIN},{PREDATION_MAX}]",
 }
 
 _OUTPUT_FORMAT = {
