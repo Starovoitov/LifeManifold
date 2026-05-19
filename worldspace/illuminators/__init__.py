@@ -1,5 +1,15 @@
 """MAP-Elites illuminator package (TZ v1.2)."""
 
-from .evaluation import apply_canonical_seed, canonical_seed
+from .evaluation import (
+    MEASURE_KEYS,
+    apply_canonical_seed,
+    canonical_seed,
+    measures_from_metrics,
+)
 
-__all__ = ["apply_canonical_seed", "canonical_seed"]
+__all__ = [
+    "MEASURE_KEYS",
+    "apply_canonical_seed",
+    "canonical_seed",
+    "measures_from_metrics",
+]

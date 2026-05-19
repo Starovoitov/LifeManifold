@@ -11,7 +11,13 @@ from unittest.mock import patch
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import apply_canonical_seed, canonical_seed
+from worldspace.illuminators.evaluation import (
+    MEASURE_KEYS,
+    apply_canonical_seed,
+    canonical_seed,
+    measures_from_metrics,
+)
+from worldspace.metrics import WorldMetrics
 from worldspace.simulator import run_world
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
@@ -269,6 +275,83 @@ class TestEarlyExtinction(unittest.TestCase):
         explicit = run_world(spec, early_extinction_step=None).metrics.as_vector()
         default = run_world(spec).metrics.as_vector()
         np.testing.assert_allclose(explicit, default)
+
+
+class TestMeasuresFromMetrics(unittest.TestCase):
+    def test_measures_from_metrics_clips(self) -> None:
+        metrics = _example_metrics(stability=-0.1, diversity=1.5)
+        measures = measures_from_metrics(metrics)
+        self.assertEqual(measures["stability"], 0.0)
+        self.assertEqual(measures["diversity"], 1.0)
+
+    def test_measures_from_metrics_keys(self) -> None:
+        measures = measures_from_metrics(_example_metrics())
+        self.assertEqual(tuple(measures.keys()), MEASURE_KEYS)
+
+    def test_measures_from_metrics_identity_when_in_range(self) -> None:
+        metrics = _example_metrics(stability=0.55, diversity=0.68)
+        measures = measures_from_metrics(metrics)
+        self.assertEqual(measures["stability"], 0.55)
+        self.assertEqual(measures["diversity"], 0.68)
+
+    def test_measures_after_early_extinct_run(self) -> None:
+        n = 4
+        zeros = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        spec = _minimal_world_spec(steps=500, seed=3)
+
+        with patch(
+            "worldspace.simulator._initial_grids",
+            return_value=(zeros, zeros, ages),
+        ):
+            result = run_world(spec, early_extinction_step=200)
+
+        measures = measures_from_metrics(result.metrics)
+        self.assertEqual(set(measures.keys()), {"stability", "diversity"})
+        for value in measures.values():
+            self.assertGreaterEqual(value, 0.0)
+            self.assertLessEqual(value, 1.0)
+
+    def test_measures_after_normal_run(self) -> None:
+        spec = _minimal_world_spec(grid_size=8, steps=20, seed=11)
+        result = run_world(spec)
+        measures = measures_from_metrics(result.metrics)
+        for key in MEASURE_KEYS:
+            self.assertIn(key, measures)
+            self.assertGreaterEqual(measures[key], 0.0)
+            self.assertLessEqual(measures[key], 1.0)
+
+
+def _example_metrics(**overrides: float) -> WorldMetrics:
+    defaults: dict[str, float] = {
+        "entropy": 0.5,
+        "stability": 0.5,
+        "average_lifespan": 1.0,
+        "density_mean": 0.3,
+        "oscillation_score": 0.2,
+        "diversity": 0.4,
+        "mo_eoc_indicator": 0.5,
+        "topology_interface_index": 0.3,
+        "topology_window_heterogeneity": 0.4,
+        "compressibility_score": 0.5,
+        "ecology_state_entropy_norm": 0.6,
+        "ecology_resource_adjacency": 0.2,
+    }
+    defaults.update(overrides)
+    return WorldMetrics(
+        entropy=defaults["entropy"],
+        stability=defaults["stability"],
+        average_lifespan=defaults["average_lifespan"],
+        density_mean=defaults["density_mean"],
+        oscillation_score=defaults["oscillation_score"],
+        diversity=defaults["diversity"],
+        mo_eoc_indicator=defaults["mo_eoc_indicator"],
+        topology_interface_index=defaults["topology_interface_index"],
+        topology_window_heterogeneity=defaults["topology_window_heterogeneity"],
+        compressibility_score=defaults["compressibility_score"],
+        ecology_state_entropy_norm=defaults["ecology_state_entropy_norm"],
+        ecology_resource_adjacency=defaults["ecology_resource_adjacency"],
+    )
 
 
 if __name__ == "__main__":

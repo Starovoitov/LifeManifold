@@ -5,9 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 
+import numpy as np
+
+from worldspace.metrics import WorldMetrics
 from worldspace.specs.spec import WorldSpec
 
-__all__ = ["apply_canonical_seed", "canonical_seed"]
+__all__ = [
+    "MEASURE_KEYS",
+    "apply_canonical_seed",
+    "canonical_seed",
+    "measures_from_metrics",
+]
+
+MEASURE_KEYS: tuple[str, ...] = ("stability", "diversity")
 
 _CANONICAL_JSON_KWARGS = {"sort_keys": True, "separators": (",", ":")}
 
@@ -25,5 +35,17 @@ def apply_canonical_seed(world_spec: WorldSpec) -> int:
     return seed
 
 
+def measures_from_metrics(metrics: WorldMetrics) -> dict[str, float]:
+    """MAP-Elites behavioral coordinates (BC) for binning and JSONL ``measures`` (§1)."""
+    return {
+        "stability": _clip_unit(metrics.stability),
+        "diversity": _clip_unit(metrics.diversity),
+    }
+
+
 def _canonical_payload(world_spec: WorldSpec) -> str:
     return json.dumps(world_spec.to_canonical_dict(), **_CANONICAL_JSON_KWARGS)
+
+
+def _clip_unit(value: float) -> float:
+    return float(np.clip(value, 0.0, 1.0))
