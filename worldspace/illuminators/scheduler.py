@@ -21,10 +21,14 @@ DEFAULT_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler.yaml"
 __all__ = [
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
+    "RunCounters",
     "SchedulerConfig",
     "TargetBin",
     "load_scheduler",
+    "resolve_emitter_for_slot",
+    "resolve_emitter_kind",
     "select_target_bin",
+    "slot_emitter_for_candidate",
 ]
 
 
@@ -53,6 +57,17 @@ class TargetBin:
     bin: tuple[int, int]
     target_stability: float
     target_diversity: float
+
+
+@dataclass
+class RunCounters:
+    """Global illuminator counters persisted across iterations."""
+
+    candidates_evaluated: int = 0
+
+    def record_evaluation(self) -> None:
+        """Increment after each candidate is evaluated (accepted or rejected)."""
+        self.candidates_evaluated += 1
 
 
 def load_scheduler(
@@ -120,6 +135,44 @@ def select_target_bin(
             i, j = divmod(flat_index, resolution)
     stability, diversity = bin_center(i, j, resolution)
     return TargetBin(bin=(i, j), target_stability=stability, target_diversity=diversity)
+
+
+def slot_emitter_for_candidate(
+    config: SchedulerConfig,
+    candidate_id: int,
+) -> EmitterKind:
+    """Return the YAML emitter for batch slot ``candidate_id``."""
+    if candidate_id < 0 or candidate_id >= config.batch_size:
+        msg = f"candidate_id must be in [0, {config.batch_size}), got {candidate_id}"
+        raise ValueError(msg)
+    return config.batch_emitters[candidate_id]
+
+
+def resolve_emitter_kind(
+    config: SchedulerConfig,
+    *,
+    slot_emitter: EmitterKind,
+    candidates_evaluated: int,
+) -> EmitterKind:
+    """Apply initial-fill override: force ``random`` until the global threshold."""
+    if candidates_evaluated < config.initial_random_candidates:
+        return "random"
+    return slot_emitter
+
+
+def resolve_emitter_for_slot(
+    config: SchedulerConfig,
+    *,
+    candidate_id: int,
+    candidates_evaluated: int,
+) -> EmitterKind:
+    """Resolve the emitter for one batch slot (YAML slot + initial random phase)."""
+    slot_emitter = slot_emitter_for_candidate(config, candidate_id)
+    return resolve_emitter_kind(
+        config,
+        slot_emitter=slot_emitter,
+        candidates_evaluated=candidates_evaluated,
+    )
 
 
 class _LlmSchedulerBlock(BaseModel):

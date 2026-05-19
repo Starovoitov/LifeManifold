@@ -17,9 +17,14 @@ from worldspace.illuminators.archive import (
 from worldspace.illuminators.evaluation import bin_center
 from worldspace.illuminators.scheduler import (
     DEFAULT_SCHEDULER_PATH,
+    EmitterKind,
+    RunCounters,
     SchedulerConfig,
     load_scheduler,
+    resolve_emitter_for_slot,
+    resolve_emitter_kind,
     select_target_bin,
+    slot_emitter_for_candidate,
 )
 from worldspace.specs.spec import WorldSpec
 
@@ -175,6 +180,116 @@ class TestSelectTargetBin(unittest.TestCase):
     def test_isinstance_scheduler_config_from_load(self) -> None:
         config = load_scheduler(DEFAULT_SCHEDULER_PATH)
         self.assertIsInstance(config, SchedulerConfig)
+
+
+def _mini_config(*, initial_random_candidates: int = 10) -> SchedulerConfig:
+    return SchedulerConfig(
+        schema_version="1.2",
+        iterations=5,
+        batch_size=4,
+        grid_resolution=5,
+        early_extinction_step=200,
+        min_steps=200,
+        batch_emitters=("random", "genetic", "genetic", "llm"),
+        initial_random_candidates=initial_random_candidates,
+        llm_enabled=True,
+        surrogate_enabled=False,
+        surrogate_stub_mean=0.5,
+        surrogate_stub_uncertainty=1.0,
+    )
+
+
+class TestInitialRandomPhase(unittest.TestCase):
+    def test_threshold_zero_no_override(self) -> None:
+        config = _mini_config(initial_random_candidates=0)
+        self.assertEqual(
+            resolve_emitter_kind(
+                config, slot_emitter="genetic", candidates_evaluated=0
+            ),
+            "genetic",
+        )
+
+    def test_before_threshold_forces_random(self) -> None:
+        config = _mini_config(initial_random_candidates=100)
+        for slot in ("genetic", "llm"):
+            self.assertEqual(
+                resolve_emitter_kind(
+                    config, slot_emitter=slot, candidates_evaluated=0
+                ),
+                "random",
+            )
+            self.assertEqual(
+                resolve_emitter_kind(
+                    config, slot_emitter=slot, candidates_evaluated=99
+                ),
+                "random",
+            )
+
+    def test_at_threshold_uses_slot_emitter(self) -> None:
+        config = _mini_config(initial_random_candidates=100)
+        self.assertEqual(
+            resolve_emitter_kind(
+                config, slot_emitter="genetic", candidates_evaluated=100
+            ),
+            "genetic",
+        )
+        self.assertEqual(
+            resolve_emitter_kind(
+                config, slot_emitter="llm", candidates_evaluated=100
+            ),
+            "llm",
+        )
+
+    def test_resolve_for_slot_by_candidate_id(self) -> None:
+        config = _mini_config(initial_random_candidates=10)
+        self.assertEqual(
+            resolve_emitter_for_slot(config, candidate_id=2, candidates_evaluated=5),
+            "random",
+        )
+        self.assertEqual(
+            slot_emitter_for_candidate(config, candidate_id=2),
+            "genetic",
+        )
+        self.assertEqual(
+            resolve_emitter_for_slot(config, candidate_id=2, candidates_evaluated=10),
+            "genetic",
+        )
+        self.assertEqual(
+            resolve_emitter_for_slot(config, candidate_id=3, candidates_evaluated=10),
+            "llm",
+        )
+
+    def test_simulated_iterations_cross_threshold_mid_batch(self) -> None:
+        config = _mini_config(initial_random_candidates=10)
+        counters = RunCounters()
+        resolved: list[EmitterKind] = []
+        for _iteration in range(3):
+            for candidate_id in range(config.batch_size):
+                resolved.append(
+                    resolve_emitter_for_slot(
+                        config,
+                        candidate_id=candidate_id,
+                        candidates_evaluated=counters.candidates_evaluated,
+                    )
+                )
+                counters.record_evaluation()
+        self.assertEqual(len(resolved), 12)
+        self.assertEqual(resolved[:10], ["random"] * 10)
+        self.assertEqual(resolved[10], "genetic")
+        self.assertEqual(resolved[11], "llm")
+
+    def test_run_counters_persist_across_iterations(self) -> None:
+        counters = RunCounters()
+        for _ in range(8):
+            counters.record_evaluation()
+        self.assertEqual(counters.candidates_evaluated, 8)
+        counters.record_evaluation()
+        self.assertEqual(counters.candidates_evaluated, 9)
+
+    def test_invalid_candidate_id_raises(self) -> None:
+        config = _mini_config()
+        with self.assertRaises(ValueError):
+            slot_emitter_for_candidate(config, candidate_id=4)
 
 
 if __name__ == "__main__":

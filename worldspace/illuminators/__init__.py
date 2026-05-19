@@ -40,10 +40,14 @@ from .evaluation import (
 from .scheduler import (
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
+    RunCounters,
     SchedulerConfig,
     TargetBin,
     load_scheduler,
+    resolve_emitter_for_slot,
+    resolve_emitter_kind,
     select_target_bin,
+    slot_emitter_for_candidate,
 )
 
 __all__ = [
@@ -82,8 +86,12 @@ __all__ = [
     "measures_from_metrics",
     "merge_archives",
     "new_elite_metadata",
+    "resolve_emitter_for_slot",
+    "resolve_emitter_kind",
+    "RunCounters",
     "SchedulerConfig",
     "select_target_bin",
+    "slot_emitter_for_candidate",
     "TargetBin",
     "topology_complexity",
 ]
