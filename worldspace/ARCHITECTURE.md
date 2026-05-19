@@ -89,7 +89,9 @@ Package: `worldspace/illuminators/`
 
 File: `worldspace/illuminators/archive.py`
 
-`GridArchive(resolution=40)` holds at most one `ArchiveElite` per cell over BC range `[0, 1]`. `try_insert(elite) -> InsertResult` accepts any fitness into an empty cell, replaces only when `fitness_new > fitness_old` (strict), otherwise rejects without mutating the stored elite.
+`GridArchive(resolution=50)` holds at most one `ArchiveElite` per cell over BC range `[0, 1]`. `try_insert(elite) -> InsertResult` accepts any fitness into an empty cell, replaces only when `fitness_new > fitness_old` (strict), otherwise rejects without mutating the stored elite.
+
+`insert_evaluated(archive, eval_result, metadata)` builds a full elite from `evaluate_candidate`. `insert_and_persist(..., jsonl_path)` appends one line to `output/map_elites_archive.jsonl` only when the insert is accepted (schema 1.2: `bin`, `world_spec`, `fitness`, `measures`, optional `metrics`, `metadata`).
 
 ### Math helpers
 

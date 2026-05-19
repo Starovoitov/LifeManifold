@@ -1,12 +1,21 @@
 """MAP-Elites illuminator package."""
 
 from .archive import (
+    ARCHIVE_SCHEMA_VERSION,
     BC_MAX,
     BC_MIN,
+    DEFAULT_ARCHIVE_JSONL_PATH,
     DEFAULT_GRID_RESOLUTION,
     ArchiveElite,
+    EliteMetadata,
     GridArchive,
     InsertResult,
+    append_archive_line,
+    elite_from_eval,
+    elite_to_archive_record,
+    insert_and_persist,
+    insert_evaluated,
+    new_elite_metadata,
 )
 from .evaluation import (
     MEASURE_KEYS,
@@ -24,22 +33,31 @@ from .evaluation import (
 )
 
 __all__ = [
+    "ARCHIVE_SCHEMA_VERSION",
     "BC_MAX",
     "BC_MIN",
+    "DEFAULT_ARCHIVE_JSONL_PATH",
     "DEFAULT_GRID_RESOLUTION",
     "ArchiveElite",
+    "EliteMetadata",
     "EvalResult",
     "GridArchive",
     "ILLUMINATOR_MIN_STEPS",
     "InsertResult",
     "MEASURE_KEYS",
+    "append_archive_line",
     "apply_canonical_seed",
     "bin_index",
     "bin_index_from_measures",
     "canonical_seed",
     "compute_fitness",
+    "elite_from_eval",
+    "elite_to_archive_record",
     "evaluate_candidate",
     "extinction_probability",
+    "insert_and_persist",
+    "insert_evaluated",
     "measures_from_metrics",
+    "new_elite_metadata",
     "topology_complexity",
 ]
