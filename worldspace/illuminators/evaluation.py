@@ -1,34 +1,52 @@
-"""MAP-Elites candidate evaluation helpers (seed, fitness, measures — TZ v1.2)."""
+"""MAP-Elites candidate evaluation: seed, simulation, measures, fitness, binning."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from worldspace.metrics import WorldMetrics
+from worldspace.simulator import run_world
 from worldspace.specs.spec import WorldSpec
 
 __all__ = [
     "MEASURE_KEYS",
+    "EvalResult",
+    "ILLUMINATOR_MIN_STEPS",
     "apply_canonical_seed",
     "bin_index",
     "bin_index_from_measures",
     "canonical_seed",
     "compute_fitness",
+    "evaluate_candidate",
     "extinction_probability",
     "measures_from_metrics",
     "topology_complexity",
 ]
 
 MEASURE_KEYS: tuple[str, ...] = ("stability", "diversity")
+ILLUMINATOR_MIN_STEPS = 200
 
 _CANONICAL_JSON_KWARGS = {"sort_keys": True, "separators": (",", ":")}
 
 
+@dataclass
+class EvalResult:
+    """Outcome of evaluating one illuminator candidate."""
+
+    world_spec: WorldSpec
+    metrics: WorldMetrics
+    measures: dict[str, float]
+    fitness: float
+    bin: tuple[int, int]
+    early_extinct: bool
+
+
 def canonical_seed(world_spec: WorldSpec) -> int:
-    """Derive a deterministic 32-bit seed from the canonical world spec (§4)."""
+    """Derive a deterministic 32-bit seed from the canonical world spec."""
     digest = hashlib.sha256(_canonical_payload(world_spec).encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % (2**32)
 
@@ -41,7 +59,7 @@ def apply_canonical_seed(world_spec: WorldSpec) -> int:
 
 
 def measures_from_metrics(metrics: WorldMetrics) -> dict[str, float]:
-    """MAP-Elites behavioral coordinates (BC) for binning and JSONL ``measures`` (§1)."""
+    """Behavioral coordinates for binning and archive JSONL ``measures``."""
     return {
         "stability": _clip_unit(metrics.stability),
         "diversity": _clip_unit(metrics.diversity),
@@ -49,7 +67,7 @@ def measures_from_metrics(metrics: WorldMetrics) -> dict[str, float]:
 
 
 def topology_complexity(metrics: WorldMetrics) -> float:
-    """Fitness-only topology proxy; not a behavioral axis."""
+    """Topology proxy used only in the fitness sum; not a behavioral axis."""
     raw = (
         0.5 * metrics.topology_interface_index
         + 0.5 * metrics.topology_window_heterogeneity
@@ -96,6 +114,41 @@ def bin_index_from_measures(
 ) -> tuple[int, int]:
     """Bin from JSONL-style ``measures`` dict."""
     return bin_index(measures["stability"], measures["diversity"], resolution)
+
+
+def evaluate_candidate(
+    world_spec: WorldSpec,
+    *,
+    resolution: int = 50,
+    early_extinction_step: int = 200,
+    enforce_min_steps: bool = True,
+) -> EvalResult:
+    """Run one candidate: canonical seed, simulation, measures, fitness, and bin."""
+    spec = replace(world_spec)
+    if enforce_min_steps:
+        spec.steps = max(spec.steps, ILLUMINATOR_MIN_STEPS)
+    apply_canonical_seed(spec)
+    simulation = run_world(spec, early_extinction_step=early_extinction_step)
+    if simulation.final_life is None:
+        msg = "run_world did not return final_life"
+        raise RuntimeError(msg)
+    measures = measures_from_metrics(simulation.metrics)
+    final_density = float(simulation.final_life.mean())
+    fitness = compute_fitness(
+        simulation.metrics,
+        measures,
+        early_extinct=simulation.early_extinct,
+        final_density=final_density,
+    )
+    bin_ij = bin_index_from_measures(measures, resolution)
+    return EvalResult(
+        world_spec=spec,
+        metrics=simulation.metrics,
+        measures=measures,
+        fitness=fitness,
+        bin=bin_ij,
+        early_extinct=simulation.early_extinct,
+    )
 
 
 def _canonical_payload(world_spec: WorldSpec) -> str:

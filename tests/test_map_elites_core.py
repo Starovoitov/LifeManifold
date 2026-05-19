@@ -1,4 +1,4 @@
-"""Unit tests for MAP-Elites core (TZ v1.2 §11.1 — E1.x)."""
+"""Unit tests for MAP-Elites illuminator core (canonical seed, measures, fitness, bin)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,15 @@ from unittest.mock import patch
 import numpy as np
 
 from worldspace.illuminators.evaluation import (
+    ILLUMINATOR_MIN_STEPS,
     MEASURE_KEYS,
+    EvalResult,
     apply_canonical_seed,
     bin_index,
     bin_index_from_measures,
     canonical_seed,
     compute_fitness,
+    evaluate_candidate,
     extinction_probability,
     measures_from_metrics,
     topology_complexity,
@@ -441,6 +444,70 @@ class TestBinIndex(unittest.TestCase):
 
     def test_bin_index_resolution_one(self) -> None:
         self.assertEqual(bin_index(0.5, 0.9, 1), (0, 0))
+
+
+class TestEvaluateCandidate(unittest.TestCase):
+    def test_evaluate_candidate_reproducible(self) -> None:
+        spec_a = _minimal_world_spec(grid_size=8, steps=220, seed=1)
+        spec_b = _minimal_world_spec(grid_size=8, steps=220, seed=99)
+        result_a = evaluate_candidate(spec_a, resolution=20)
+        result_b = evaluate_candidate(spec_b, resolution=20)
+        self.assertEqual(result_a.world_spec.seed, result_b.world_spec.seed)
+        self.assertEqual(result_a.fitness, result_b.fitness)
+        self.assertEqual(result_a.measures, result_b.measures)
+        self.assertEqual(result_a.bin, result_b.bin)
+        np.testing.assert_allclose(
+            result_a.metrics.as_vector(),
+            result_b.metrics.as_vector(),
+        )
+
+    def test_evaluate_candidate_sets_seed(self) -> None:
+        spec = _minimal_world_spec(seed=0)
+        result = evaluate_candidate(spec, resolution=10)
+        self.assertEqual(result.world_spec.seed, canonical_seed(result.world_spec))
+
+    def test_evaluate_candidate_does_not_mutate_input(self) -> None:
+        spec = _minimal_world_spec(steps=250, seed=42)
+        original_steps = spec.steps
+        original_seed = spec.seed
+        evaluate_candidate(spec, resolution=10)
+        self.assertEqual(spec.steps, original_steps)
+        self.assertEqual(spec.seed, original_seed)
+
+    def test_evaluate_candidate_enforces_min_steps(self) -> None:
+        spec = _minimal_world_spec(steps=50, seed=7)
+        result = evaluate_candidate(spec, resolution=10)
+        self.assertGreaterEqual(result.world_spec.steps, ILLUMINATOR_MIN_STEPS)
+
+    def test_evaluate_candidate_early_extinct(self) -> None:
+        n = 4
+        zeros = np.zeros((n, n), dtype=np.uint8)
+        ages = np.zeros((n, n), dtype=np.int16)
+        spec = _minimal_world_spec(steps=500, seed=8)
+
+        with patch(
+            "worldspace.simulator._initial_grids",
+            return_value=(zeros, zeros, ages),
+        ):
+            result = evaluate_candidate(spec, resolution=15)
+
+        self.assertTrue(result.early_extinct)
+        self.assertEqual(result.fitness, 0.0)
+        for value in result.measures.values():
+            self.assertGreaterEqual(value, 0.0)
+            self.assertLessEqual(value, 1.0)
+
+    def test_evaluate_candidate_bin_matches_measures(self) -> None:
+        spec = _minimal_world_spec(grid_size=8, steps=220, seed=12)
+        result = evaluate_candidate(spec, resolution=30)
+        self.assertEqual(
+            result.bin,
+            bin_index_from_measures(result.measures, 30),
+        )
+
+    def test_evaluate_candidate_returns_eval_result(self) -> None:
+        result = evaluate_candidate(_minimal_world_spec(steps=200), resolution=5)
+        self.assertIsInstance(result, EvalResult)
 
 
 def _example_metrics(**overrides: float) -> WorldMetrics:
