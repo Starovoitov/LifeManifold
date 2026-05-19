@@ -16,10 +16,13 @@ from worldspace.illuminators.archive import (
     GridArchive,
     InsertResult,
     append_archive_line,
+    archive_record_to_elite,
     elite_from_eval,
     elite_to_archive_record,
     insert_and_persist,
     insert_evaluated,
+    load_and_collapse_jsonl,
+    merge_archives,
     new_elite_metadata,
 )
 from worldspace.illuminators.evaluation import evaluate_candidate
@@ -57,6 +60,22 @@ def _minimal_elite(
             timestamp="2026-01-01T00:00:00+00:00",
         ),
     )
+
+
+def _record_for_bin(
+    bin_coord: tuple[int, int],
+    fitness: float,
+    *,
+    elite_id: str,
+) -> dict:
+    return elite_to_archive_record(_minimal_elite(bin_coord, fitness, elite_id=elite_id))
+
+
+def _write_jsonl(path: Path, records: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
 
 
 def _example_metrics(**overrides: float) -> WorldMetrics:
@@ -283,6 +302,128 @@ class TestArchiveJsonl(unittest.TestCase):
             assert stored is not None
             assert stored.metadata is not None
             self.assertEqual(stored.metadata.id, "second")
+
+
+class TestArchiveRecordRoundtrip(unittest.TestCase):
+    def test_archive_record_roundtrip(self) -> None:
+        elite = _minimal_elite((5, 7), 0.72, elite_id="roundtrip-id")
+        elite.metrics = _example_metrics()
+        record = elite_to_archive_record(elite)
+        restored = archive_record_to_elite(record)
+        self.assertEqual(restored.bin, elite.bin)
+        self.assertEqual(restored.fitness, elite.fitness)
+        self.assertEqual(restored.measures, elite.measures)
+        assert restored.metadata is not None
+        assert elite.metadata is not None
+        self.assertEqual(restored.metadata.id, elite.metadata.id)
+        assert restored.world_spec is not None
+        assert elite.world_spec is not None
+        self.assertEqual(restored.world_spec.seed, elite.world_spec.seed)
+        assert restored.metrics is not None
+        self.assertEqual(
+            restored.metrics.as_vector().tolist(),
+            elite.metrics.as_vector().tolist(),
+        )
+
+
+class TestLoadAndCollapseJsonl(unittest.TestCase):
+    def test_collapse_keeps_max_fitness_per_bin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            _write_jsonl(
+                path,
+                [
+                    _record_for_bin((2, 3), 0.3, elite_id="low"),
+                    _record_for_bin((2, 3), 0.8, elite_id="high"),
+                    _record_for_bin((2, 3), 0.5, elite_id="mid"),
+                ],
+            )
+            archive = load_and_collapse_jsonl(path, resolution=10)
+            stored = archive.get(2, 3)
+            assert stored is not None
+            assert stored.metadata is not None
+            self.assertEqual(stored.fitness, 0.8)
+            self.assertEqual(stored.metadata.id, "high")
+
+    def test_collapse_tie_keeps_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            _write_jsonl(
+                path,
+                [
+                    _record_for_bin((1, 1), 0.6, elite_id="first"),
+                    _record_for_bin((1, 1), 0.6, elite_id="second"),
+                ],
+            )
+            archive = load_and_collapse_jsonl(path, resolution=5)
+            stored = archive.get(1, 1)
+            assert stored is not None
+            assert stored.metadata is not None
+            self.assertEqual(stored.metadata.id, "first")
+
+    def test_collapse_skip_invalid_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            path.write_text(
+                "not json\n"
+                + json.dumps(_record_for_bin((0, 0), 0.4, elite_id="ok"))
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs("worldspace.illuminators.archive", level="WARNING"):
+                archive = load_and_collapse_jsonl(path, resolution=5)
+            stored = archive.get(0, 0)
+            assert stored is not None
+            self.assertEqual(stored.fitness, 0.4)
+
+    def test_collapse_raise_on_invalid_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.jsonl"
+            path.write_text("{broken\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_and_collapse_jsonl(path, resolution=5, on_invalid_line="raise")
+
+    def test_load_missing_file_raises(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            load_and_collapse_jsonl("/nonexistent/archive.jsonl", resolution=5)
+
+
+class TestMergeArchives(unittest.TestCase):
+    def test_merge_prefers_higher_fitness(self) -> None:
+        base = GridArchive(5)
+        incoming = GridArchive(5)
+        base.try_insert(_minimal_elite((2, 2), 0.4, elite_id="base"))
+        incoming.try_insert(_minimal_elite((2, 2), 0.9, elite_id="incoming"))
+        merge_archives(base, incoming)
+        stored = base.get(2, 2)
+        assert stored is not None
+        assert stored.metadata is not None
+        self.assertEqual(stored.fitness, 0.9)
+        self.assertEqual(stored.metadata.id, "incoming")
+
+    def test_merge_keeps_base_when_incoming_worse(self) -> None:
+        base = GridArchive(5)
+        incoming = GridArchive(5)
+        base.try_insert(_minimal_elite((3, 3), 0.85, elite_id="base"))
+        incoming.try_insert(_minimal_elite((3, 3), 0.2, elite_id="lose"))
+        merge_archives(base, incoming)
+        stored = base.get(3, 3)
+        assert stored is not None
+        assert stored.metadata is not None
+        self.assertEqual(stored.metadata.id, "base")
+
+    def test_merge_fills_empty_cells_from_incoming(self) -> None:
+        base = GridArchive(5)
+        incoming = GridArchive(5)
+        incoming.try_insert(_minimal_elite((4, 1), 0.55, elite_id="only-incoming"))
+        merge_archives(base, incoming)
+        stored = base.get(4, 1)
+        assert stored is not None
+        self.assertEqual(stored.fitness, 0.55)
+
+    def test_merge_resolution_mismatch_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            merge_archives(GridArchive(5), GridArchive(8))
 
 
 if __name__ == "__main__":

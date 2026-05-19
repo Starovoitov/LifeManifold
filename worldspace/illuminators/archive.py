@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from worldspace.illuminators.evaluation import EvalResult
-from worldspace.metrics import WorldMetrics, metrics_vector_to_dict
+from worldspace.metrics import METRIC_KEYS, WorldMetrics, metrics_vector_to_dict
 from worldspace.specs.spec import WorldSpec
+
+logger = logging.getLogger(__name__)
+
+InvalidLineMode = Literal["raise", "skip"]
 
 BC_MIN = 0.0
 BC_MAX = 1.0
@@ -28,11 +34,15 @@ __all__ = [
     "EliteMetadata",
     "GridArchive",
     "InsertResult",
+    "InvalidLineMode",
     "append_archive_line",
+    "archive_record_to_elite",
     "elite_from_eval",
     "elite_to_archive_record",
     "insert_and_persist",
     "insert_evaluated",
+    "load_and_collapse_jsonl",
+    "merge_archives",
     "new_elite_metadata",
 ]
 
@@ -197,6 +207,83 @@ def elite_to_archive_record(elite: ArchiveElite) -> dict:
     return record
 
 
+def archive_record_to_elite(record: dict) -> ArchiveElite:
+    """Parse one JSONL archive record into an in-memory elite."""
+    schema_version = record.get("schema_version")
+    if schema_version != ARCHIVE_SCHEMA_VERSION:
+        msg = f"unsupported schema_version {schema_version!r}"
+        raise ValueError(msg)
+
+    bin_raw = record["bin"]
+    if not isinstance(bin_raw, list) or len(bin_raw) != 2:
+        msg = "bin must be a list of two integers"
+        raise ValueError(msg)
+    bin_coord = (int(bin_raw[0]), int(bin_raw[1]))
+
+    measures_raw = record["measures"]
+    if not isinstance(measures_raw, dict):
+        msg = "measures must be an object"
+        raise ValueError(msg)
+
+    metadata_raw = record["metadata"]
+    if not isinstance(metadata_raw, dict):
+        msg = "metadata must be an object"
+        raise ValueError(msg)
+
+    metrics = None
+    if "metrics" in record and record["metrics"] is not None:
+        metrics = _world_metrics_from_dict(record["metrics"])
+
+    return ArchiveElite(
+        bin=bin_coord,
+        fitness=float(record["fitness"]),
+        world_spec=WorldSpec.from_json_dict(record["world_spec"]),
+        measures={
+            "stability": float(measures_raw["stability"]),
+            "diversity": float(measures_raw["diversity"]),
+        },
+        metrics=metrics,
+        metadata=_elite_metadata_from_dict(metadata_raw),
+    )
+
+
+def load_and_collapse_jsonl(
+    path: str | Path,
+    *,
+    resolution: int = DEFAULT_GRID_RESOLUTION,
+    on_invalid_line: InvalidLineMode = "skip",
+) -> GridArchive:
+    """Load JSONL lines and keep the best fitness per bin (first wins on ties)."""
+    target = Path(path)
+    if not target.is_file():
+        msg = f"archive file not found: {target}"
+        raise FileNotFoundError(msg)
+
+    collapsed = _collapse_records_by_bin(target, on_invalid_line=on_invalid_line)
+    archive = GridArchive(resolution)
+    for elite in collapsed.values():
+        _validate_bin(elite.bin[0], elite.bin[1], resolution)
+        archive.try_insert(elite)
+    return archive
+
+
+def merge_archives(base: GridArchive, incoming: GridArchive) -> GridArchive:
+    """Merge elites into ``base``; per cell the higher fitness wins (strict ``>``)."""
+    if base.resolution != incoming.resolution:
+        msg = (
+            f"resolution mismatch: base={base.resolution}, "
+            f"incoming={incoming.resolution}"
+        )
+        raise ValueError(msg)
+    size = incoming.resolution
+    for i in range(size):
+        for j in range(size):
+            elite = incoming.get(i, j)
+            if elite is not None:
+                base.try_insert(elite)
+    return base
+
+
 def append_archive_line(path: str | Path, record: dict) -> None:
     """Append one JSON object as a line to the MAP-Elites archive file."""
     target = Path(path)
@@ -218,6 +305,56 @@ def insert_and_persist(
         assert elite is not None
         append_archive_line(jsonl_path, elite_to_archive_record(elite))
     return result
+
+
+def _collapse_records_by_bin(
+    path: Path,
+    *,
+    on_invalid_line: InvalidLineMode,
+) -> dict[tuple[int, int], ArchiveElite]:
+    best: dict[tuple[int, int], ArchiveElite] = {}
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+                elite = archive_record_to_elite(record)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                if on_invalid_line == "raise":
+                    msg = f"invalid archive JSONL at {path}:{line_number}"
+                    raise ValueError(msg) from exc
+                logger.warning(
+                    "skipping invalid archive line %s:%d: %s",
+                    path,
+                    line_number,
+                    exc,
+                )
+                continue
+            key = elite.bin
+            current = best.get(key)
+            if current is None or elite.fitness > current.fitness:
+                best[key] = elite
+    return best
+
+
+def _elite_metadata_from_dict(data: dict) -> EliteMetadata:
+    parent_id = data.get("parent_id")
+    return EliteMetadata(
+        id=str(data["id"]),
+        parent_id=None if parent_id is None else str(parent_id),
+        generated_by=str(data["generated_by"]),
+        emitter_type=str(data["emitter_type"]),
+        timestamp=str(data["timestamp"]),
+        prompt_version=data.get("prompt_version"),
+    )
+
+
+def _world_metrics_from_dict(data: dict) -> WorldMetrics:
+    return WorldMetrics(
+        **{key: float(data[key]) for key in METRIC_KEYS},
+    )
 
 
 def _validate_bin(i: int, j: int, resolution: int) -> None:

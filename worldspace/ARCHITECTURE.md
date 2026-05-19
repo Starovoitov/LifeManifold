@@ -93,6 +93,8 @@ File: `worldspace/illuminators/archive.py`
 
 `insert_evaluated(archive, eval_result, metadata)` builds a full elite from `evaluate_candidate`. `insert_and_persist(..., jsonl_path)` appends one line to `output/map_elites_archive.jsonl` only when the insert is accepted (schema 1.2: `bin`, `world_spec`, `fitness`, `measures`, optional `metrics`, `metadata`).
 
+`load_and_collapse_jsonl(path, resolution=50)` reads JSONL and keeps one elite per `bin` (maximum `fitness`; first line wins on ties). Invalid lines are skipped with a log warning by default (`on_invalid_line="raise"` for strict mode). `merge_archives(base, incoming)` applies the same strict-improvement rule across two in-memory archives. Typical resume flow: load collapsed archive, run new candidates with `insert_and_persist`, append only improvements to the file.
+
 ### Math helpers
 
 File: `worldspace/math.py`
