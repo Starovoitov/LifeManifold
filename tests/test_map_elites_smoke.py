@@ -59,6 +59,9 @@ class TestMapElitesSmoke(unittest.TestCase):
         expected_evaluations = config.iterations * config.batch_size
 
         SMOKE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        jsonl_path = archive_jsonl_path(SMOKE_OUTPUT_DIR)
+        if jsonl_path.exists():
+            jsonl_path.unlink()
         started = time.perf_counter()
         result = MapElitesIlluminator().run(
             scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
@@ -69,7 +72,6 @@ class TestMapElitesSmoke(unittest.TestCase):
         )
         elapsed = time.perf_counter() - started
 
-        jsonl_path = archive_jsonl_path(SMOKE_OUTPUT_DIR)
         self.assertEqual(result.archive_jsonl_path, jsonl_path)
         self.assertTrue(jsonl_path.is_file(), "archive JSONL must exist on disk")
         self.assertGreater(result.filled_cells, 0, "archive must not be empty")

@@ -334,15 +334,27 @@ Written for **every** evaluation (insert accept or reject).
 
 ### Stage 10 — Offline training
 
-**Where:** `scripts/train_surrogate.py`.
+**Where:** `scripts/train_surrogate.py`, `worldspace/surrogate/training.py`, `worldspace/surrogate/evaluation.py`.
 
 | Input | Output |
 |-------|--------|
-| Buffer JSONL path | `feature_matrix` `(N, 8)`, `targets` dict of `(N,)` arrays |
-| `--model-type lightgbm` or `mlp` | Trained `SurrogateModel` |
+| Buffer JSONL path (>= 2000 rows for production) | `feature_matrix` `(N, 8)`, `targets` dict of `(N,)` arrays |
+| 80/20 hold-out split (`random_state=42`) | Train fit + hold-out metrics |
+| `--model-type lightgbm` | Eight deterministic LightGBM models per Strategy A target |
 | `--checkpoint-path` | Pickle file loaded by `get_surrogate` on next run |
+| `--micro` | >= 100 rows; writes checkpoint without failing on quality gate |
 
-**Summary JSON** (optional): sample count, feature dim, model type.
+**Hold-out quality (MVP DoD, full training only):**
+
+| Metric | Threshold |
+|--------|-----------|
+| `R²(fitness)` | > 0.72 |
+| `MAE(fitness)` | < 0.085 |
+| `MAE(stability)` | < 0.06 |
+
+Metrics are stored in `latest.summary.json` under `holdout_metrics`.
+
+**Uncertainty after training:** `predict_uncertainty` returns the standard deviation of fitness computed from each ensemble member’s component prediction.
 
 Training is **outside** the illuminator loop; no online weight updates during MAP-Elites.
 
