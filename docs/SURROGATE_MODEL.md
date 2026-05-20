@@ -392,7 +392,7 @@ worldspace/illuminators/
 | `llm.enabled: false` | No LLM calls; surrogate only affects buffer file if run proceeds |
 | `surrogate.enabled: false` | Prompt stubs; buffer still grows if illuminator runs |
 | Same `WorldSpec`, same deps | `predict()` bit-identical on same platform |
-| Archive + archive JSONL with `llm.enabled: false` | Must match pre-surrogate behavior (buffer path excluded from bit-compare) |
+| Archive + archive JSONL with `llm.enabled: false` | Must match with `surrogate` on/off (tests compare fitness, measures, `world_spec`, and JSONL after stripping runtime `metadata.id` / `metadata.timestamp`; buffer path excluded) |
 
 Requirements: fixed `random_state=42` for training; no RNG in feature extractor; canonical JSON for cache keys.
 
