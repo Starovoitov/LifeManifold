@@ -1,6 +1,6 @@
 schema_version: "1.2"
-# Second nightly phase: same budget as baseline, surrogate enabled for LLM prompt hints.
-iterations: 100000
+# Second nightly phase: same 650-iter budget as baseline; surrogate enabled for LLM hints.
+iterations: 650
 batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200

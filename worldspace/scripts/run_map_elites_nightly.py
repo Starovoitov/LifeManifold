@@ -39,7 +39,7 @@ _NIGHTLY_TRAINING_SUMMARY_PATH = (
 )
 _TRAIN_SCRIPT = _REPO_ROOT / "scripts" / "train_surrogate.py"
 _DEFAULT_GRID_SIZE = 50
-_DEFAULT_STEPS = 300
+_DEFAULT_STEPS = 200
 _DEFAULT_SEED = 0
 
 __all__ = [
@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Default: two-phase nightly pipeline (baseline → train surrogate → "
-            "surrogate-enabled). Each phase uses 100_000 iterations (5M evals) unless "
+            "surrogate-enabled). Each phase uses 650 iterations (steps=200) unless "
             "overridden. Use --single-run for one phase only."
         ),
     )
@@ -292,7 +292,7 @@ def main(argv: list[str] | None = None) -> None:
         "--iterations",
         type=int,
         default=None,
-        help="Override YAML iterations (nightly default: 100000 per phase).",
+        help="Override YAML iterations (nightly default: 650 per phase, ~3h pipeline).",
     )
     parser.add_argument(
         "--load-archive",

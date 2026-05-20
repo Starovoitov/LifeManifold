@@ -1,6 +1,6 @@
 schema_version: "1.2"
-# Nightly baseline phase: 100_000 × 50 = 5_000_000 evaluations
-iterations: 100000
+# Nightly baseline: 650 × 50 = 32_500 evals/phase (~3h full pipeline at ~140 ms/eval + train)
+iterations: 650
 batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
