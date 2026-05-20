@@ -46,6 +46,12 @@ from .emitters import (
     StubCandidateEmitter,
     strip_seed,
 )
+from .illuminator import (
+    MapElitesIlluminator,
+    MapElitesRunResult,
+    archive_jsonl_path,
+    normalize_illuminator_steps,
+)
 from .loop import IterationStats, SlotOutcome, run_iteration, run_scheduler
 from .scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
@@ -101,7 +107,11 @@ __all__ = [
     "load_scheduler",
     "measures_from_metrics",
     "MapElitesEmitter",
+    "MapElitesIlluminator",
+    "MapElitesRunResult",
+    "archive_jsonl_path",
     "merge_archives",
+    "normalize_illuminator_steps",
     "new_elite_metadata",
     "RandomEmitter",
     "resolve_emitter_for_slot",

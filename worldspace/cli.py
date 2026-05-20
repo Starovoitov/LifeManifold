@@ -15,7 +15,10 @@ from .generators import (
     TwoStateNoiseMarkovGenerator,
 )
 from .cli_generator_spec import parse_generator_spec_path, validate_generator_spec_yaml
+from .cli_mapelites import add_mapelites_arguments, run_mapelites_cli
 from .pipeline import stream_world_space_to_jsonl
+
+_MAPELITES_DEFAULT_STEPS = 300
 
 
 def main() -> None:
@@ -23,6 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="MVP explorer for the world-space cellular automata."
     )
+    add_mapelites_arguments(parser)
     parser.add_argument(
         "--generator",
         choices=[
@@ -53,8 +57,21 @@ def main() -> None:
         help="Torch device for --generator neural (overrides YAML torch.device).",
     )
     parser.add_argument("--worlds", type=int, default=30)
-    parser.add_argument("--steps", type=int, default=200)
-    parser.add_argument("--grid", type=int, default=40)
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=200,
+        help=(
+            "CA steps per world. Legacy default 200. "
+            f"For --illuminator mapelites use >= 200 (recommended {_MAPELITES_DEFAULT_STEPS})."
+        ),
+    )
+    parser.add_argument(
+        "--grid",
+        type=int,
+        default=40,
+        help="Simulation grid side length (legacy default 40; mapelites often uses 50).",
+    )
     parser.add_argument(
         "--ga-population",
         type=int,
@@ -107,6 +124,10 @@ def main() -> None:
         help="Optional JSONL: one line per CA timestep per pipeline run_world (yield_index, ca_step, metrics); any --generator.",
     )
     args = parser.parse_args()
+
+    if args.illuminator == "mapelites":
+        run_mapelites_cli(args)
+        return
 
     spec_generators = frozenset({"genetic", "llm", "hybrid", "neural"})
     gen_spec_path = parse_generator_spec_path(args.generator_spec)

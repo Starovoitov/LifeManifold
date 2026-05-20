@@ -14,7 +14,11 @@ from worldspace.illuminators.archive import (
     insert_evaluated,
 )
 from worldspace.illuminators.emitters.base import CandidateEmitter
-from worldspace.illuminators.evaluation import EvalResult, evaluate_candidate
+from worldspace.illuminators.evaluation import (
+    ILLUMINATOR_MIN_STEPS,
+    EvalResult,
+    evaluate_candidate,
+)
 from worldspace.illuminators.scheduler import (
     EmitterKind,
     RunCounters,
@@ -141,9 +145,11 @@ def run_scheduler(
     grid_size: int,
     steps: int,
     jsonl_path: str | Path | None = None,
+    counters: RunCounters | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
-    counters = RunCounters()
+    if counters is None:
+        counters = RunCounters()
     for _ in range(config.iterations):
         run_iteration(
             config,
@@ -161,5 +167,5 @@ def run_scheduler(
 def _prepare_world_spec(spec: WorldSpec, *, grid_size: int, steps: int) -> WorldSpec:
     prepared = replace(spec)
     prepared.grid_size = grid_size
-    prepared.steps = steps
+    prepared.steps = max(steps, ILLUMINATOR_MIN_STEPS)
     return prepared
