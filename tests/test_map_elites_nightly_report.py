@@ -55,6 +55,7 @@ class TestMapElitesNightlyReport(unittest.TestCase):
         self.assertEqual(report.filled_cells, report.jsonl_collapsed_cells)
         self.assertLessEqual(report.jsonl_collapsed_cells, config.grid_resolution**2)
         self.assertFalse(report.llm_enabled)
+        self.assertFalse(report.surrogate_enabled)
         self.assertGreater(report.jsonl_raw_lines, 0)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,6 +67,7 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             self.assertEqual(
                 payload["jsonl_collapsed_cells"], report.jsonl_collapsed_cells
             )
+            self.assertEqual(payload["surrogate_enabled"], report.surrogate_enabled)
 
     def test_skips_invalid_jsonl_line_like_collapse(self) -> None:
         config = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)

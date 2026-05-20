@@ -1,10 +1,15 @@
-"""Run a MAP-Elites nightly job (reduced default iterations; optional full budget)."""
+"""Run MAP-Elites nightly: baseline collect → train surrogate → surrogate-enabled run."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import subprocess
+import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from worldspace.illuminators.illuminator import MapElitesIlluminator
@@ -16,17 +21,48 @@ from worldspace.illuminators.nightly_report import (
 )
 from worldspace.illuminators.scheduler import (
     DEFAULT_NIGHTLY_SCHEDULER_PATH,
+    DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     load_scheduler,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_nightly"
+_BASELINE_SUBDIR = "baseline"
+_SURROGATE_SUBDIR = "surrogate"
+_NIGHTLY_BUFFER_PATH = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_nightly.jsonl"
+_NIGHTLY_CHECKPOINT_PATH = (
+    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly.pkl"
+)
+_NIGHTLY_TRAINING_SUMMARY_PATH = (
+    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly.summary.json"
+)
+_TRAIN_SCRIPT = _REPO_ROOT / "scripts" / "train_surrogate.py"
 _DEFAULT_GRID_SIZE = 50
 _DEFAULT_STEPS = 300
 _DEFAULT_SEED = 0
 
-__all__ = ["main", "run_map_elites_nightly"]
+__all__ = [
+    "NightlyPipelineResult",
+    "main",
+    "run_map_elites_nightly",
+    "run_nightly_pipeline",
+    "train_nightly_surrogate",
+]
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NightlyPipelineResult:
+    """Artifacts from the default two-phase nightly job."""
+
+    baseline: NightlyRunReport
+    surrogate: NightlyRunReport
+    training_summary_path: Path
+    checkpoint_path: Path
+    pipeline_summary_path: Path
 
 
 def run_map_elites_nightly(
@@ -40,7 +76,7 @@ def run_map_elites_nightly(
     iterations: int | None = None,
     load_archive_path: str | Path | None = None,
 ) -> NightlyRunReport:
-    """Execute illuminator run and write summary artifacts (not removed after return)."""
+    """Execute one illuminator run and write summary artifacts (not removed after return)."""
     sched_path = Path(scheduler_path or DEFAULT_NIGHTLY_SCHEDULER_PATH)
     out_dir = Path(output_dir or _DEFAULT_OUTPUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -72,29 +108,176 @@ def run_map_elites_nightly(
     return report
 
 
+def train_nightly_surrogate(
+    *,
+    buffer_path: Path | None = None,
+    checkpoint_path: Path | None = None,
+    summary_path: Path | None = None,
+) -> Path:
+    """Train LightGBM surrogate from the nightly buffer; returns training summary path."""
+    buffer = buffer_path or _NIGHTLY_BUFFER_PATH
+    checkpoint = checkpoint_path or _NIGHTLY_CHECKPOINT_PATH
+    summary = summary_path or _NIGHTLY_TRAINING_SUMMARY_PATH
+    cmd = [
+        sys.executable,
+        str(_TRAIN_SCRIPT),
+        "--model-type",
+        "lightgbm",
+        "--buffer-path",
+        str(buffer),
+        "--checkpoint-path",
+        str(checkpoint),
+        "--summary-path",
+        str(summary),
+    ]
+    env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT)}
+    logger.info("Training nightly surrogate: %s", " ".join(cmd))
+    subprocess.run(cmd, cwd=_REPO_ROOT, env=env, check=True)
+    return summary
+
+
+def _write_pipeline_summary(
+    path: Path,
+    *,
+    baseline: NightlyRunReport,
+    surrogate: NightlyRunReport,
+    training_summary_path: Path,
+    checkpoint_path: Path,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    training_payload: dict | None = None
+    if training_summary_path.is_file():
+        training_payload = json.loads(
+            training_summary_path.read_text(encoding="utf-8")
+        )
+    payload = {
+        "schema_version": baseline.schema_version,
+        "seed": baseline.seed,
+        "buffer_path": str(_NIGHTLY_BUFFER_PATH.resolve()),
+        "checkpoint_path": str(checkpoint_path.resolve()),
+        "training_summary": str(training_summary_path.resolve()),
+        "training": training_payload,
+        "baseline": {
+            "scheduler": baseline.scheduler_path,
+            "output_summary": str(
+                (Path(baseline.archive_jsonl_path).parent / "nightly_run_summary.json").resolve()
+            ),
+            "evaluations": baseline.evaluations,
+            "filled_cells": baseline.filled_cells,
+            "coverage": round(baseline.coverage, 6),
+            "elapsed_seconds": round(baseline.elapsed_seconds, 3),
+            "surrogate_enabled": baseline.surrogate_enabled,
+        },
+        "surrogate_run": {
+            "scheduler": surrogate.scheduler_path,
+            "output_summary": str(
+                (Path(surrogate.archive_jsonl_path).parent / "nightly_run_summary.json").resolve()
+            ),
+            "evaluations": surrogate.evaluations,
+            "filled_cells": surrogate.filled_cells,
+            "coverage": round(surrogate.coverage, 6),
+            "elapsed_seconds": round(surrogate.elapsed_seconds, 3),
+            "surrogate_enabled": surrogate.surrogate_enabled,
+            "resumed_from": baseline.archive_jsonl_path,
+        },
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def run_nightly_pipeline(
+    *,
+    output_dir: str | Path | None = None,
+    seed: int = _DEFAULT_SEED,
+    grid_resolution: int | None = None,
+    grid_size: int = _DEFAULT_GRID_SIZE,
+    steps: int = _DEFAULT_STEPS,
+    iterations: int | None = None,
+    skip_training: bool = False,
+) -> NightlyPipelineResult:
+    """Baseline MAP-Elites → train surrogate → second run with surrogate enabled."""
+    root = Path(output_dir or _DEFAULT_OUTPUT_DIR)
+    baseline_dir = root / _BASELINE_SUBDIR
+    surrogate_dir = root / _SURROGATE_SUBDIR
+
+    logger.info("Nightly phase 1/3: baseline (surrogate disabled)")
+    baseline = run_map_elites_nightly(
+        scheduler_path=DEFAULT_NIGHTLY_SCHEDULER_PATH,
+        output_dir=baseline_dir,
+        seed=seed,
+        grid_resolution=grid_resolution,
+        grid_size=grid_size,
+        steps=steps,
+        iterations=iterations,
+    )
+
+    training_summary = _NIGHTLY_TRAINING_SUMMARY_PATH
+    if not skip_training:
+        logger.info("Nightly phase 2/3: train surrogate from %s", _NIGHTLY_BUFFER_PATH)
+        training_summary = train_nightly_surrogate()
+    else:
+        logger.info("Skipping surrogate training (--skip-training)")
+
+    logger.info("Nightly phase 3/3: surrogate-enabled run (resume baseline archive)")
+    surrogate = run_map_elites_nightly(
+        scheduler_path=DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
+        output_dir=surrogate_dir,
+        seed=seed,
+        grid_resolution=grid_resolution,
+        grid_size=grid_size,
+        steps=steps,
+        iterations=iterations,
+        load_archive_path=baseline.archive_jsonl_path,
+    )
+
+    pipeline_summary = root / "nightly_pipeline_summary.json"
+    _write_pipeline_summary(
+        pipeline_summary,
+        baseline=baseline,
+        surrogate=surrogate,
+        training_summary_path=training_summary,
+        checkpoint_path=_NIGHTLY_CHECKPOINT_PATH,
+    )
+    logger.info("Wrote pipeline summary: %s", pipeline_summary)
+    return NightlyPipelineResult(
+        baseline=baseline,
+        surrogate=surrogate,
+        training_summary_path=training_summary,
+        checkpoint_path=_NIGHTLY_CHECKPOINT_PATH,
+        pipeline_summary_path=pipeline_summary,
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI for scheduled or manual nightly MAP-Elites runs."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(
         description=(
-            "Run MAP-Elites with the nightly scheduler (default 100 iterations; "
-            "use production YAML and --iterations 10000 for full 500k budget)."
+            "Default: two-phase nightly pipeline (baseline → train surrogate → "
+            "surrogate-enabled). Each phase uses 100_000 iterations (5M evals) unless "
+            "overridden. Use --single-run for one phase only."
         ),
+    )
+    parser.add_argument(
+        "--single-run",
+        action="store_true",
+        help="Run only one illuminator pass (see --scheduler).",
     )
     parser.add_argument(
         "--scheduler",
         type=str,
         default=str(DEFAULT_NIGHTLY_SCHEDULER_PATH),
         help=(
-            "Scheduler YAML (default: map_elites_scheduler_nightly.yaml). "
-            f"Full production: {DEFAULT_SCHEDULER_PATH}"
+            "Scheduler YAML for --single-run (default: nightly baseline). "
+            f"Production: {DEFAULT_SCHEDULER_PATH}"
         ),
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default=str(_DEFAULT_OUTPUT_DIR),
-        help="Directory for map_elites_archive.jsonl and nightly_run_summary.json",
+        help="Root output directory (pipeline uses baseline/ and surrogate/ subdirs).",
     )
     parser.add_argument("--seed", type=int, default=_DEFAULT_SEED)
     parser.add_argument(
@@ -109,25 +292,43 @@ def main(argv: list[str] | None = None) -> None:
         "--iterations",
         type=int,
         default=None,
-        help="Override YAML iterations (full production: 10000).",
+        help="Override YAML iterations (nightly default: 100000 per phase).",
     )
     parser.add_argument(
         "--load-archive",
         type=str,
         default="",
-        help="Optional existing archive JSONL to resume from.",
+        help="Resume archive for --single-run only.",
+    )
+    parser.add_argument(
+        "--skip-training",
+        action="store_true",
+        help="Pipeline only: skip train step (requires existing nightly.pkl).",
     )
     args = parser.parse_args(argv)
-    load_path = args.load_archive.strip() or None
-    run_map_elites_nightly(
-        scheduler_path=args.scheduler,
+
+    if args.single_run:
+        load_path = args.load_archive.strip() or None
+        run_map_elites_nightly(
+            scheduler_path=args.scheduler,
+            output_dir=args.output_dir,
+            seed=args.seed,
+            grid_resolution=args.grid_resolution,
+            grid_size=args.grid,
+            steps=args.steps,
+            iterations=args.iterations,
+            load_archive_path=load_path,
+        )
+        return
+
+    run_nightly_pipeline(
         output_dir=args.output_dir,
         seed=args.seed,
         grid_resolution=args.grid_resolution,
         grid_size=args.grid,
         steps=args.steps,
         iterations=args.iterations,
-        load_archive_path=load_path,
+        skip_training=args.skip_training,
     )
 
 

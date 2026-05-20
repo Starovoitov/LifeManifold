@@ -43,6 +43,7 @@ class NightlyRunReport:
     jsonl_collapsed_cells: int
     elapsed_seconds: float
     llm_enabled: bool
+    surrogate_enabled: bool
     archive_jsonl_path: str
 
 
@@ -87,6 +88,7 @@ def build_nightly_report(
         jsonl_collapsed_cells=collapsed_cells,
         elapsed_seconds=float(elapsed_seconds),
         llm_enabled=config.llm_enabled,
+        surrogate_enabled=config.surrogate_enabled,
         archive_jsonl_path=str(jsonl_path.resolve()),
     )
 
@@ -108,6 +110,7 @@ def write_nightly_summary(path: str | Path, report: NightlyRunReport) -> None:
         "jsonl_collapsed_cells": report.jsonl_collapsed_cells,
         "elapsed_seconds": round(report.elapsed_seconds, 3),
         "llm_enabled": report.llm_enabled,
+        "surrogate_enabled": report.surrogate_enabled,
         "archive_jsonl": report.archive_jsonl_path,
     }
     target.write_text(
@@ -119,7 +122,8 @@ def log_nightly_report(report: NightlyRunReport) -> None:
     """Log archive fill metrics for nightly operators."""
     logger.info(
         "MAP-Elites nightly: evaluations=%s filled_cells=%s coverage=%.4f "
-        "jsonl_raw_lines=%s jsonl_collapsed_cells=%s elapsed_s=%.1f llm_enabled=%s",
+        "jsonl_raw_lines=%s jsonl_collapsed_cells=%s elapsed_s=%.1f "
+        "llm_enabled=%s surrogate_enabled=%s",
         report.evaluations,
         report.filled_cells,
         report.coverage,
@@ -127,6 +131,7 @@ def log_nightly_report(report: NightlyRunReport) -> None:
         report.jsonl_collapsed_cells,
         report.elapsed_seconds,
         report.llm_enabled,
+        report.surrogate_enabled,
     )
     print(
         f"MAP-Elites nightly: {report.evaluations} evaluations, "

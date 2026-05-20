@@ -1,12 +1,11 @@
 schema_version: "1.2"
-# Nightly baseline phase: 100_000 × 50 = 5_000_000 evaluations
+# Second nightly phase: same budget as baseline, surrogate enabled for LLM prompt hints.
 iterations: 100000
 batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
 min_steps: 200
 
-# Same slot mix as production (20 random + 20 genetic + 10 llm).
 batch_emitters:
   - random
   - random
@@ -68,9 +67,9 @@ llm:
   enabled: false
 
 surrogate:
-  enabled: false
+  enabled: true
   model_type: lightgbm
-  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly.pkl
   buffer_path: artifacts/surrogate/buffer_nightly.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0

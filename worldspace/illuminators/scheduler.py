@@ -24,10 +24,14 @@ DEFAULT_MINI_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini.ya
 DEFAULT_NIGHTLY_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly.yaml"
 )
+DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate.yaml"
+)
 
 __all__ = [
     "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
     "RunCounters",
