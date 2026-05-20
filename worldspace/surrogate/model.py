@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from worldspace.surrogate.determinism import (
+    DEFAULT_ENSEMBLE_SIZE,
+    DEFAULT_RANDOM_STATE,
+)
+
 TARGET_KEYS: tuple[str, ...] = (
     "stability",
     "diversity",
@@ -27,8 +32,8 @@ class SurrogateModel:
     """Deterministic component regressor for Strategy A outputs."""
 
     model_type: str = "lightgbm"
-    random_state: int = 42
-    ensemble_size: int = 8
+    random_state: int = DEFAULT_RANDOM_STATE
+    ensemble_size: int = DEFAULT_ENSEMBLE_SIZE
     _component_means: dict[str, float] = field(default_factory=dict)
 
     def fit(
@@ -36,7 +41,11 @@ class SurrogateModel:
         feature_matrix: np.ndarray,
         targets: dict[str, np.ndarray],
     ) -> None:
-        """Fit deterministic MVP baseline from component targets."""
+        """Fit deterministic MVP baseline from component targets.
+
+        LightGBM/MLP backends should call ``lightgbm_deterministic_params`` or
+        ``apply_mlp_determinism`` from ``determinism.py`` when implemented.
+        """
         _ = feature_matrix
         self._component_means = {
             key: float(np.mean(_as_float_array(targets, key))) for key in TARGET_KEYS
