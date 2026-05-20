@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install activate pylint fix
+.PHONY: install activate pylint fix smoke-map-elites
 
 install:
 	$(UV) venv
@@ -20,3 +20,6 @@ pylint:
 fix:
 	$(UV) run ruff check . --fix
 	$(UV) run black .
+
+smoke-map-elites:
+	$(UV) run python -m unittest tests.test_map_elites_smoke -v
