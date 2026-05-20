@@ -145,6 +145,25 @@ class SurrogateContractsTests(unittest.TestCase):
         fitness = compute_fitness_from_prediction(prediction)
         self.assertAlmostEqual(fitness, 0.47)
 
+    def test_surrogate_facade_uses_cache_for_same_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "model.pkl"
+            checkpoint.write_text("placeholder", encoding="utf-8")
+            config = SurrogateConfig(
+                enabled=True,
+                model_type="lightgbm",
+                checkpoint=str(checkpoint),
+                stub_mean=0.45,
+                stub_uncertainty=0.85,
+            )
+            facade = get_surrogate(config)
+            self.assertIsInstance(facade, SurrogateFacade)
+            spec = self._sample_spec()
+            first = facade.predict(spec)
+            second = facade.predict(spec)
+            self.assertEqual(first, second)
+            self.assertEqual(facade.cache_hits(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
