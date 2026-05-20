@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from worldspace.illuminators.evaluation import apply_canonical_seed
+from worldspace.surrogate.feature_extractor import extract as extract_features
 from worldspace.surrogate.types import (
     SurrogateConfig,
     SurrogatePrediction,
@@ -46,7 +48,9 @@ class SurrogateFacade:
     predictor: Callable[[Any], SurrogatePrediction]
 
     def predict(self, world_spec: Any) -> SurrogatePrediction:
-        """Delegate to loaded predictor implementation."""
+        """Canonicalize spec and delegate to predictor implementation."""
+        apply_canonical_seed(world_spec)
+        _ = extract_features(world_spec)
         return self.predictor(world_spec)
 
 

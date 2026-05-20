@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
+
+from worldspace.specs.spec import WorldSpec
 
 ModelType = Literal["lightgbm", "mlp"]
 
@@ -39,6 +41,6 @@ class SurrogatePrediction:
 class SurrogateProtocol(Protocol):
     """Minimal stable API for scheduler / emitter integration."""
 
-    def predict(self, world_spec: Any) -> SurrogatePrediction:
+    def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         """Return deterministic surrogate estimation for one world spec."""
         ...
