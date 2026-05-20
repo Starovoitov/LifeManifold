@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,10 +8,17 @@ from pathlib import Path
 from worldspace.illuminators.evaluation import apply_canonical_seed, canonical_seed
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.feature_extractor import extract as extract_features
-from worldspace.surrogate.model import TARGET_KEYS
+from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
 from worldspace.surrogate import StubSurrogate, SurrogateFacade, get_surrogate
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
+
+
+def _write_model_checkpoint(path: Path, *, mean: float = 0.45) -> None:
+    model = SurrogateModel()
+    model.set_component_defaults(mean)
+    with path.open("wb") as fh:
+        pickle.dump(model, fh)
 
 
 class SurrogateContractsTests(unittest.TestCase):
@@ -52,7 +60,7 @@ class SurrogateContractsTests(unittest.TestCase):
     def test_get_surrogate_returns_facade_with_existing_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoint = Path(tmpdir) / "model.pkl"
-            checkpoint.write_text("placeholder", encoding="utf-8")
+            _write_model_checkpoint(checkpoint)
             config = SurrogateConfig(
                 enabled=True,
                 model_type="lightgbm",
@@ -66,7 +74,7 @@ class SurrogateContractsTests(unittest.TestCase):
     def test_predict_contract_is_stable_for_stub_and_facade(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoint = Path(tmpdir) / "model.pkl"
-            checkpoint.write_text("placeholder", encoding="utf-8")
+            _write_model_checkpoint(checkpoint)
             config = SurrogateConfig(
                 enabled=True,
                 model_type="lightgbm",
@@ -77,7 +85,9 @@ class SurrogateContractsTests(unittest.TestCase):
             facade = get_surrogate(config)
             prediction = facade.predict(world_spec=self._sample_spec())
             self.assertIsInstance(prediction, SurrogatePrediction)
-            self.assertEqual(set(prediction.measures.keys()), {"stability", "diversity"})
+            self.assertEqual(
+                set(prediction.measures.keys()), {"stability", "diversity"}
+            )
             self.assertEqual(set(prediction.components.keys()), set(TARGET_KEYS))
             self.assertAlmostEqual(prediction.fitness, 0.45)
             self.assertAlmostEqual(prediction.uncertainty, 0.85)
@@ -85,7 +95,7 @@ class SurrogateContractsTests(unittest.TestCase):
     def test_stub_and_facade_use_consistent_component_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoint = Path(tmpdir) / "model.pkl"
-            checkpoint.write_text("placeholder", encoding="utf-8")
+            _write_model_checkpoint(checkpoint)
             enabled_config = SurrogateConfig(
                 enabled=True,
                 model_type="lightgbm",
@@ -100,8 +110,12 @@ class SurrogateContractsTests(unittest.TestCase):
                 stub_mean=0.45,
                 stub_uncertainty=0.85,
             )
-            facade_prediction = get_surrogate(enabled_config).predict(self._sample_spec())
-            stub_prediction = get_surrogate(disabled_config).predict(self._sample_spec())
+            facade_prediction = get_surrogate(enabled_config).predict(
+                self._sample_spec()
+            )
+            stub_prediction = get_surrogate(disabled_config).predict(
+                self._sample_spec()
+            )
             self.assertEqual(
                 facade_prediction.components["early_extinction_prob"],
                 stub_prediction.components["early_extinction_prob"],
@@ -148,7 +162,7 @@ class SurrogateContractsTests(unittest.TestCase):
     def test_surrogate_facade_uses_cache_for_same_spec(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoint = Path(tmpdir) / "model.pkl"
-            checkpoint.write_text("placeholder", encoding="utf-8")
+            _write_model_checkpoint(checkpoint)
             config = SurrogateConfig(
                 enabled=True,
                 model_type="lightgbm",

@@ -19,6 +19,7 @@ from worldspace.illuminators.scheduler import (
     RunCounters,
     SchedulerConfig,
     load_scheduler,
+    surrogate_config_from_scheduler,
 )
 
 
@@ -67,7 +68,18 @@ class MapElitesIlluminator:
         )
         start_evaluated = counters.candidates_evaluated
         rng = np.random.default_rng(seed)
-        effective_emitter = emitter or MapElitesEmitter(scheduler=config)
+        from worldspace.surrogate import get_surrogate
+        from worldspace.surrogate.buffer import SurrogateBuffer
+
+        surrogate = get_surrogate(surrogate_config_from_scheduler(config))
+        surrogate_buffer = SurrogateBuffer(
+            config.surrogate_buffer_path,
+            flush_every=32,
+        )
+        effective_emitter = emitter or MapElitesEmitter(
+            scheduler=config,
+            surrogate=surrogate,
+        )
         counters = run_scheduler(
             config,
             archive,
@@ -77,7 +89,9 @@ class MapElitesIlluminator:
             steps=effective_steps,
             jsonl_path=jsonl_path,
             counters=counters,
+            surrogate_buffer=surrogate_buffer,
         )
+        surrogate_buffer.flush()
         expected_evaluations = config.iterations * config.batch_size
         run_evaluations = counters.candidates_evaluated - start_evaluated
         if run_evaluations != expected_evaluations:

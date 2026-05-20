@@ -21,7 +21,9 @@ def compute_fitness_from_prediction(pred: SurrogatePrediction) -> float:
         diversity=float(components["diversity"]),
         mo_eoc_indicator=0.0,
         topology_interface_index=float(components["topology_interface_index"]),
-        topology_window_heterogeneity=float(components["topology_window_heterogeneity"]),
+        topology_window_heterogeneity=float(
+            components["topology_window_heterogeneity"]
+        ),
         compressibility_score=0.0,
         ecology_state_entropy_norm=0.0,
         ecology_resource_adjacency=0.0,

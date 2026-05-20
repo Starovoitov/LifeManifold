@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -28,6 +29,9 @@ from worldspace.illuminators.scheduler import (
     select_target_bin,
 )
 from worldspace.specs.spec import WorldSpec
+
+if TYPE_CHECKING:
+    from worldspace.surrogate.buffer import SurrogateBuffer
 
 __all__ = [
     "IterationStats",
@@ -68,6 +72,7 @@ def run_iteration(
     grid_size: int,
     steps: int,
     jsonl_path: str | Path | None = None,
+    surrogate_buffer: SurrogateBuffer | None = None,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate, insert, count.
 
@@ -102,6 +107,14 @@ def run_iteration(
             early_extinction_step=config.early_extinction_step,
             enforce_min_steps=True,
         )
+        if surrogate_buffer is not None:
+            from worldspace.surrogate.buffer import append_eval_to_buffer
+
+            append_eval_to_buffer(
+                surrogate_buffer,
+                eval_result,
+                emitter_type=output.metadata.emitter_type,
+            )
         if jsonl_path is not None:
             insert = insert_and_persist(
                 archive, eval_result, output.metadata, jsonl_path
@@ -146,6 +159,7 @@ def run_scheduler(
     steps: int,
     jsonl_path: str | Path | None = None,
     counters: RunCounters | None = None,
+    surrogate_buffer: SurrogateBuffer | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
     if counters is None:
@@ -160,7 +174,12 @@ def run_scheduler(
             grid_size=grid_size,
             steps=steps,
             jsonl_path=jsonl_path,
+            surrogate_buffer=surrogate_buffer,
         )
+        if surrogate_buffer is not None:
+            surrogate_buffer.flush()
+    if surrogate_buffer is not None:
+        surrogate_buffer.flush()
     return counters
 
 

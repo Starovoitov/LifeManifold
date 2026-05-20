@@ -2,71 +2,57 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import pickle
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING
 
-from worldspace.illuminators.evaluation import apply_canonical_seed
-from worldspace.surrogate.feature_extractor import extract as extract_features
+from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import (
     SurrogateConfig,
     SurrogatePrediction,
     SurrogateProtocol,
 )
 
+if TYPE_CHECKING:
+    from worldspace.surrogate.surrogate import StubSurrogate, SurrogateFacade
+
 __all__ = [
     "StubSurrogate",
     "SurrogateFacade",
+    "SurrogateConfig",
+    "SurrogatePrediction",
+    "SurrogateProtocol",
     "get_surrogate",
 ]
 
 
-@dataclass(frozen=True)
-class StubSurrogate:
-    """Fallback surrogate used when feature/model stack is unavailable."""
-
-    mean: float
-    uncertainty: float
-
-    def predict(self, world_spec: Any) -> SurrogatePrediction:
-        """Return deterministic placeholder prediction for prompt enrichment."""
-        _ = world_spec
-        components = {"stability": self.mean, "diversity": self.mean}
-        measures = {"stability": self.mean, "diversity": self.mean}
-        return SurrogatePrediction(
-            components=components,
-            measures=measures,
-            fitness=self.mean,
-            uncertainty=self.uncertainty,
-        )
-
-
-@dataclass(frozen=True)
-class SurrogateFacade:
-    """Stable wrapper for a checkpoint-backed surrogate predictor."""
-
-    predictor: Callable[[Any], SurrogatePrediction]
-
-    def predict(self, world_spec: Any) -> SurrogatePrediction:
-        """Canonicalize spec and delegate to predictor implementation."""
-        apply_canonical_seed(world_spec)
-        _ = extract_features(world_spec)
-        return self.predictor(world_spec)
-
-
 def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
     """Create real surrogate when enabled and checkpoint exists, else stub."""
+    from worldspace.surrogate.surrogate import StubSurrogate, build_surrogate_facade
+
     if not config.enabled:
         return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
     checkpoint = _checkpoint_path(config.checkpoint)
     if checkpoint is None or not checkpoint.is_file():
         return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
-    return SurrogateFacade(
-        predictor=_build_placeholder_predictor(
-            mean=config.stub_mean,
-            uncertainty=config.stub_uncertainty,
-        )
+    model = _load_checkpoint(checkpoint)
+    return build_surrogate_facade(
+        model,
+        uncertainty_fallback=config.stub_uncertainty,
     )
+
+
+def __getattr__(name: str) -> object:
+    if name == "StubSurrogate":
+        from worldspace.surrogate.surrogate import StubSurrogate
+
+        return StubSurrogate
+    if name == "SurrogateFacade":
+        from worldspace.surrogate.surrogate import SurrogateFacade
+
+        return SurrogateFacade
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
 
 
 def _checkpoint_path(value: str | None) -> Path | None:
@@ -75,22 +61,10 @@ def _checkpoint_path(value: str | None) -> Path | None:
     return Path(value).expanduser()
 
 
-def _build_placeholder_predictor(
-    *,
-    mean: float,
-    uncertainty: float,
-) -> Callable[[Any], SurrogatePrediction]:
-    """Temporary deterministic predictor until model/trainer wiring lands."""
-
-    def _predict(world_spec: Any) -> SurrogatePrediction:
-        _ = world_spec
-        components = {"stability": mean, "diversity": mean}
-        measures = {"stability": mean, "diversity": mean}
-        return SurrogatePrediction(
-            components=components,
-            measures=measures,
-            fitness=mean,
-            uncertainty=uncertainty,
-        )
-
-    return _predict
+def _load_checkpoint(path: Path) -> SurrogateModel:
+    with path.open("rb") as fh:
+        loaded = pickle.load(fh)
+    if not isinstance(loaded, SurrogateModel):
+        msg = f"Checkpoint must contain SurrogateModel, got {type(loaded)!r}"
+        raise TypeError(msg)
+    return loaded

@@ -15,11 +15,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.llm_prompts import system_prompt_version
-from worldspace.illuminators.scheduler import (
-    SchedulerConfig,
-    TargetBin,
-    resolve_surrogate_stub,
-)
+from worldspace.illuminators.scheduler import SchedulerConfig, TargetBin
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
@@ -66,6 +62,9 @@ def _scheduler_config(**overrides: object) -> SchedulerConfig:
         initial_random_candidates=0,
         llm_enabled=True,
         surrogate_enabled=False,
+        surrogate_model_type="lightgbm",
+        surrogate_checkpoint="artifacts/surrogate/checkpoints/latest.pkl",
+        surrogate_buffer_path="artifacts/surrogate/buffer.jsonl",
         surrogate_stub_mean=0.5,
         surrogate_stub_uncertainty=1.0,
         genetic_mutation_scale=0.02,
@@ -165,20 +164,28 @@ class TestLlmEmitter(unittest.TestCase):
 
 
 class TestSurrogateStub(unittest.TestCase):
-    def test_resolve_stub_from_yaml_fields(self) -> None:
-        config = _scheduler_config(
-            surrogate_stub_mean=0.42,
-            surrogate_stub_uncertainty=0.88,
-        )
-        self.assertEqual(resolve_surrogate_stub(config), (0.42, 0.88))
+    def test_emitter_uses_static_surrogate_when_scheduler_unset(self) -> None:
+        captured: list[str] = []
 
-    def test_enabled_true_still_returns_yaml_stub(self) -> None:
-        config = _scheduler_config(
-            surrogate_enabled=True,
-            surrogate_stub_mean=0.33,
-            surrogate_stub_uncertainty=0.77,
+        def mock_llm(**kwargs: object) -> str:
+            captured.append(str(kwargs.get("prompt", "")))
+            return "not json"
+
+        emitter = LlmEmitter(
+            grid_resolution=10,
+            surrogate_mean=0.42,
+            surrogate_uncertainty=0.88,
+            call_llm_text=mock_llm,
         )
-        self.assertEqual(resolve_surrogate_stub(config), (0.33, 0.77))
+        emitter.emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("0.420", captured[0])
+        self.assertIn("0.880", captured[0])
 
 
 if __name__ == "__main__":

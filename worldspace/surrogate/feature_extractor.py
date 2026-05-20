@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import canonical_seed
 from worldspace.specs.spec import WorldSpec
 
 FEATURE_SCHEMA_VERSION = "1.0"
@@ -42,6 +41,8 @@ def _rule_density(rule: list[int]) -> float:
 
 
 def _require_canonical_seed(spec: WorldSpec) -> None:
+    from worldspace.illuminators.evaluation import canonical_seed
+
     expected = canonical_seed(spec)
     if spec.seed != expected:
         msg = (

@@ -22,7 +22,12 @@ from worldspace.illuminators.emitters.llm_prompts import (
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.grid_neighbors import moore_neighbors_bounded
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import (
+    SchedulerConfig,
+    TargetBin,
+    resolve_surrogate_stub,
+)
+from worldspace.surrogate.types import SurrogateProtocol
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
 from worldspace.specs.world_spec_from_llm import (
@@ -54,14 +59,18 @@ class LlmEmitter:
         self,
         *,
         grid_resolution: int,
-        surrogate_mean: float,
-        surrogate_uncertainty: float,
+        scheduler: SchedulerConfig | None = None,
+        surrogate: SurrogateProtocol | None = None,
+        surrogate_mean: float = 0.5,
+        surrogate_uncertainty: float = 1.0,
         fallback_scale: float = 0.02,
         llm_spec_path: str | Path | None = None,
         call_llm_text: LlmTextCaller | None = None,
         random_emitter: RandomEmitter | None = None,
     ) -> None:
         self._grid_resolution = int(grid_resolution)
+        self._scheduler = scheduler
+        self._surrogate = surrogate
         self._surrogate_mean = float(surrogate_mean)
         self._surrogate_uncertainty = float(surrogate_uncertainty)
         self._fallback_scale = float(fallback_scale)
@@ -86,12 +95,16 @@ class LlmEmitter:
             grid_size=grid_size,
             steps=steps,
         )
+        prepared_parent = replace(parent_spec, grid_size=grid_size, steps=steps)
+        surrogate_mean, surrogate_uncertainty = self._resolve_surrogate_values(
+            prepared_parent
+        )
         system_prompt = render_system_prompt(self._grid_resolution)
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
-            surrogate_mean=self._surrogate_mean,
-            surrogate_uncertainty=self._surrogate_uncertainty,
+            surrogate_mean=surrogate_mean,
+            surrogate_uncertainty=surrogate_uncertainty,
             rng=rng,
         )
         response = self._request_llm(system_prompt, user_prompt)
@@ -154,6 +167,11 @@ class LlmEmitter:
             steps=steps,
         )
         return random_out.world_spec, None
+
+    def _resolve_surrogate_values(self, world_spec: WorldSpec) -> tuple[float, float]:
+        if self._scheduler is not None and self._surrogate is not None:
+            return resolve_surrogate_stub(self._scheduler, self._surrogate, world_spec)
+        return (self._surrogate_mean, self._surrogate_uncertainty)
 
     def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
         if self._call_llm_text is None:

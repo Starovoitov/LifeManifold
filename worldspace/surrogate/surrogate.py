@@ -7,14 +7,17 @@ import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
-from worldspace.illuminators.evaluation import apply_canonical_seed
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.feature_extractor import extract as extract_features
 from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
 
-__all__ = ["StubSurrogate", "SurrogateFacade"]
+__all__ = [
+    "StubSurrogate",
+    "SurrogateFacade",
+    "build_surrogate_facade",
+]
 
 _CANONICAL_JSON_KWARGS = {"sort_keys": True, "separators": (",", ":")}
 
@@ -51,6 +54,8 @@ class SurrogateFacade:
 
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         """Canonicalize spec, then return cached or newly computed prediction."""
+        from worldspace.illuminators.evaluation import apply_canonical_seed
+
         if not isinstance(world_spec, WorldSpec):
             msg = "surrogate.predict expects WorldSpec"
             raise TypeError(msg)
@@ -100,6 +105,20 @@ class SurrogateFacade:
         payload = world_spec.to_canonical_dict()
         canonical = json.dumps(payload, **_CANONICAL_JSON_KWARGS)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_surrogate_facade(
+    model: SurrogateModel,
+    *,
+    uncertainty_fallback: float,
+    cache_capacity: int = 1024,
+) -> SurrogateFacade:
+    """Construct a facade with explicit constructor kwargs for type checkers."""
+    return SurrogateFacade(
+        model=model,
+        uncertainty_fallback=uncertainty_fallback,
+        cache_capacity=cache_capacity,
+    )
 
 
 def _stub_components(value: float) -> dict[str, float]:

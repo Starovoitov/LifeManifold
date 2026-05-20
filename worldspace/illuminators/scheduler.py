@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from worldspace.illuminators.archive import GridArchive
 from worldspace.illuminators.evaluation import bin_center
 from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
+from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.types import SurrogateConfig, SurrogateProtocol
 
 EmitterKind = Literal["random", "genetic", "llm"]
 _SCHEDULER_SCHEMA_VERSION = "1.2"
@@ -37,6 +39,7 @@ __all__ = [
     "resolve_surrogate_stub",
     "select_target_bin",
     "slot_emitter_for_candidate",
+    "surrogate_config_from_scheduler",
 ]
 
 
@@ -54,6 +57,9 @@ class SchedulerConfig:
     initial_random_candidates: int
     llm_enabled: bool
     surrogate_enabled: bool
+    surrogate_model_type: str
+    surrogate_checkpoint: str | None
+    surrogate_buffer_path: str
     surrogate_stub_mean: float
     surrogate_stub_uncertainty: float
     genetic_mutation_scale: float
@@ -121,6 +127,9 @@ def load_scheduler(
         initial_random_candidates=doc.initial_random_candidates,
         llm_enabled=doc.llm.enabled,
         surrogate_enabled=doc.surrogate.enabled,
+        surrogate_model_type=doc.surrogate.model_type,
+        surrogate_checkpoint=doc.surrogate.checkpoint,
+        surrogate_buffer_path=doc.surrogate.buffer_path,
         surrogate_stub_mean=doc.surrogate.stub_mean,
         surrogate_stub_uncertainty=doc.surrogate.stub_uncertainty,
         genetic_mutation_scale=doc.genetic.mutation_scale,
@@ -172,9 +181,34 @@ def resolve_emitter_kind(
     return slot_emitter
 
 
-def resolve_surrogate_stub(config: SchedulerConfig) -> tuple[float, float]:
-    """Return surrogate mean and uncertainty for LLM user prompts (MVP stub only)."""
-    return (config.surrogate_stub_mean, config.surrogate_stub_uncertainty)
+def surrogate_config_from_scheduler(config: SchedulerConfig) -> SurrogateConfig:
+    """Build runtime surrogate settings from scheduler YAML fields."""
+    from worldspace.surrogate.types import ModelType
+
+    model_type: ModelType
+    if config.surrogate_model_type == "mlp":
+        model_type = "mlp"
+    else:
+        model_type = "lightgbm"
+    return SurrogateConfig(
+        enabled=config.surrogate_enabled,
+        model_type=model_type,
+        checkpoint=config.surrogate_checkpoint,
+        stub_mean=config.surrogate_stub_mean,
+        stub_uncertainty=config.surrogate_stub_uncertainty,
+    )
+
+
+def resolve_surrogate_stub(
+    config: SchedulerConfig,
+    surrogate: SurrogateProtocol,
+    world_spec: WorldSpec,
+) -> tuple[float, float]:
+    """Return surrogate fitness and uncertainty for LLM user prompts."""
+    if not config.surrogate_enabled:
+        return (config.surrogate_stub_mean, config.surrogate_stub_uncertainty)
+    prediction = surrogate.predict(world_spec)
+    return (float(prediction.fitness), float(prediction.uncertainty))
 
 
 def resolve_emitter_for_slot(
@@ -202,6 +236,9 @@ class _SurrogateSchedulerBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    model_type: str = Field(default="lightgbm")
+    checkpoint: str | None = Field(default="artifacts/surrogate/checkpoints/latest.pkl")
+    buffer_path: str = Field(default="artifacts/surrogate/buffer.jsonl")
     stub_mean: float = Field(..., ge=0.0, le=1.0)
     stub_uncertainty: float = Field(..., ge=0.0)
 

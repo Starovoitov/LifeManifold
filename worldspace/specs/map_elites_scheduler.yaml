@@ -68,5 +68,8 @@ llm:
 
 surrogate:
   enabled: false
+  model_type: lightgbm
+  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  buffer_path: artifacts/surrogate/buffer.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0

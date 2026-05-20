@@ -15,8 +15,9 @@ from worldspace.illuminators.scheduler import (
     EmitterKind,
     SchedulerConfig,
     TargetBin,
-    resolve_surrogate_stub,
+    surrogate_config_from_scheduler,
 )
+from worldspace.surrogate.types import SurrogateProtocol
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
 __all__ = [
@@ -70,6 +71,7 @@ class MapElitesEmitter:
         mutation_scale: float = 0.02,
         scheduler: SchedulerConfig | None = None,
         llm_emitter: LlmEmitter | None = None,
+        surrogate: SurrogateProtocol | None = None,
     ) -> None:
         from worldspace.generators.llm_config import load_llm_config
         from worldspace.illuminators.emitters.genetic_emitter import GeneticEmitter
@@ -85,11 +87,15 @@ class MapElitesEmitter:
         if llm_emitter is not None:
             self._llm = llm_emitter
         elif scheduler is not None:
-            stub_mean, stub_uncertainty = resolve_surrogate_stub(scheduler)
+            if surrogate is None:
+                from worldspace.surrogate import get_surrogate
+
+                surrogate = get_surrogate(surrogate_config_from_scheduler(scheduler))
+            effective_surrogate = surrogate
             self._llm = LlmEmitter(
                 grid_resolution=scheduler.grid_resolution,
-                surrogate_mean=stub_mean,
-                surrogate_uncertainty=stub_uncertainty,
+                scheduler=scheduler,
+                surrogate=effective_surrogate,
                 fallback_scale=llm_cfg.fallback_scale,
             )
         else:

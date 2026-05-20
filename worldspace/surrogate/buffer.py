@@ -5,17 +5,53 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
+from worldspace.illuminators.evaluation import extinction_probability
+
+if TYPE_CHECKING:
+    from worldspace.illuminators.evaluation import EvalResult
+from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION, extract
 from worldspace.surrogate.model import TARGET_KEYS
 
 __all__ = [
     "SurrogateBuffer",
+    "append_eval_to_buffer",
     "buffer_record",
+    "targets_from_eval_result",
 ]
+
+
+def targets_from_eval_result(result: EvalResult) -> dict[str, float]:
+    """Build Strategy A training targets from one real illuminator evaluation."""
+    metrics = result.metrics
+    final_density = float(metrics.density_mean)
+    return {
+        "stability": float(result.measures["stability"]),
+        "diversity": float(result.measures["diversity"]),
+        "oscillation_score": float(metrics.oscillation_score),
+        "topology_interface_index": float(metrics.topology_interface_index),
+        "topology_window_heterogeneity": float(metrics.topology_window_heterogeneity),
+        "final_density": final_density,
+        "early_extinction_prob": extinction_probability(final_density),
+    }
+
+
+def append_eval_to_buffer(
+    buffer: SurrogateBuffer,
+    result: EvalResult,
+    *,
+    emitter_type: str,
+) -> None:
+    """Append one evaluated candidate to the training buffer."""
+    features = extract(result.world_spec)
+    buffer.append(
+        features=features,
+        targets=targets_from_eval_result(result),
+        emitter_type=emitter_type,
+    )
 
 
 def buffer_record(
