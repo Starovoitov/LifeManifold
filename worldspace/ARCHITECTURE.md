@@ -109,6 +109,8 @@ CLI: `python -m worldspace --illuminator mapelites` via `worldspace/cli_mapelite
 
 CI smoke (E6.1): `tests/test_map_elites_smoke.py` runs the mini scheduler end-to-end via `MapElitesIlluminator`, writes persistent artifacts under `artifacts/map_elites_smoke/` (`map_elites_archive.jsonl`, `smoke_run_summary.json`), validates JSONL schema, and completes without LLM calls. GitHub Actions workflow `.github/workflows/map_elites_smoke.yml`; local: `make smoke-map-elites`.
 
+Nightly (E6.2): `worldspace/specs/map_elites_scheduler_nightly.yaml` — same slot mix as production with `iterations: 100` (commented `# iterations: 10000` for full `10_000 × 50` budget) and `llm.enabled: false`. Entrypoint `python -m worldspace.scripts.run_map_elites_nightly` (`make nightly-map-elites`) writes `artifacts/map_elites_nightly/` (`map_elites_archive.jsonl`, `nightly_run_summary.json` via `worldspace/illuminators/nightly_report.py`). Scheduled workflow `.github/workflows/map_elites_nightly.yml` (not required on PR). Full production budget: `--scheduler worldspace/specs/map_elites_scheduler.yaml --iterations 10000`.
+
 File: `worldspace/illuminators/loop.py`
 
 `run_iteration(config, archive, rng, counters, emitter, grid_size=..., steps=..., jsonl_path=None)` processes one batch: for `candidate_id` in `0 .. batch_size-1`, resolves the emitter, selects a target bin, calls `CandidateEmitter.emit`, runs `evaluate_candidate`, then `insert_evaluated` or `insert_and_persist`, and increments `RunCounters`. `run_scheduler` repeats for `config.iterations`. Batch tie-break: strict `>` insert plus fixed slot order means equal fitness in the same bin within one iteration keeps the first accepted elite.

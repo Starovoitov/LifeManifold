@@ -19,9 +19,13 @@ _SCHEDULER_SCHEMA_VERSION = "1.2"
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
 DEFAULT_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler.yaml"
 DEFAULT_MINI_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini.yaml"
+DEFAULT_NIGHTLY_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly.yaml"
+)
 
 __all__ = [
     "DEFAULT_MINI_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
     "RunCounters",

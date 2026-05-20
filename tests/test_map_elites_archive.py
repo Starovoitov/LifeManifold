@@ -20,6 +20,7 @@ from worldspace.illuminators.archive import (
     elite_to_archive_record,
     insert_and_persist,
     insert_evaluated,
+    count_archive_jsonl_lines,
     load_and_collapse_jsonl,
     merge_archives,
     new_elite_metadata,
@@ -379,9 +380,25 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
             )
             with self.assertLogs("worldspace.illuminators.archive", level="WARNING"):
                 archive = load_and_collapse_jsonl(path, resolution=5)
+                line_count = count_archive_jsonl_lines(path)
             stored = archive.get(0, 0)
             assert stored is not None
             self.assertEqual(stored.fitness, 0.4)
+            self.assertEqual(line_count, 1)
+            self.assertEqual(archive.filled_count(), line_count)
+
+    def test_collapse_skip_blank_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            record_line = json.dumps(_record_for_bin((0, 0), 0.4, elite_id="ok"))
+            path.write_text(f"\n{record_line}\n\n\n", encoding="utf-8")
+            archive = load_and_collapse_jsonl(path, resolution=5)
+            line_count = count_archive_jsonl_lines(path)
+            stored = archive.get(0, 0)
+            assert stored is not None
+            self.assertEqual(stored.fitness, 0.4)
+            self.assertEqual(line_count, 1)
+            self.assertEqual(archive.filled_count(), line_count)
 
     def test_collapse_raise_on_invalid_line(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

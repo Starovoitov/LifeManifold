@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install activate pylint fix smoke-map-elites
+.PHONY: install activate pylint fix smoke-map-elites nightly-map-elites
 
 install:
 	$(UV) venv
@@ -23,3 +23,6 @@ fix:
 
 smoke-map-elites:
 	$(UV) run python -m unittest tests.test_map_elites_smoke -v
+
+nightly-map-elites:
+	$(UV) run python -m worldspace.scripts.run_map_elites_nightly

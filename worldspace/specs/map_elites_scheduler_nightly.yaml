@@ -1,0 +1,73 @@
+schema_version: "1.2"
+# Full production budget: iterations: 10000  (10_000 × 50 = 500_000 evaluations)
+iterations: 100
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+
+# Same slot mix as production (20 random + 20 genetic + 10 llm).
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: false
+  stub_mean: 0.5
+  stub_uncertainty: 1.0

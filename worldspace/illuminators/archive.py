@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ __all__ = [
     "InvalidLineMode",
     "append_archive_line",
     "archive_record_to_elite",
+    "count_archive_jsonl_lines",
     "elite_from_eval",
     "elite_to_archive_record",
     "insert_and_persist",
@@ -247,6 +249,28 @@ def archive_record_to_elite(record: dict) -> ArchiveElite:
     )
 
 
+def count_archive_jsonl_lines(
+    path: str | Path,
+    *,
+    on_invalid_line: InvalidLineMode = "skip",
+) -> int:
+    """Count parseable archive JSONL records.
+
+    Blank and invalid lines are skipped by default (same rules as
+    ``load_and_collapse_jsonl``).
+    """
+    target = Path(path)
+    if not target.is_file():
+        msg = f"archive file not found: {target}"
+        raise FileNotFoundError(msg)
+    return sum(
+        1
+        for _ in _iter_archive_elites_from_jsonl(
+            target, on_invalid_line=on_invalid_line
+        )
+    )
+
+
 def load_and_collapse_jsonl(
     path: str | Path,
     *,
@@ -307,12 +331,12 @@ def insert_and_persist(
     return result
 
 
-def _collapse_records_by_bin(
+def _iter_archive_elites_from_jsonl(
     path: Path,
     *,
     on_invalid_line: InvalidLineMode,
-) -> dict[tuple[int, int], ArchiveElite]:
-    best: dict[tuple[int, int], ArchiveElite] = {}
+) -> Iterator[ArchiveElite]:
+    """Yield elites from JSONL lines; invalid lines skip or raise per ``on_invalid_line``."""
     with path.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             stripped = line.strip()
@@ -320,7 +344,7 @@ def _collapse_records_by_bin(
                 continue
             try:
                 record = json.loads(stripped)
-                elite = archive_record_to_elite(record)
+                yield archive_record_to_elite(record)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 if on_invalid_line == "raise":
                     msg = f"invalid archive JSONL at {path}:{line_number}"
@@ -331,11 +355,19 @@ def _collapse_records_by_bin(
                     line_number,
                     exc,
                 )
-                continue
-            key = elite.bin
-            current = best.get(key)
-            if current is None or elite.fitness > current.fitness:
-                best[key] = elite
+
+
+def _collapse_records_by_bin(
+    path: Path,
+    *,
+    on_invalid_line: InvalidLineMode,
+) -> dict[tuple[int, int], ArchiveElite]:
+    best: dict[tuple[int, int], ArchiveElite] = {}
+    for elite in _iter_archive_elites_from_jsonl(path, on_invalid_line=on_invalid_line):
+        key = elite.bin
+        current = best.get(key)
+        if current is None or elite.fitness > current.fitness:
+            best[key] = elite
     return best
 
 

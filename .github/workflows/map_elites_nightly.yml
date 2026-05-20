@@ -1,0 +1,43 @@
+name: MAP-Elites nightly
+
+on:
+  schedule:
+    # 03:00 UTC daily
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Override scheduler iterations (10000 = full 500k budget)"
+        required: false
+        default: ""
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Run MAP-Elites nightly
+        run: |
+          ARGS=()
+          if [ -n "${{ github.event.inputs.iterations }}" ]; then
+            ARGS+=(--iterations "${{ github.event.inputs.iterations }}")
+          fi
+          uv run python -m worldspace.scripts.run_map_elites_nightly "${ARGS[@]}"
+
+      - name: Upload nightly artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: map-elites-nightly
+          path: artifacts/map_elites_nightly/
+          retention-days: 30
