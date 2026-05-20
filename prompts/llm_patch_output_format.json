@@ -1,0 +1,8 @@
+{
+  "birth": [3],
+  "survival": [2, 3],
+  "noise": 0.05,
+  "resource_regen": 0.1,
+  "predation": 0.2,
+  "reasoning": "short explanation"
+}

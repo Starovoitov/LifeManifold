@@ -12,7 +12,9 @@ from .llm_emitter import (
 )
 from .llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
+    DEFAULT_USER_PROMPT_PATH,
     load_system_prompt_template,
+    load_user_prompt_template,
     render_system_prompt,
     system_prompt_version,
 )
@@ -24,6 +26,7 @@ __all__ = [
     "DEFAULT_MUTATION_SCALE",
     "EmitterOutput",
     "DEFAULT_SYSTEM_PROMPT_PATH",
+    "DEFAULT_USER_PROMPT_PATH",
     "GENOME_SIZE",
     "GeneticEmitter",
     "LlmEmitter",
@@ -36,6 +39,7 @@ __all__ = [
     "format_current_elite_json",
     "format_few_shot_block",
     "load_system_prompt_template",
+    "load_user_prompt_template",
     "moore_neighbor_elites",
     "render_system_prompt",
     "strip_seed",

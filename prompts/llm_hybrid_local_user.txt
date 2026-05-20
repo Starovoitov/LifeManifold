@@ -1,0 +1,18 @@
+You are improving a cellular automaton world.
+
+Goal: increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator).
+
+Current world:
+{current_world_json}
+
+Metrics:
+{metrics_block}
+
+Suggest a slightly improved version.
+
+Rules:
+- change at most 2 parameters
+- keep system stable (avoid extinction or explosion)
+- aim for balance between order and chaos
+
+Output ONLY JSON.

@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from worldspace.prompt_files import read_prompt
+
 from ..simulator import SimulationResult
 from ..specs.spec import WorldSpec
 from ..specs.world_spec_constraints import WORLD_SPEC_CONSTRAINTS
 from .llm_config import LLMGeneratorConfig, LlmTextCaller, LlmVisionCaller
 from .llm_descriptive import describe_simulation
+
+_OUTPUT_FORMAT = json.loads(read_prompt("llm_patch_output_format.json"))
 
 
 class LLMPatchAdvisor:
@@ -49,13 +53,10 @@ class LLMPatchAdvisor:
         payload = {
             "current_world": world.to_json_dict(),
             "current_mo_eoc_indicator": score,
-            "goal": (
-                "Increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator) "
-                "while staying within valid bounds."
-            ),
+            "goal": read_prompt("llm_patch_local_goal.txt").strip(),
             "constraints": WORLD_SPEC_CONSTRAINTS,
             "output_format": _OUTPUT_FORMAT,
-            "instruction": "Return JSON only.",
+            "instruction": read_prompt("llm_patch_instruction.txt").strip(),
         }
         return json.dumps(payload, ensure_ascii=True)
 
@@ -83,19 +84,11 @@ class LLMPatchAdvisor:
                 "ecology_resource_adjacency": float(m.ecology_resource_adjacency),
                 "mo_eoc_indicator": float(m.mo_eoc_indicator),
             },
-            "goal": (
-                "Increase mo_eoc_indicator using the simulation_description and metrics. "
-                "Ground reasoning in observed patterns; do not invent structures not supported "
-                "by the description."
-            ),
+            "goal": read_prompt("llm_patch_global_goal.txt").strip(),
             "constraints": WORLD_SPEC_CONSTRAINTS,
-            "rules": [
-                "change at most 2 parameters",
-                "keep system stable (avoid extinction or explosion)",
-                "aim for balance between order and chaos",
-            ],
+            "rules": _load_global_rules(),
             "output_format": _OUTPUT_FORMAT,
-            "instruction": "Return JSON only.",
+            "instruction": read_prompt("llm_patch_instruction.txt").strip(),
         }
         return json.dumps(payload, ensure_ascii=True)
 
@@ -121,37 +114,36 @@ class LLMPatchAdvisor:
         )
 
     def _build_hybrid_local_prompt(self, world: WorldSpec, metrics: Any) -> str:
-        return (
-            "You are improving a cellular automaton world.\n\n"
-            "Goal: increase the Multi-Objective + Edge-of-Chaos indicator (mo_eoc_indicator).\n\n"
-            f"Current world:\n{json.dumps(world.to_json_dict(), ensure_ascii=True)}\n\n"
-            "Metrics:\n"
-            f"density: {float(metrics.density_mean):.6f}\n"
-            f"entropy: {float(metrics.entropy):.6f}\n"
-            f"stability: {float(metrics.stability):.6f}\n"
-            f"survival (avg lifespan): {float(metrics.average_lifespan):.6f}\n"
-            f"diversity: {float(metrics.diversity):.6f}\n"
-            f"oscillation_score: {float(metrics.oscillation_score):.6f}\n"
-            f"topology_interface_index: {float(metrics.topology_interface_index):.6f}\n"
-            f"topology_window_heterogeneity: {float(metrics.topology_window_heterogeneity):.6f}\n"
-            f"compressibility_score: {float(metrics.compressibility_score):.6f}\n"
-            f"ecology_state_entropy_norm: {float(metrics.ecology_state_entropy_norm):.6f}\n"
-            f"ecology_resource_adjacency: {float(metrics.ecology_resource_adjacency):.6f}\n"
-            f"mo_eoc_indicator: {float(metrics.mo_eoc_indicator):.6f}\n\n"
-            "Suggest a slightly improved version.\n\n"
-            "Rules:\n"
-            "- change at most 2 parameters\n"
-            "- keep system stable (avoid extinction or explosion)\n"
-            "- aim for balance between order and chaos\n\n"
-            "Output ONLY JSON."
+        template = read_prompt("llm_hybrid_local_user.txt")
+        return template.format(
+            current_world_json=json.dumps(world.to_json_dict(), ensure_ascii=True),
+            metrics_block=_format_metrics_block(metrics),
         )
 
 
-_OUTPUT_FORMAT = {
-    "birth": [3],
-    "survival": [2, 3],
-    "noise": 0.05,
-    "resource_regen": 0.1,
-    "predation": 0.2,
-    "reasoning": "short explanation",
-}
+def _format_metrics_block(metrics: Any) -> str:
+    return "\n".join(
+        [
+            f"density: {float(metrics.density_mean):.6f}",
+            f"entropy: {float(metrics.entropy):.6f}",
+            f"stability: {float(metrics.stability):.6f}",
+            f"survival (avg lifespan): {float(metrics.average_lifespan):.6f}",
+            f"diversity: {float(metrics.diversity):.6f}",
+            f"oscillation_score: {float(metrics.oscillation_score):.6f}",
+            f"topology_interface_index: {float(metrics.topology_interface_index):.6f}",
+            f"topology_window_heterogeneity: {float(metrics.topology_window_heterogeneity):.6f}",
+            f"compressibility_score: {float(metrics.compressibility_score):.6f}",
+            f"ecology_state_entropy_norm: {float(metrics.ecology_state_entropy_norm):.6f}",
+            f"ecology_resource_adjacency: {float(metrics.ecology_resource_adjacency):.6f}",
+            f"mo_eoc_indicator: {float(metrics.mo_eoc_indicator):.6f}",
+        ]
+    )
+
+
+def _load_global_rules() -> list[str]:
+    lines = [
+        line.strip()
+        for line in read_prompt("llm_patch_global_rules.txt").splitlines()
+        if line.strip()
+    ]
+    return lines

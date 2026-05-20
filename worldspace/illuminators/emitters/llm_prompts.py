@@ -5,43 +5,17 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SYSTEM_PROMPT_PATH = (
-    _REPO_ROOT / "prompts" / "map_elites_llm_emitter_system.txt"
-)
+from worldspace.prompt_files import PROMPTS_DIR, read_prompt
 
-_USER_PROMPT_TEMPLATE = """\
-Target niche: stability ≈ {target_stability:.2f} (±0.03), diversity ≈ {target_diversity:.2f} (±0.03)
-Surrogate predicts fitness ≈ {surrogate_mean:.3f}, uncertainty = {surrogate_uncertainty:.3f}
-
-Current best elite in this cell:
-{current_elite_json}
-
-Examples of successful elites from nearby niches (with fitness):
-{few_shot_examples}
-
-Generate a new WorldSpec that:
-1. Lands in the target niche for stability and diversity.
-2. Maximizes fitness per the formula above (avoid early extinction).
-3. Differs from existing elites.
-4. Accounts for high surrogate uncertainty.
-
-Constraints for world_spec:
-{constraints}
-
-Return JSON only:
-{{
-  "reasoning": "2–4 sentences",
-  "world_spec": {{ ... full WorldSpec without the seed field ... }}
-}}
-"""
-
-USER_PROMPT_TEMPLATE = _USER_PROMPT_TEMPLATE
+DEFAULT_SYSTEM_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_system.txt"
+DEFAULT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user.txt"
 
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT_PATH",
+    "DEFAULT_USER_PROMPT_PATH",
     "USER_PROMPT_TEMPLATE",
     "load_system_prompt_template",
+    "load_user_prompt_template",
     "render_system_prompt",
     "system_prompt_version",
 ]
@@ -49,9 +23,21 @@ __all__ = [
 
 def load_system_prompt_template(path: str | Path | None = None) -> str:
     """Read the raw system prompt template from disk."""
-    src = Path(path or DEFAULT_SYSTEM_PROMPT_PATH)
+    if path is None:
+        return read_prompt("map_elites_llm_emitter_system.txt")
+    src = Path(path)
     if not src.is_file():
         raise FileNotFoundError(f"LLM system prompt not found: {src.resolve()}")
+    return src.read_text(encoding="utf-8")
+
+
+def load_user_prompt_template(path: str | Path | None = None) -> str:
+    """Read the MAP-Elites LLM user prompt template from disk."""
+    if path is None:
+        return read_prompt("map_elites_llm_emitter_user.txt")
+    src = Path(path)
+    if not src.is_file():
+        raise FileNotFoundError(f"LLM user prompt not found: {src.resolve()}")
     return src.read_text(encoding="utf-8")
 
 
@@ -69,6 +55,9 @@ def render_system_prompt(
 
 def system_prompt_version(path: str | Path | None = None) -> str:
     """Return the first 8 hex digits of the SHA-256 hash of the prompt file."""
-    src = Path(path or DEFAULT_SYSTEM_PROMPT_PATH)
+    src = Path(path) if path is not None else DEFAULT_SYSTEM_PROMPT_PATH
     digest = hashlib.sha256(src.read_bytes()).hexdigest()
     return digest[:8]
+
+
+USER_PROMPT_TEMPLATE = load_user_prompt_template()

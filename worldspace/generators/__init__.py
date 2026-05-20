@@ -14,6 +14,8 @@ from urllib import error, request
 import numpy as np
 import yaml
 
+from worldspace.prompt_files import default_llm_patch_system_content
+
 from ..simulator import SimulationResult, run_world
 from ..specs.spec import WorldSpec
 from ..specs.world_param_bounds import (
@@ -726,15 +728,18 @@ def call_llm(
     prompt: str,
     temperature: float = 0.2,
     max_tokens: int = 350,
-    system_content: str = "You optimize simulation parameters.",
+    system_content: str | None = None,
 ) -> str:
     """Call an OpenAI-compatible chat completions endpoint and return message content."""
+    effective_system = (
+        default_llm_patch_system_content() if system_content is None else system_content
+    )
     return call_llm_messages(
         mode=mode,
         provider_name=provider_name,
         providers=providers,
         messages=[
-            {"role": "system", "content": system_content},
+            {"role": "system", "content": effective_system},
             {"role": "user", "content": prompt},
         ],
         temperature=temperature,

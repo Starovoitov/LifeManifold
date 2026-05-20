@@ -12,18 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ..simulator import SimulationResult
+from worldspace.prompt_files import read_prompt
 from .llm_config import LLMGeneratorConfig, LlmVisionCaller
-
-_VISION_SYSTEM = (
-    "You describe cellular automaton simulation images. Report only visible patterns; "
-    "do not suggest parameter changes."
-)
-_VISION_USER = (
-    "Describe this final simulation frame in 2–4 sentences. Mention: overall density "
-    "(sparse/dense), frozen vs active regions, boundary/interface structure, food vs life "
-    "distribution, and any localized clusters or filament-like structures that could "
-    "suggest traveling activity. Use cautious language (e.g. 'glider-like') unless obvious."
-)
 
 
 def render_simulation_png(
@@ -103,8 +93,8 @@ def describe_simulation_vision(
         mode=config.mode,
         provider_name=config.vision_provider,
         providers=config.providers,
-        system_content=_VISION_SYSTEM,
-        user_text=_VISION_USER,
+        system_content=read_prompt("llm_vision_system.txt"),
+        user_text=read_prompt("llm_vision_user.txt"),
         image_png_bytes=png_bytes,
         temperature=config.vision_temperature,
         max_tokens=config.vision_max_tokens,

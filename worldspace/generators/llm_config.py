@@ -38,7 +38,7 @@ class LlmTextCaller(Protocol):
         prompt: str,
         temperature: float = 0.2,
         max_tokens: int = 350,
-        system_content: str = "You optimize simulation parameters.",
+        system_content: str | None = None,
     ) -> str: ...
 
 

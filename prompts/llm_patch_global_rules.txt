@@ -1,0 +1,3 @@
+change at most 2 parameters
+keep system stable (avoid extinction or explosion)
+aim for balance between order and chaos

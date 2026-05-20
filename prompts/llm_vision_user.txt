@@ -1,0 +1,1 @@
+Describe this final simulation frame in 2–4 sentences. Mention: overall density (sparse/dense), frozen vs active regions, boundary/interface structure, food vs life distribution, and any localized clusters or filament-like structures that could suggest traveling activity. Use cautious language (e.g. 'glider-like') unless obvious.
