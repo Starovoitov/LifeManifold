@@ -8,7 +8,10 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.components.metrics import metrics_dict_from_row
-from dashboard.components.visualizations import create_diagnostic_dashboard
+from dashboard.components.visualizations import (
+    create_diagnostic_dashboard,
+    format_diagnostic_interpretation,
+)
 from dashboard.components.world_renderer import run_and_cache_world_from_dict
 from dashboard.utils.bootstrap import ensure_repo_on_path
 from dashboard.utils.data_processing import canonical_world_spec_hash
@@ -183,6 +186,14 @@ def render_diagnostic_panel(
             )
         )
     st.plotly_chart(diagnostic_fig, use_container_width=True)
+    if sim_result.metrics is not None:
+        st.markdown("##### Interpretation")
+        for paragraph in format_diagnostic_interpretation(sim_result.metrics).split(
+            "\n\n"
+        ):
+            block = paragraph.strip()
+            if block:
+                st.markdown(block)
 
 
 def _row_int(row: pd.Series, key: str) -> int:

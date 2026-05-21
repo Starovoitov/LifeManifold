@@ -102,6 +102,8 @@ One world is a **WorldSpec** object, representable as JSON.
 
 ### 3.1 Fields and meaning in code
 
+For a per-field usage map (simulator, canonical seed, generators, surrogate, dashboard), see **[`WORLD_SPEC_AUDIT.md`](WORLD_SPEC_AUDIT.md)**.
+
 ```mermaid
 classDiagram
   class WorldSpec {

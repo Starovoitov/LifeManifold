@@ -48,6 +48,7 @@ Thumbs.db
 *~
 
 # Local run outputs (worldspace CLI, experiments)
+output/
 results/
 artifacts/*
 !artifacts/map_elites_smoke/README.md

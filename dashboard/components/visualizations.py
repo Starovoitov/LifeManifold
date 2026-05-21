@@ -48,6 +48,22 @@ BOUNDARY_COLORSCALE = [
     [1.0, "rgba(255,0,0,0.9)"],
 ]
 
+# Base life/food field (must match ``_life_food_rgb`` and legend swatches).
+_LIFE_FOOD_EMPTY = np.array([0.10, 0.11, 0.15], dtype=np.float32)
+_LIFE_FOOD_LIFE_ONLY = np.array([0.29, 0.61, 0.56], dtype=np.float32)
+_LIFE_FOOD_FOOD_ONLY = np.array([0.79, 0.64, 0.15], dtype=np.float32)
+_LIFE_FOOD_BOTH = np.array([0.43, 0.48, 0.31], dtype=np.float32)
+_BOUNDARY_WARM_MAX = np.array([1.0, 0.42, 0.12], dtype=np.float32) * 0.42
+_FOOD_NEIGHBOR_BLEND = 0.48
+
+_HETERO_LABELS: dict[float, str] = {
+    0.0: "Uniform 2×2 window",
+    1.0: "Mixed corners",
+}
+
+DIAGNOSTIC_FIGURE_WIDTH = 1280
+DIAGNOSTIC_FIGURE_HEIGHT = 920
+
 HISTOGRAM_METRIC_KEYS: tuple[str, ...] = ("fitness", "stability", "diversity")
 
 __all__ = [
@@ -59,6 +75,7 @@ __all__ = [
     "create_archive_heatmap",
     "create_correlation_heatmap",
     "create_diagnostic_dashboard",
+    "format_diagnostic_interpretation",
     "create_metric_histogram",
     "create_metrics_radar",
     "plot_calibration_by_uncertainty",
@@ -405,6 +422,127 @@ def plot_calibration_by_uncertainty(
     return apply_dark_theme(fig)
 
 
+def _subplot_axis_index(row: int, col: int, *, n_cols: int = 3) -> int:
+    """1-based subplot index used by Plotly ``xaxis`` / ``yaxis`` naming."""
+    return (row - 1) * n_cols + col
+
+
+def _subplot_domain(
+    fig: go.Figure,
+    row: int,
+    col: int,
+    *,
+    n_rows: int = 2,
+    n_cols: int = 3,
+) -> tuple[float, float, float, float]:
+    """Paper-domain bounds ``(x0, x1, y0, y1)`` for a subplot cell."""
+    idx = _subplot_axis_index(row, col, n_cols=n_cols)
+    x_name = "xaxis" if idx == 1 else f"xaxis{idx}"
+    y_name = "yaxis" if idx == 1 else f"yaxis{idx}"
+    x_dom = getattr(fig.layout, x_name).domain
+    y_dom = getattr(fig.layout, y_name).domain
+    return (float(x_dom[0]), float(x_dom[1]), float(y_dom[0]), float(y_dom[1]))
+
+
+def _add_panel_legend(
+    fig: go.Figure,
+    row: int,
+    col: int,
+    entries: list[tuple[str, str]],
+    *,
+    title: str | None = None,
+    anchor: str = "bottom_left",
+    n_rows: int = 2,
+    n_cols: int = 3,
+) -> None:
+    """Draw a compact color swatch legend inside a subplot using paper coordinates."""
+    if not entries:
+        return
+    x0, x1, y0, y1 = _subplot_domain(fig, row, col, n_rows=n_rows, n_cols=n_cols)
+    width = x1 - x0
+    height = y1 - y0
+    n_lines = len(entries) + (1 if title else 0)
+    line_h = min(0.032 * height, 0.028)
+    pad = 0.018 * height
+    box_h = line_h * n_lines + 2.0 * pad
+    box_w = min(0.48 * width, 0.19)
+
+    if anchor == "bottom_right":
+        bx1 = x1 - 0.02 * width
+        bx0 = bx1 - box_w
+        by0 = y0 + pad
+        by1 = by0 + box_h
+    else:
+        bx0 = x0 + 0.02 * width
+        bx1 = bx0 + box_w
+        by0 = y0 + pad
+        by1 = by0 + box_h
+
+    fig.add_shape(
+        type="rect",
+        xref="paper",
+        yref="paper",
+        x0=bx0,
+        x1=bx1,
+        y0=by0,
+        y1=by1,
+        fillcolor="rgba(18, 20, 28, 0.88)",
+        line=dict(color="rgba(255, 255, 255, 0.28)", width=1),
+        layer="above",
+    )
+
+    swatch_w = min(0.022 * width, 0.012)
+    text_x = bx0 + pad + swatch_w + 0.006 * width
+    y_cursor = by1 - pad
+
+    if title:
+        fig.add_annotation(
+            x=bx0 + pad,
+            y=y_cursor,
+            text=f"<b>{title}</b>",
+            showarrow=False,
+            xref="paper",
+            yref="paper",
+            xanchor="left",
+            yanchor="top",
+            font=dict(size=10, color="#e8e8e8"),
+        )
+        y_cursor -= line_h
+
+    for label, color in entries:
+        sw_y0 = y_cursor - 0.72 * line_h
+        sw_y1 = y_cursor - 0.12 * line_h
+        fig.add_shape(
+            type="rect",
+            xref="paper",
+            yref="paper",
+            x0=bx0 + pad,
+            x1=bx0 + pad + swatch_w,
+            y0=sw_y0,
+            y1=sw_y1,
+            fillcolor=color,
+            line=dict(color="rgba(255, 255, 255, 0.35)", width=0.5),
+            layer="above",
+        )
+        fig.add_annotation(
+            x=text_x,
+            y=(sw_y0 + sw_y1) / 2.0,
+            text=label,
+            showarrow=False,
+            xref="paper",
+            yref="paper",
+            xanchor="left",
+            yanchor="middle",
+            font=dict(size=9, color="#c8c8c8"),
+        )
+        y_cursor -= line_h
+
+
+def format_diagnostic_interpretation(metrics: WorldMetrics) -> str:
+    """Human-readable summary for the diagnostic panel (render in Streamlit, not Plotly)."""
+    return _interpretation_block(metrics)
+
+
 def create_diagnostic_dashboard(
     result: SimulationResult,
     *,
@@ -440,15 +578,15 @@ def create_diagnostic_dashboard(
             "2×2 heterogeneity",
             "Food neighbor (live cells)",
             "All metrics",
-            "Interpretation",
+            "",
             "Metrics radar",
         ),
         specs=[
             [{"type": "xy"}, {"type": "heatmap"}, {"type": "xy"}],
-            [{"type": "xy"}, {"type": "xy"}, {"type": "polar"}],
+            [{"type": "xy", "colspan": 2}, None, {"type": "polar"}],
         ],
         column_widths=[1.15, 1.0, 1.0],
-        row_heights=[0.65, 0.35],
+        row_heights=[0.62, 0.38],
         vertical_spacing=0.14,
         horizontal_spacing=0.08,
     )
@@ -458,17 +596,43 @@ def create_diagnostic_dashboard(
     fig.add_trace(
         go.Heatmap(
             z=hetero,
-            colorscale="Magma",
+            colorscale=_heterogeneity_colorscale(),
             zmin=0.0,
             zmax=1.0,
-            colorbar=dict(title="hetero", len=0.4, y=0.82),
-            hovertemplate="hetero=%{z:.2f}<extra></extra>",
+            zsmooth=False,
+            showscale=False,
+            hovertemplate="hetero=%{z:.0f}<extra></extra>",
         ),
         row=1,
         col=2,
     )
     blend_adj = _blend_food_neighbor_rgb(life, base, fnb)
     fig.add_trace(_rgb_image_trace(blend_adj), row=1, col=3)
+
+    _add_panel_legend(
+        fig,
+        1,
+        1,
+        _life_food_panel_legend_entries(),
+        title="Life + food · boundary",
+        anchor="bottom_right",
+    )
+    _add_panel_legend(
+        fig,
+        1,
+        2,
+        _heterogeneity_legend_entries(hetero),
+        title="2×2 heterogeneity",
+        anchor="bottom_left",
+    )
+    _add_panel_legend(
+        fig,
+        1,
+        3,
+        _food_neighbor_legend_entries(life, food),
+        title="Food neighbors",
+        anchor="bottom_left",
+    )
 
     names, bar_vals = _metrics_bar_values(metrics)
     bar_colors = ["#4a6fa5"] * 7 + ["#b85c38"] * 5
@@ -485,24 +649,6 @@ def create_diagnostic_dashboard(
     )
     fig.update_xaxes(range=[0.0, 1.05], title_text="display scale (0–1)", row=2, col=1)
     fig.update_yaxes(autorange="reversed", row=2, col=1)
-
-    interpretation = _interpretation_block(metrics)
-    fig.add_trace(
-        go.Scatter(
-            x=[0.0],
-            y=[1.0],
-            mode="text",
-            text=[interpretation.replace("\n\n", "<br><br>")],
-            textposition="top left",
-            textfont=dict(size=11),
-            showlegend=False,
-            hoverinfo="skip",
-        ),
-        row=2,
-        col=2,
-    )
-    fig.update_xaxes(visible=False, range=[0, 1], row=2, col=2)
-    fig.update_yaxes(visible=False, range=[0, 1], row=2, col=2)
 
     radar_metrics = {key: float(value) for key, value in asdict(metrics).items()}
     radar = create_metrics_radar(radar_metrics)
@@ -546,15 +692,22 @@ def create_diagnostic_dashboard(
 
     fig.update_layout(
         title=dict(
-            text=f"{header}<br><sup>{' · '.join(subtitle_parts)}</sup>",
+            text=(
+                f"{header}<br>"
+                f"<sup style='color:#ffffff'>{' · '.join(subtitle_parts)}</sup>"
+            ),
             x=0.02,
             xanchor="left",
+            font=dict(color="#ffffff", size=16),
         ),
-        height=880,
+        width=DIAGNOSTIC_FIGURE_WIDTH,
+        height=DIAGNOSTIC_FIGURE_HEIGHT,
         showlegend=False,
-        margin=dict(l=48, r=48, t=100, b=48),
+        margin=dict(l=48, r=24, t=100, b=48),
     )
-    return apply_dark_theme(fig)
+    themed = apply_dark_theme(fig)
+    themed.update_layout(title=dict(font=dict(color="#ffffff")))
+    return themed
 
 
 def _resolve_pivot(
@@ -630,7 +783,8 @@ def _blend_food_neighbor_rgb(
         0.0,
         1.0,
     )
-    return np.where(live[..., None], (1.0 - 0.48) * base + 0.48 * warm, base)
+    blend = _FOOD_NEIGHBOR_BLEND
+    return np.where(live[..., None], (1.0 - blend) * base + blend * warm, base)
 
 
 def _metrics_bar_values(metrics: WorldMetrics) -> tuple[list[str], np.ndarray]:
@@ -685,6 +839,123 @@ def _interpretation_block(metrics: WorldMetrics) -> str:
     return "\n\n".join(lines)
 
 
+def _rgb_float_to_css(rgb: np.ndarray) -> str:
+    """Convert float RGB in [0, 1] to a Plotly/CSS ``rgb(...)`` string."""
+    clipped = np.clip(rgb, 0.0, 1.0)
+    u8 = (clipped * 255.0).astype(np.uint8)
+    return f"rgb({int(u8[0])}, {int(u8[1])}, {int(u8[2])})"
+
+
+def _boundary_tint_at_max(base: np.ndarray) -> np.ndarray:
+    """Additive boundary warm layer at strength 1 (matches ``_blend_boundary_on_rgb``)."""
+    return np.clip(base + _BOUNDARY_WARM_MAX, 0.0, 1.0)
+
+
+def _life_food_panel_legend_entries() -> list[tuple[str, str]]:
+    """Base life/food colors plus max-strength boundary tint on each base type."""
+    return [
+        ("Empty", _rgb_float_to_css(_LIFE_FOOD_EMPTY)),
+        ("Life only", _rgb_float_to_css(_LIFE_FOOD_LIFE_ONLY)),
+        ("Food only", _rgb_float_to_css(_LIFE_FOOD_FOOD_ONLY)),
+        ("Life + food", _rgb_float_to_css(_LIFE_FOOD_BOTH)),
+        ("Edge on empty", _rgb_float_to_css(_boundary_tint_at_max(_LIFE_FOOD_EMPTY))),
+        (
+            "Edge on life only",
+            _rgb_float_to_css(_boundary_tint_at_max(_LIFE_FOOD_LIFE_ONLY)),
+        ),
+        (
+            "Edge on food only",
+            _rgb_float_to_css(_boundary_tint_at_max(_LIFE_FOOD_FOOD_ONLY)),
+        ),
+        (
+            "Edge on life + food",
+            _rgb_float_to_css(_boundary_tint_at_max(_LIFE_FOOD_BOTH)),
+        ),
+    ]
+
+
+def _heterogeneity_colorscale() -> list[list[float | str]]:
+    """Discrete Magma stops for binary 0/1 heterogeneity (no mid-scale interpolation)."""
+    from plotly.colors import sample_colorscale
+
+    low = str(sample_colorscale("Magma", [0.0])[0])
+    high = str(sample_colorscale("Magma", [1.0])[0])
+    return [[0.0, low], [1.0, high]]
+
+
+def _heterogeneity_legend_entries(hetero: np.ndarray) -> list[tuple[str, str]]:
+    """One swatch per value present in ``hetero`` (typically 0 and/or 1)."""
+    from plotly.colors import sample_colorscale
+
+    scale = _heterogeneity_colorscale()
+    color_at = {float(stop[0]): str(stop[1]) for stop in scale}
+    present = sorted(
+        {float(v) for v in np.unique(hetero) if np.isfinite(v)},
+        key=lambda x: x,
+    )
+    if not present:
+        present = [0.0, 1.0]
+    entries: list[tuple[str, str]] = []
+    for value in present:
+        label = _HETERO_LABELS.get(value, f"hetero={value:.2f}")
+        color = color_at.get(value)
+        if color is None:
+            norm = float(np.clip(value, 0.0, 1.0))
+            color = str(sample_colorscale("Magma", [norm])[0])
+        entries.append((label, color))
+    return entries
+
+
+def _food_neighbor_warm(t: float) -> np.ndarray:
+    return np.clip(
+        np.array(
+            [0.18 + 0.75 * t, 0.32 + 0.38 * (1.0 - t), 0.48 + 0.35 * (1.0 - t)],
+            dtype=np.float32,
+        ),
+        0.0,
+        1.0,
+    )
+
+
+def _blend_food_neighbor_on_base(base_rgb: np.ndarray, t: float) -> np.ndarray:
+    weight = 1.0 - _FOOD_NEIGHBOR_BLEND
+    warm = _food_neighbor_warm(t)
+    return np.clip(weight * base_rgb + _FOOD_NEIGHBOR_BLEND * warm, 0.0, 1.0)
+
+
+def _food_neighbor_legend_entries(
+    life: np.ndarray,
+    food: np.ndarray,
+) -> list[tuple[str, str]]:
+    """Swatches for non-live base colors and live-cell neighbor tint (per base type)."""
+    life_f = life.astype(np.float32)
+    food_f = food.astype(np.float32)
+    entries: list[tuple[str, str]] = []
+
+    dead = life_f < 0.5
+    if np.any(dead & (food_f < 0.5)):
+        entries.append(("Empty", _rgb_float_to_css(_LIFE_FOOD_EMPTY)))
+    if np.any(dead & (food_f >= 0.5)):
+        entries.append(("Food only", _rgb_float_to_css(_LIFE_FOOD_FOOD_ONLY)))
+
+    live = life_f >= 0.5
+    live_bases: list[tuple[str, np.ndarray]] = []
+    if np.any(live & (food_f < 0.5)):
+        live_bases.append(("Life only", _LIFE_FOOD_LIFE_ONLY))
+    if np.any(live & (food_f >= 0.5)):
+        live_bases.append(("Life + food", _LIFE_FOOD_BOTH))
+
+    tint_steps = ((0.0, "few neighbors"), (0.5, "mid"), (1.0, "many neighbors"))
+    for base_name, base_rgb in live_bases:
+        for t, tint in tint_steps:
+            color = _blend_food_neighbor_on_base(base_rgb, t)
+            entries.append((f"{base_name} · {tint}", _rgb_float_to_css(color)))
+
+    if not entries:
+        entries.append(("Empty", _rgb_float_to_css(_LIFE_FOOD_EMPTY)))
+    return entries
+
+
 def _life_food_rgb(life: np.ndarray, food: np.ndarray) -> np.ndarray:
     """RGB base field for life/food grids (matches legacy diagnostic palette)."""
     life_f = life.astype(np.float32)
@@ -694,8 +965,8 @@ def _life_food_rgb(life: np.ndarray, food: np.ndarray) -> np.ndarray:
     life_only = (life_f >= 0.5) & (food_f < 0.5)
     food_only = (life_f < 0.5) & (food_f >= 0.5)
     both = (life_f >= 0.5) & (food_f >= 0.5)
-    rgb[empty] = np.array([0.10, 0.11, 0.15], dtype=np.float32)
-    rgb[life_only] = np.array([0.29, 0.61, 0.56], dtype=np.float32)
-    rgb[food_only] = np.array([0.79, 0.64, 0.15], dtype=np.float32)
-    rgb[both] = np.array([0.43, 0.48, 0.31], dtype=np.float32)
+    rgb[empty] = _LIFE_FOOD_EMPTY
+    rgb[life_only] = _LIFE_FOOD_LIFE_ONLY
+    rgb[food_only] = _LIFE_FOOD_FOOD_ONLY
+    rgb[both] = _LIFE_FOOD_BOTH
     return np.clip(rgb, 0.0, 1.0)
