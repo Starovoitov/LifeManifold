@@ -122,6 +122,52 @@ class TestDashboardVisualizations(unittest.TestCase):
         title_text = layout.title.text
         self.assertIn("Smoke elite", title_text)
 
+    def test_create_correlation_heatmap_smoke_matrix(self) -> None:
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.components.metrics import correlation_matrix
+        from dashboard.components.visualizations import create_correlation_heatmap
+        from dashboard.utils.config import load_config
+
+        if not _SMOKE_ARCHIVE.is_file():
+            self.skipTest("smoke archive missing")
+        cfg = load_config()
+        bundle = load_archive_bundle(_SMOKE_ARCHIVE, 0.0, cfg)
+        fig = create_correlation_heatmap(correlation_matrix(bundle.collapsed))
+        self.assertEqual(_figure_traces(fig)[0].type, "heatmap")
+
+    def test_create_metric_histogram_fallback_when_color_by_all_nan(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.visualizations import create_metric_histogram
+
+        frame = pd.DataFrame(
+            {
+                "fitness": [0.2, 0.4, 0.6],
+                "emitter_type": [float("nan"), float("nan"), float("nan")],
+            }
+        )
+        fig = create_metric_histogram(frame, "fitness", color_by="emitter_type")
+        self.assertEqual(len(_figure_traces(fig)), 1)
+        self.assertEqual(_figure_traces(fig)[0].type, "histogram")
+
+    def test_create_metric_histogram_with_emitter_groups(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.visualizations import create_metric_histogram
+
+        frame = pd.DataFrame(
+            {
+                "fitness": [0.2, 0.4, 0.6, 0.8],
+                "stability": [0.1, 0.3, 0.5, 0.7],
+                "diversity": [0.15, 0.35, 0.55, 0.75],
+                "emitter_type": ["random", "random", "genetic", "genetic"],
+            }
+        )
+        fig = create_metric_histogram(frame, "fitness", color_by="emitter_type")
+        trace_types = {trace.type for trace in _figure_traces(fig)}
+        self.assertIn("histogram", trace_types)
+        self.assertGreaterEqual(len(_figure_traces(fig)), 2)
+
     def test_pivot_from_dataframe_resolution_50(self) -> None:
         from dashboard.components.visualizations import _pivot_from_dataframe
         import pandas as pd

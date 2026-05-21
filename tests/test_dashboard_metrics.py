@@ -6,6 +6,8 @@ import json
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from worldspace.metrics import METRIC_KEYS
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +17,21 @@ _SMOKE_ARCHIVE = (
 
 
 class TestDashboardMetrics(unittest.TestCase):
+    def test_correlation_matrix_smoke_shape_and_diagonal(self) -> None:
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.components.metrics import correlation_matrix
+        from dashboard.utils.config import load_config
+
+        if not _SMOKE_ARCHIVE.is_file():
+            self.skipTest("smoke archive missing")
+        cfg = load_config()
+        bundle = load_archive_bundle(_SMOKE_ARCHIVE, 0.0, cfg)
+        corr = correlation_matrix(bundle.collapsed)
+        self.assertEqual(corr.shape, (len(METRIC_KEYS), len(METRIC_KEYS)))
+        diagonal = np.diag(corr.to_numpy(dtype=np.float64))
+        self.assertTrue(np.all(np.isfinite(diagonal)))
+        self.assertTrue(np.allclose(diagonal, 1.0, atol=1e-6))
+
     def test_metrics_dict_from_row_has_all_keys(self) -> None:
         from dashboard.utils.data_processing import flatten_archive_record
         from dashboard.components.metrics import metrics_dict_from_row

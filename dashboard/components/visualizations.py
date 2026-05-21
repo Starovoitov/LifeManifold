@@ -48,13 +48,18 @@ BOUNDARY_COLORSCALE = [
     [1.0, "rgba(255,0,0,0.9)"],
 ]
 
+HISTOGRAM_METRIC_KEYS: tuple[str, ...] = ("fitness", "stability", "diversity")
+
 __all__ = [
     "BOUNDARY_COLORSCALE",
+    "HISTOGRAM_METRIC_KEYS",
     "METRIC_COLORSCALES",
     "RADAR_METRIC_KEYS",
     "add_boundary_overlay",
     "create_archive_heatmap",
+    "create_correlation_heatmap",
     "create_diagnostic_dashboard",
+    "create_metric_histogram",
     "create_metrics_radar",
     "plot_calibration_by_uncertainty",
     "plot_real_vs_predicted",
@@ -91,6 +96,132 @@ def create_archive_heatmap(
         width=680,
         xaxis=dict(title="Diversity bin", ticks="outside"),
         yaxis=dict(title="Stability bin", ticks="outside", autorange="reversed"),
+    )
+    return apply_dark_theme(fig)
+
+
+def create_correlation_heatmap(
+    corr: pd.DataFrame,
+    *,
+    title: str = "Metric correlations",
+) -> go.Figure:
+    """Plotly heatmap of a Pearson correlation matrix over ``METRIC_KEYS``."""
+    fig = go.Figure()
+    if corr.empty or corr.shape[0] < 2 or corr.shape[1] < 2:
+        fig.add_annotation(
+            text="Need at least two metric columns for a correlation matrix.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(
+            height=default_figure_height(), margin=dict(l=40, r=40, t=60, b=40)
+        )
+        return apply_dark_theme(fig)
+
+    labels = [str(column) for column in corr.columns]
+    matrix = corr.to_numpy(dtype=np.float64)
+    fig.add_trace(
+        go.Heatmap(
+            z=matrix,
+            x=labels,
+            y=labels,
+            colorscale="RdBu",
+            zmin=-1.0,
+            zmax=1.0,
+            colorbar=dict(title="corr"),
+            hovertemplate="%{y} vs %{x}<br>corr=%{z:.3f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title=title,
+        height=default_figure_height(heatmap=True),
+        xaxis=dict(tickangle=-45),
+        yaxis=dict(autorange="reversed"),
+    )
+    return apply_dark_theme(fig)
+
+
+def create_metric_histogram(
+    frame: pd.DataFrame,
+    metric: str,
+    *,
+    color_by: str | None = "emitter_type",
+    title: str | None = None,
+) -> go.Figure:
+    """Overlaid histograms for one metric, optionally colored by ``emitter_type``."""
+    from dashboard.components.metrics import add_metrics_columns
+
+    fig = go.Figure()
+    enriched = add_metrics_columns(frame)
+    if metric not in enriched.columns:
+        fig.add_annotation(
+            text=f"Metric {metric!r} is not available in this archive slice.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(
+            height=default_figure_height(), margin=dict(l=40, r=40, t=60, b=40)
+        )
+        return apply_dark_theme(fig)
+
+    values = enriched[metric].dropna()
+    if values.empty:
+        fig.add_annotation(
+            text="No values to plot after filtering.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(
+            height=default_figure_height(), margin=dict(l=40, r=40, t=60, b=40)
+        )
+        return apply_dark_theme(fig)
+
+    display_title = title or f"Distribution — {metric.replace('_', ' ').title()}"
+    grouped = False
+    if color_by and color_by in enriched.columns:
+        groups = enriched[[metric, color_by]].dropna()
+        emitter_labels = sorted({str(value) for value in groups[color_by].tolist()})
+        if emitter_labels:
+            grouped = True
+            for emitter in emitter_labels:
+                subset = groups.loc[groups[color_by].astype(str) == emitter, metric]
+                fig.add_trace(
+                    go.Histogram(
+                        x=subset.to_numpy(dtype=np.float64),
+                        name=str(emitter),
+                        opacity=0.65,
+                        histnorm="probability density",
+                    )
+                )
+            fig.update_layout(barmode="overlay")
+
+    if not grouped:
+        fig.add_trace(
+            go.Histogram(
+                x=values.to_numpy(dtype=np.float64),
+                name=metric,
+                opacity=0.85,
+                histnorm="probability density",
+            )
+        )
+
+    fig.update_layout(
+        title=display_title,
+        xaxis_title=metric.replace("_", " ").title(),
+        yaxis_title="Density",
+        height=default_figure_height(),
     )
     return apply_dark_theme(fig)
 
