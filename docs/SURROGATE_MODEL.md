@@ -4,7 +4,7 @@ This document explains **what the surrogate is for**, how it fits into the illum
 
 Related material:
 
-- MAP-Elites core: `worldspace/ARCHITECTURE.md`, `docs/WORLDSPACE.md`
+- MAP-Elites core: `docs/MAPELITES.md`, `worldspace/ARCHITECTURE.md`, `docs/WORLDSPACE.md`
 
 ---
 

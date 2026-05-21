@@ -1,29 +1,31 @@
-# Пакет `worldspace`: подробное описание
+# The `worldspace` package: detailed reference
 
-Этот документ описывает, что делает пакет `**worldspace**`, как связаны его части и что именно означают параметры вроде `**noise**` в текущей реализации. Описание привязано к коду в `worldspace/`.
+> Canonical path: **`docs/WORLDSPACE.md`**.
+
+This document describes what the **worldspace** package does, how its parts connect, and what parameters such as **noise** mean in the current implementation. The description is tied to the code in `worldspace/`.
 
 ---
 
-## 1. Роль пакета
+## 1. Role of the package
 
-**Цель:** трактовать «мир» как точку в пространстве правил → прогнать простую симуляцию → получить числовой «отпечаток поведения» → спроецировать миры на плоскость и сгруппировать их.
+**Goal:** treat a “world” as a point in rule space → run a simple simulation → obtain a numeric “behavioral fingerprint” → project worlds onto a plane and group them.
 
-На высоком уровне это конвейер:
+At a high level, this is the pipeline:
 
 ```mermaid
 flowchart LR
-  subgraph inputs["Вход"]
-    G["Генератор миров"]
+  subgraph inputs["Input"]
+    G["World generator"]
   end
-  subgraph core["Ядро"]
+  subgraph core["Core"]
     WS["WorldSpec JSON"]
-    SIM["Симулятор CA"]
-    MET["Метрики M(world)"]
+    SIM["CA simulator"]
+    MET["Metrics M(world)"]
     EMB["PCA → 2D"]
     CLU["k-means"]
   end
-  subgraph out["Выход"]
-    FILE["JSONL (--metrics-trace или stdout с --echo-lines)"]
+  subgraph out["Output"]
+    FILE["JSONL (--metrics-trace or stdout with --echo-lines)"]
   end
   G --> WS
   WS --> SIM
@@ -34,68 +36,71 @@ flowchart LR
   CLU --> FILE
 ```
 
+- **WorldSpec** — static description of one world (rules and numeric parameters).
+- **run_world** — field dynamics and a **12-dimensional** metrics vector after the run completes (optional per-step JSONL when invoked from the pipeline with `ca_step_trace_*`).
+- **stream_world_space_to_jsonl** — two-pass run: PCA/k-means on memmap, JSONL output; a list of `WorldSpec` (one per world) is kept in RAM for pass 2 (small JSON structures; `iter_worlds` is not called twice — important for LLM without duplicate HTTP). The metrics matrix still lives in **memmap** O(1) in the number of worlds for `n ×` **METRICS_VECTOR_DIM** (see `metrics.py`).
 
-
-- `**WorldSpec**` — статическое описание одного мира (правила и числовые параметры).
-- `**run_world**` — динамика поля и **12-мерные** метрики по завершении прогона (опционально — пошаговая запись в JSONL при вызове из пайплайна с `**ca_step_trace_*`**).
-- `**stream_world_space_to_jsonl**` — двухпроходный прогон: PCA/k-means по memmap, запись JSONL; список `**WorldSpec**` по одному на мир держится в RAM для второго прохода (малые JSON-структуры; зато `**iter_worlds**` не вызывается дважды — важно для LLM без дублирования HTTP). Матрица метрик по-прежнему в **memmap** O(1) по числу миров для ``n \\times`` **METRICS_VECTOR_DIM** (см. ``metrics.py``).
-
-Пакет **не зависит** от legacy-слоёв приложения (`celery`, `redis`, веб-сокеты и т.д.) и задуман как автономный исследовательский пайплайн.
+The package **does not depend** on legacy application layers (`celery`, `redis`, websockets, etc.) and is intended as a standalone research pipeline.
 
 ---
 
-## 2. Структура модулей
+## 2. Module structure
 
 ```mermaid
 flowchart TB
   subgraph pkg["worldspace"]
-    spec["spec.py — WorldSpec"]
-    gen["generators.py — генераторы траекторий в пространстве миров"]
-    wmath["math.py — соседи, PCA, k-means, формулы метрик"]
+    spec["specs/spec.py — WorldSpec"]
+    bounds["specs/world_param_bounds.py — genome clips"]
+    gen["generators/ — generator ladder"]
+    wmath["math.py — neighbors, k-means, metric formulas"]
     sim["simulator.py — run_world"]
     met["metrics.py — WorldMetrics"]
     pipe["pipeline.py — stream_world_space_to_jsonl"]
-    viz["visualizer/ — plotting + CLI"]
-    cli["cli.py — точка входа CLI"]
-    main["__main__.py — python -m worldspace"]
+    ill["illuminators/ — MAP-Elites"]
+    sur["surrogate/ — buffer, model, LLM hints"]
+    viz["visualizer/ — plotting, diagnostics, CLI"]
+    cli["cli.py + cli_mapelites.py"]
+    main["__main__.py"]
+    nightly["scripts/run_map_elites_nightly.py"]
   end
   cli --> main
   cli --> pipe
-  pipe -.-> viz
+  cli --> ill
+  ill --> sim
+  ill --> sur
   pipe --> gen
   pipe --> sim
-  pipe --> met
-  sim --> wmath
+  sim --> met
   met --> wmath
-  pipe --> wmath
-  sim --> spec
+  ill --> wmath
+  nightly --> ill
 ```
 
+| Module / package | Purpose |
+| --- | --- |
+| `specs/spec.py` | World dataclass + JSON |
+| `specs/world_spec_from_llm.py`, `world_spec_constraints.py`, `world_param_bounds.py` | LLM parsing, validation, shared parameter bounds |
+| `generators/` | Random, Markov, genetic, LLM, hybrid, neural generators; YAML in `specs/*_world_generator.yaml` |
+| `math.py` | Moore neighbors (torus), k-means on memmap, entropy, oscillation, topology, ecology, compression |
+| `simulator.py` | CA; online metrics; optional per-step JSONL (`ca_step_trace_*`) |
+| `metrics.py` | `WorldMetrics`, `METRICS_VECTOR_DIM=12`, `mo_eoc_indicator` |
+| `pipeline.py` | Two-pass JSONL: dominant-metric-delta + k-means |
+| `illuminators/` | Archive, `evaluate_candidate`, scheduler, emitters, loop, `MapElitesIlluminator` |
+| `surrogate/` | Features, JSONL buffer, `get_surrogate`, training (see [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md)) |
+| `visualizer/plotting.py`, `diagnostics.py` | Scatter/trajectories; single-world dashboard and tertile galleries |
+| `visualizer/` | `python -m worldspace.visualizer` |
+| `cli.py`, `cli_mapelites.py`, `__main__.py` | Legacy `--generator` and `--illuminator mapelites` |
+| `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
-
-
-| Модуль                                         | Назначение                                                                                                                                            |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spec.py`                                      | Датакласс мира + сериализация JSON                                                                                                                    |
-| `generators.py`                                | Случайные/марковские/генетические/LLM/гибридные генераторы миров + YAML-конфиги                                                                       |
-| `math.py`                                      | `neighbor_count`, `kmeans_lloyd_on_memmap`, `binary_entropy`, `oscillation`, `pattern_diversity_from_frame` (импорт: `from . import math as ws_math`) |
-| `simulator.py`                                 | CA по шагам; онлайн-метрики; опционально пошаговый JSONL при вызове из пайплайна (`**ca_step_trace_***`)                                              |
-| `metrics.py`                                   | Датакласс метрик и сериализация вектора в JSON                                                                                                        |
-| `pipeline.py`                                  | Memmap метрик, sklearn PCA, k-means; опционально `**metrics_trace_path**` (полные строки после эмбеддинга), `**ca_step_trace_path**`                  |
-| `visualizer/plotting.py`                       | Matplotlib: PCA/UMAP scatter по метрикам, сетка; pandas — CA-trace, сводки, time-series и PCA/UMAP-траектории                                       |
-| `visualizer/` (`__main__.py`, `visualizer.py`) | `**python -m worldspace.visualizer**` — `**--metrics-jsonl**` / `**--ca-step-jsonl**`, фиксированные имена PNG в `**--output-dir**`                  |
-| `cli.py` / `__main__.py`                       | Запуск из командной строки                                                                                                                            |
-
-
-Краткая архитектурная заметка также есть в `worldspace/ARCHITECTURE.md`; этот файл (`**docs/WORLDSPACE.md**`) глубже раскрывает семантику параметров и метрик.
+Short package architecture overview: [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md). This file covers parameter semantics, metrics, and CLI.
 
 ---
 
-## 3. Схема данных: `WorldSpec`
+## 3. Data schema: `WorldSpec`
 
-Один мир — это объект `**WorldSpec**`, который можно представить как JSON.
+One world is a **WorldSpec** object, representable as JSON.
 
-### 3.1 Поля и смысл в коде
+### 3.1 Fields and meaning in code
 
 ```mermaid
 classDiagram
@@ -113,24 +118,20 @@ classDiagram
   }
 ```
 
-
-
-
-| Поле             | Тип         | Роль в симуляторе                                                                                           |
+| Field | Type | Role in the simulator |
 | ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| `birth`          | `list[int]` | Число живых соседей (Moore), при котором **мертвая** клетка становится живой                                |
-| `survival`       | `list[int]` | Число живых соседей, при котором **живая** клетка остаётся живой                                            |
-| `noise`          | `float`     | Вероятность **случайного переворота** состояния клетки после правила рождения/выживания (см. §4.3)          |
-| `resource_regen` | `float`     | Вероятность появления «еды» на клетке за шаг + стартовая плотность еды                                      |
-| `predation`      | `float`     | Интенсивность вероятностной гибели при высокой плотности соседей                                            |
-| `cell_types`     | `list[str]` | **Декларативный список** типов для спеки; текущий симулятор использует только бинарное `life` и слой `food` |
-| `neighborhood`   | `str`       | В спеки по умолчанию `"moore"`; реализовано только **Moore** с тором                                        |
-| `grid_size`      | `int`       | Размер поля N \times N                                                                                      |
-| `steps`          | `int`       | Число итераций времени                                                                                      |
-| `seed`           | `int`       | Сид для `numpy.random.Generator`                                                                            |
+| `birth` | `list[int]` | Number of live Moore neighbors at which a **dead** cell becomes alive |
+| `survival` | `list[int]` | Number of live neighbors at which a **live** cell stays alive |
+| `noise` | `float` | Probability of a **random flip** of cell state after birth/survival rules (see §4.3) |
+| `resource_regen` | `float` | Per-step probability of “food” appearing on a cell + initial food density |
+| `predation` | `float` | Intensity of probabilistic death under high neighbor density |
+| `cell_types` | `list[str]` | **Declarative list** of types for the spec; the current simulator uses only binary `life` and a `food` layer |
+| `neighborhood` | `str` | Default `"moore"` in the spec; only **Moore** with torus is implemented |
+| `grid_size` | `int` | Field size N × N |
+| `steps` | `int` | Number of time iterations |
+| `seed` | `int` | Seed for `numpy.random.Generator` |
 
-
-Пример JSON-образца:
+Example JSON sample:
 
 ```json
 {
@@ -149,32 +150,30 @@ classDiagram
 
 ---
 
-## 4. Симулятор: что происходит на каждом шаге
+## 4. Simulator: what happens each step
 
-Функция `**run_world(world)**` поддерживает два скрытых поля состояния на сетке:
+The function **run_world(world)** maintains two hidden state fields on the grid:
 
-- `**life**` — 0 или 1 (мертва / жива).
-- `**food**` — 0 или 1 (нет еды / есть еда).
-- `**ages**` — возраст живой клетки в шагах (для метрики средней продолжительности «жизни» при гибели).
+- **life** — 0 or 1 (dead / alive).
+- **food** — 0 or 1 (no food / food present).
+- **ages** — age of a live cell in steps (for mean “lifespan” at death).
 
-### 4.1 Инициализация
+### 4.1 Initialization
 
 ```mermaid
 flowchart TD
   A["RNG := seed(world.seed)"]
-  B["life ~ Bernoulli(0.2) на каждой клетке"]
-  C["food ~ Bernoulli(resource_regen) на каждой клетке"]
+  B["life ~ Bernoulli(0.2) on each cell"]
+  C["food ~ Bernoulli(resource_regen) on each cell"]
   D["ages := 0"]
   A --> B --> C --> D
 ```
 
+So **20%** of cells are randomly alive at the start (constant in code, not from `WorldSpec`).
 
+### 4.2 Deterministic core (birth / survival)
 
-То есть **20%** клеток случайно живы в начале (константа в коде, не из `WorldSpec`).
-
-### 4.2 Детерминированное ядро (birth / survival)
-
-Для каждой клетки считается `**neighbors`** — число живых соседей по **Moore** (8 клеток), границы **торические** (`np.roll`).
+For each cell, **neighbors** is the count of live **Moore** neighbors (8 cells), with **toroidal** boundaries (`np.roll`).
 
 $$
 \text{born}(x,y) = \mathbf{1}[\text{life}=0 \land \text{neighbors} \in \text{birth}]
@@ -185,64 +184,64 @@ $$
 $$
 
 $$
-\text{nextlife} = \max(\text{born}, \text{survive}) \quad \text{(побитово по клеткам)}
+\text{nextlife} = \max(\text{born}, \text{survive}) \quad \text{(cell-wise bitwise)}
 $$
 
-Это обобщение «игры Жизни»: множества `birth` и `survival` задают правило целиком.
+This generalizes “Game of Life”: the `birth` and `survival` sets define the rule entirely.
 
-### 4.3 Что такое `noise` (шум)
+### 4.3 What `noise` is
 
-После вычисления `next_life` по правилам, для **каждой клетки** независимо:
+After computing `next_life` from the rules, for **each cell** independently:
 
-- с вероятностью `**noise`** состояние **инвертируется**: 0 \leftrightarrow 1.
+- with probability **noise**, the state is **inverted**: 0 ↔ 1.
 
-Формально: если `flip[x,y] ~ Bernoulli(noise)`, то  
-`next_life[x,y] := 1 - next_life[x,y]` при `flip`.
+Formally: if `flip[x,y] ~ Bernoulli(noise)`, then  
+`next_life[x,y] := 1 - next_life[x,y]` when `flip` is true.
 
-**Интерпретация:** это не «ошибка измерения», а **стохастический CA**: случайные мутации/радиация/микрофлуктуации правил на уровне клетки. Чем выше `noise`, тем сильнее система отталкивается от чистого правила Conway-подобной динамики.
+**Interpretation:** this is not “measurement error” but a **stochastic CA**: random mutations/radiation/micro-fluctuations of rules at the cell level. Higher `noise` pushes the system further from pure Conway-like dynamics.
 
-Ограничение в генераторах может быть другим; в симуляторе значение просто должно быть адекватным для вероятности (обычно [0, 1]).
+Generator bounds may differ; in the simulator the value only needs to be a valid probability (usually [0, 1]).
 
-### 4.4 Что такое `predation` (хищничество / давление соседей)
+### 4.4 What `predation` is (predation / crowding pressure)
 
-Если `predation > 0`:
+If `predation > 0`:
 
-- `exposure = neighbors / 8.0` — доля занятых соседских клеток.
-- для живых клеток после шума: с вероятностью  
-`**predation * exposure`** клетка становится мёртвой.
+- `exposure = neighbors / 8.0` — fraction of occupied neighbor cells.
+- for live cells after noise: with probability  
+**predation × exposure** the cell dies.
 
-То есть чем плотнее окружение живыми соседями, тем выше шанс «гибели от давления». Это грубая модель конкуренции/хищничества без отдельного типа «хищник».
+So the denser the neighborhood of live cells, the higher the chance of “death from pressure.” This is a coarse competition/predation model without a separate “predator” type.
 
-### 4.5 Что такое `resource_regen` (ресурсы / еда)
+### 4.5 What `resource_regen` is (resources / food)
 
-Два использования:
+Two uses:
 
-1. **Инициализация:** стартовая карта еды — Bernoulli(`resource_regen`) по клеткам.
-2. **Каждый шаг:** для каждой клетки независимо с вероятностью `**resource_regen`** выставляется `food = 1` (еда может «вырасти» поверх уже существующей логики).
+1. **Initialization:** starting food map — Bernoulli(`resource_regen`) per cell.
+2. **Each step:** for each cell independently, with probability **resource_regen**, `food = 1` is set (food can “grow” on top of existing logic).
 
-Затем:
+Then:
 
-- если `**food == 1` и клетка живая** после всех обновлений `next_life`, еда потребляется (`food := 0`), и `**ages`** на этом шаге получает **+1 бонус** к приросту возраста (`feed_bonus`).
+- if **food == 1** and the cell is **alive** after all `next_life` updates, food is consumed (`food := 0`), and **ages** get a **+1 bonus** to age increment on that step (`feed_bonus`).
 
-**Интерпретация:** еда повышает «выживаемость» возраста в смысле метрик по гибели (косвенно); отдельный тип «ресурс» на поле для правил рождения **не участвует** — только через возраст и косвенно через динамику.
+**Interpretation:** food boosts “survivability” of age in the sense of death metrics (indirectly); a separate “resource” field type does **not** participate in birth rules — only through age and indirectly through dynamics.
 
-### 4.6 Гибель и возраст
+### 4.6 Death and age
 
-- Если клетка была жива (`life == 1`) и стала мёртвой (`next_life == 0`), возрасты гибелей **суммируются** в счётчиках (без списка всех `death_ages`).
-- Для живых: `ages := ages + 1 + feed_bonus`; для мёртвых: `ages := 0`.
+- If a cell was alive (`life == 1`) and becomes dead (`next_life == 0`), death ages are **summed** into counters (no list of all `death_ages`).
+- For live cells: `ages := ages + 1 + feed_bonus`; for dead: `ages := 0`.
 
-### 4.7 Сбор статистики без длинных списков
+### 4.7 Statistics without long lists
 
-Вместо списков на все шаги используется:
+Instead of lists over all steps:
 
-- **онлайн-среднее и дисперсия** плотности (Welford) → `density_mean`, `stability`;
-- **сумма и число** возрастов при гибели → `average_lifespan`;
-- **deque фиксированной длины** (512 последних значений плотности) → `oscillation_score` (оценка автокорреляции по окну, а не по всей длине ряда);
-- **одна копия** финального поля `life` → `diversity` через `pattern_diversity_from_frame`.
+- **online mean and variance** of density (Welford) → `density_mean`, `stability`;
+- **sum and count** of ages at death → `average_lifespan`;
+- **fixed-length deque** (512 latest density values) → `oscillation_score` (autocorrelation estimate on the window, not the full series);
+- **one copy** of the final `life` field → `diversity` via `pattern_diversity_from_frame`.
 
 ```mermaid
 sequenceDiagram
-  participant T as Шаг времени t
+  participant T as Time step t
   participant L as life / food / ages
   T->>L: neighbors → birth/survival
   L->>L: noise flip
@@ -251,32 +250,28 @@ sequenceDiagram
   L->>L: online death-age / density stats
 ```
 
-
-
 ---
 
-## 5. Метрики: вектор M(\text{world}) \in \mathbb{R}^{12}
+## 5. Metrics: vector M(world) ∈ ℝ¹²
 
-Метрики `**WorldMetrics**` вычисляются **внутри `run_world`** по онлайн-накопителям (см. §4.7). Отдельной функции `compute_metrics` нет.
+**WorldMetrics** are computed **inside run_world** from online accumulators (see §4.7). There is no separate `compute_metrics` function.
 
-
-| Имя                     | Как считается в коде                                                                                    | Пояснение                                                                                                  |
+| Name | How it is computed in code | Explanation |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `**entropy**`           | Бинарная энтропия Шеннона для `**density_mean**`: H(p) при p = \overline{\rho_t}                        | Не энтропия поля по паттернам, а энтропия «средней занятости во времени» как случайной бернуллиевской доли |
-| `**stability**`         | \mathrm{clip}(1 - \sigma(\rho)/(\mu(\rho)+\varepsilon), 0, 1)                                           | Низкая дисперсия плотности во времени → выше стабильность                                                  |
-| `**average_lifespan**`  | `death_age_sum / death_count` (нет гибелей → `0`)                                                       | Среднее число шагов до гибели по умершим клеткам                                                           |
-| `**density_mean**`      | Онлайн-среднее плотности по шагам                                                                       | Средняя заполненность поля живыми за прогон                                                                |
-| `**oscillation_score**` | Автокорреляция по **окну** из последних 512 значений плотности                                          | Приближение к «есть ли циклы» без хранения всего ряда                                                      |
-| `**diversity`**         | Доля уникальных подписей среди `**sample_size**` случайных патчей 3\times3 на **финальном** поле `life` | Грубая оценка «сколько разных локальных паттернов»                                                         |
-| `**mo_eoc_indicator`** | §5.1, `multi_objective_edge_of_chaos_indicator` в `**metrics.py**` | Скаляр **Multi-Objective + Edge-of-Chaos** для GA/LLM/Hybrid (коэффициенты в §5.1). |
-| `**topology_interface_index**` | `worldspace.math.topology_interface_index(life)` | Доля отличающихся соседей по тору (Moore, 8 направлений), усреднённая по клеткам и делённая на 8; в ``[0,1]`` — **топологическая / морфологическая сложность границ** живой фазы. |
-| `**topology_window_heterogeneity**` | `topology_window_heterogeneity(life)` | Доля торических окон ``2\\times2``, где четыре угла **не все одинаковы**; в ``[0,1]`` — мезомасштабная **нетривиальность** паттерна (прокси к локальной «седловости» / смешению без полного persistent homology). |
-| `**compressibility_score**` | `compressibility_score_joint(life, food)` | ``1 - len(zlib.compress(raw))/len(raw)`` по конкатенации байтов ``life`` и ``food`` (zlib level 6), в ``[0,1]`` — **приближённая вычислимость / описательная длина**: упорядоченные поля сжимаются сильнее. |
-| `**ecology_state_entropy_norm**` | `ecology_state_entropy_norm(life, food)` | Энтропия Шеннона по классам ``code = life + 2*food`` (до 4 классов), нормированная на ``\\log_2 k`` для числа **ненулевых** классов; в ``[0,1]`` — **экологическое разнообразие** совместного состояния «жизнь + ресурс». |
-| `**ecology_resource_adjacency**` | `ecology_resource_adjacency(life, food)` | Среднее по живым клеткам доли соседей с ``food==1`` (Moore, тор); в ``[0,1]`` — **пространственная связность** потребителей и ресурса. |
+| **entropy** | Binary Shannon entropy for **density_mean**: H(p) with p = ρ̄_t | Not field pattern entropy, but entropy of “mean occupancy over time” as a Bernoulli fraction |
+| **stability** | clip(1 − σ(ρ)/(μ(ρ)+ε), 0, 1) | Low density variance over time → higher stability |
+| **average_lifespan** | `death_age_sum / death_count` (no deaths → `0`) | Mean steps until death for cells that died |
+| **density_mean** | Online mean density over steps | Mean live occupancy over the run |
+| **oscillation_score** | Autocorrelation on a **window** of the last 512 density values | Approximation of “are there cycles” without storing the full series |
+| **diversity** | Fraction of unique signatures among **sample_size** random 3×3 patches on the **final** `life` field | Coarse estimate of “how many distinct local patterns” |
+| **mo_eoc_indicator** | §5.1, `multi_objective_edge_of_chaos_indicator` in **metrics.py** | **Multi-Objective + Edge-of-Chaos** scalar for GA/LLM/Hybrid (coefficients in §5.1). |
+| **topology_interface_index** | `worldspace.math.topology_interface_index(life)` | Fraction of differing torus neighbors (Moore, 8 directions), averaged over cells and divided by 8; in `[0,1]` — **topological / morphological boundary complexity** of the live phase. |
+| **topology_window_heterogeneity** | `topology_window_heterogeneity(life)` | Fraction of toroidal `2×2` windows where the four corners **are not all equal**; in `[0,1]` — mesoscale **non-triviality** of the pattern (proxy for local “saddle” / mixing without full persistent homology). |
+| **compressibility_score** | `compressibility_score_joint(life, food)` | `1 - len(zlib.compress(raw))/len(raw)` on concatenated `life` and `food` bytes (zlib level 6), in `[0,1]` — **approximate computability / description length**: ordered fields compress more strongly. |
+| **ecology_state_entropy_norm** | `ecology_state_entropy_norm(life, food)` | Shannon entropy over classes `code = life + 2*food` (up to 4 classes), normalized by log₂ k for the number of **non-zero** classes; in `[0,1]` — **ecological diversity** of the joint “life + resource” state. |
+| **ecology_resource_adjacency** | `ecology_resource_adjacency(life, food)` | Mean over live cells of the fraction of neighbors with `food==1` (Moore, torus); in `[0,1]` — **spatial coupling** of consumers and resource. |
 
-
-Фиксированный порядок вектора задаётся методом `**WorldMetrics.as_vector()**`:
+Fixed vector order from **WorldMetrics.as_vector()**:
 
 ```text
 [entropy, stability, average_lifespan, density_mean, oscillation_score, diversity, mo_eoc_indicator, topology_interface_index, topology_window_heterogeneity, compressibility_score, ecology_state_entropy_norm, ecology_resource_adjacency]
@@ -284,11 +279,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  subgraph traj["Поток по шагам"]
-    DS["онлайн mean/var плотности"]
-    WIN["окно плотности"]
-    DA["сумма возрастов гибелей"]
-    HA["финальный life"]
+  subgraph traj["Per-step stream"]
+    DS["online mean/var density"]
+    WIN["density window"]
+    DA["sum of death ages"]
+    HA["final life"]
   end
   subgraph M["WorldMetrics"]
     e["entropy"]
@@ -306,51 +301,49 @@ flowchart LR
   HA --> dv
 ```
 
+### 5.1. Scalar `mo_eoc_indicator` (Multi-Objective + Edge-of-Chaos)
 
+The final value is written to JSON as `metrics.mo_eoc_indicator` and computed in `worldspace.metrics.multi_objective_edge_of_chaos_indicator` after `run_world`. Below, the same notation as in code.
 
-### 5.1. Скаляр `mo_eoc_indicator` (Multi-Objective + Edge-of-Chaos)
+**Inputs (already computed world scalars):**
 
-Итоговое число пишется в JSON как поле `metrics.mo_eoc_indicator` и считается в `worldspace.metrics.multi_objective_edge_of_chaos_indicator` после прогона `run_world`. Ниже те же обозначения, что в коде.
-
-**Входы (уже посчитанные скаляры мира):**
-
-| Символ | Поле | Диапазон / смысл |
+| Symbol | Field | Range / meaning |
 |--------|------|------------------|
-| \(H\) | `entropy` | \([0,1]\) — бинарная энтропия Шеннона по средней плотности |
+| \(H\) | `entropy` | \([0,1]\) — binary Shannon entropy on mean density |
 | \(S\) | `stability` | \([0,1]\) |
-| \(D\) | `diversity` | \([0,1]\) — доля уникальных патчей |
-| \(A\) | `oscillation_score` | \(\ge 0\), на практике обычно \(\le 1\) (нормированная автокорреляция) |
-| \(E_{\mathrm{ext}}\) | `extinction_penalty` | \(\mathrm{clip}(1 - \rho_{\mathrm{final}},\,0,\,1)\), где \(\rho_{\mathrm{final}}\) — средняя заполненность **финального** поля |
+| \(D\) | `diversity` | \([0,1]\) — fraction of unique patches |
+| \(A\) | `oscillation_score` | \(\ge 0\), in practice usually \(\le 1\) (normalized autocorrelation) |
+| \(E_{\mathrm{ext}}\) | `extinction_penalty` | \(\mathrm{clip}(1 - \rho_{\mathrm{final}},\,0,\,1)\), where \(\rho_{\mathrm{final}}\) is mean occupancy of the **final** field |
 
-**Производные величины:**
+**Derived quantities:**
 
-1. **Кривизна по энтропии (вместо сырого \(H\) в «полосе» края хаоса):**  
+1. **Entropy curvature (instead of raw \(H\) in the “edge of chaos” band):**  
    \[
    C_H = H(1-H).
    \]  
-   На \([0,1]\) величина \(C_H\) максимальна при \(H=\tfrac12\) (\(C_H^{\max}=\tfrac14\)): это «критическая» зона между пустым и переполненным полем, а не экстремумы \(H\approx 0\) или \(H\approx 1\).
+   On \([0,1]\), \(C_H\) is maximal at \(H=\tfrac12\) (\(C_H^{\max}=\tfrac14\)): the “critical” zone between empty and saturated field, not extremes \(H\approx 0\) or \(H\approx 1\).
 
-2. **Нормировка \(C_H\) к \([0,1]\)** (удобно для весов в коде):  
+2. **Normalize \(C_H\) to \([0,1]\)** (convenient for weights in code):  
    \[
    \widehat C_H = \frac{C_H}{0.25} = 4\,H(1-H).
    \]  
-   Таким образом в формуле **используется именно \(C_H=H(1-H)\)**; множитель \(1/0.25\) только приводит вклад к единой шкале \([0,1]\).
+   The formula uses **\(C_H=H(1-H)\)**; the factor \(1/0.25\) only scales the contribution to \([0,1]\).
 
-3. **Активность × устойчивость (вторая интерпретация «края хаоса» — динамика при ненулевой памяти по жизни):**  
+3. **Activity × persistence (second “edge of chaos” reading — dynamics with non-zero life memory):**  
    \[
    P = \mathrm{clip}\!\left(\frac{\text{average\_lifespan}}{10},\,0,\,1\right),
    \qquad
    C_{AP} = A\cdot P.
    \]  
-   \(A\) — «есть ли колебания плотности», \(P\) — нормированное среднее время жизни погибших клеток (прокси **persistence**). Их произведение усиливает миры, где и динамика, и устойчивое развитие по шагам согласованы.
+   \(A\) — “are there density oscillations”; \(P\) — normalized mean lifetime of dead cells (persistence proxy). Their product favors worlds where dynamics and sustained development over steps align.
 
-**База multi-objective:**
+**Multi-objective base:**
 
 \[
 \mathrm{MO} = H + S + D.
 \]
 
-**Итоговая формула (как в коде, один-в-один):**
+**Final formula (exactly as in code):**
 
 \[
 \boxed{
@@ -363,74 +356,74 @@ flowchart LR
 }
 \]
 
-**Смысл коэффициентов:**
+**Meaning of coefficients:**
 
-- **\(0{,}50\)** — постоянная доля: даже при низкой «кривизне» и без \(C_{AP}\) скаляр опирается на сумму \(H+S+D\).
-- **\(0{,}30\,\widehat C_H\)** внутри скобки — усиливает \(\mathrm{MO}\), когда система в энтропийной середине (\(\widehat C_H\to 1\)); на застывших или тривиальных режимах (\(\widehat C_H\to 0\)) этот множитель к \(\mathrm{MO}\) падает.
-- **\(0{,}20\,C_{AP}\)** — добавка к множителю при «осцилляциях + выживаемости».
-- **\(+0{,}15\,A\,\widehat C_H\)** — прямой бонус динамике, но **сильнее**, когда одновременно высока нормированная кривизна \(C_H\) (согласованность с картиной «края хаоса» по энтропии).
-- **\(+0{,}10\,P\)** — небольшой сдвиг в пользу более длинной средней жизни (в пределах клипа).
-- **\(-E_{\mathrm{ext}}\)** — штраф за вымирание / почти пустое финальное поле (как и раньше в проекте).
+- **0.50** — constant share: even at low “curvature” and without \(C_{AP}\), the scalar rests on \(H+S+D\).
+- **0.30 \(\widehat C_H\)** inside the bracket — amplifies \(\mathrm{MO}\) when the system is in the entropic middle (\(\widehat C_H\to 1\)); on frozen or trivial regimes (\(\widehat C_H\to 0\)) this multiplier on \(\mathrm{MO}\) falls.
+- **0.20 \(C_{AP}\)** — added to the multiplier for “oscillations + survival.”
+- **+0.15 \(A\,\widehat C_H\)** — direct bonus to dynamics, **stronger** when normalized curvature \(C_H\) is high (aligned with the “edge of chaos” picture in entropy).
+- **+0.10 \(P\)** — small shift toward longer mean life (within the clip).
+- **−\(E_{\mathrm{ext}}\)** — penalty for extinction / nearly empty final field (as elsewhere in the project).
 
-Сумма весов внутри скобки при «идеальных» \(\widehat C_H=1\), \(C_{AP}=1\) даёт \(1{,}00\); при нулях — \(0{,}50\). Это намеренно **не** выпуклая нормализация на \([0,1]\): скаляр остаётся неограниченным сверху за счёт \(\mathrm{MO}\) и дополнительных слагаемых, что удобно для **ранжирования** миров в GA/сортировке популяции.
+The sum of weights inside the bracket at “ideal” \(\widehat C_H=1\), \(C_{AP}=1\) is \(1.00\); at zeros — \(0.50\). This is intentionally **not** convex normalization to \([0,1]\): the scalar stays unbounded above via \(\mathrm{MO}\) and extra terms, which suits **ranking** worlds in GA/population sort.
 
-### 5.2. Топология, сжатие и экология (последние пять координат)
+### 5.2. Topology, compression, and ecology (last five coordinates)
 
-Пять дополнительных скаляров считаются **по финальным** сеткам `life` и `food` внутри `_metrics_from_final_state` (см. `worldspace/simulator.py`, функции в `worldspace/math.py`). Они расширяют «поведенческий» вектор мира без участия в формуле `mo_eoc_indicator` §5.1.
+Five additional scalars are computed on the **final** `life` and `food` grids inside `_metrics_from_final_state` (see `worldspace/simulator.py`, functions in `worldspace/math.py`). They extend the world “behavior” vector without entering the `mo_eoc_indicator` formula in §5.1.
 
-- **Топология (приближённые, быстрые):** `topology_interface_index` — нормированная плотность границ живой/мёртвой фазы на торе; `topology_window_heterogeneity` — доля локально неоднородных окон `2×2`. Это **не** Betti-числа и не persistent homology: дешёвые прокси морфологической сложности.
-- **Сжатие:** `compressibility_score` — отношение длины zlib-сжатия к длине сырых байтов `life‖food`; отражает **алгоритмическую простоту** конфигурации (высокий балл ≈ «короткое описание»).
-- **Экология двух типов на клетку** (`life` ∈ {0,1}, `food` ∈ {0,1}, как в симуляторе): `ecology_state_entropy_norm` — энтропия совместного 4-типного распределения; `ecology_resource_adjacency` — насколько рядом с живыми клетками лежит еда. Список `WorldSpec.cell_types` задаёт **имена** типов в спеке; в текущем MVP динамика остаётся бинарной по жизни + отдельной сетке ресурса.
+- **Topology (approximate, fast):** `topology_interface_index` — normalized boundary density of live/dead phase on the torus; `topology_window_heterogeneity` — fraction of locally non-uniform `2×2` windows. These are **not** Betti numbers or persistent homology: cheap proxies for morphological complexity.
+- **Compression:** `compressibility_score` — ratio of zlib-compressed length to raw `life‖food` bytes; reflects **algorithmic simplicity** of the configuration (high score ≈ “short description”).
+- **Ecology with two types per cell** (`life` ∈ {0,1}, `food` ∈ {0,1}, as in the simulator): `ecology_state_entropy_norm` — entropy of the joint 4-class distribution; `ecology_resource_adjacency` — how close food is to live cells. `WorldSpec.cell_types` names types in the spec; in the current MVP dynamics remain binary for life plus a separate resource grid.
 
 ---
 
-## 6. Пространство миров: PCA и кластеры
+## 6. World space: PCA and clusters
 
-Функция `**stream_world_space_to_jsonl(..., metrics_trace_path=..., ca_step_trace_path=...)**` (`worldspace/pipeline.py`):
+**stream_world_space_to_jsonl(..., metrics_trace_path=..., ca_step_trace_path=...)** (`worldspace/pipeline.py`):
 
-1. **Проход 1:** для каждого мира из `**generator.iter_worlds(n)`** — `**run_world**` (вектор метрик **после полного прогона** пишется в **memmap** `(n × 12)`). Список `**WorldSpec`** для всех `n` миров сохраняется для прохода 2 (без повторного `**iter_worlds**`, что убирает второй круг HTTP у `**LLMWorldGenerator**`). Если задан `**ca_step_trace_path**`, в `**run_world**` передаётся файловый дескриптор: на **каждый шаг CA** дописывается JSON-строка с `**yield_index`**, `**ca_step**`, `**metrics**` (только вызовы из этого прохода пайплайна).
-2. По матрице метрик батча: `**_fit_dominant_metric_orthogonal_pca**` — ось **x** как отклонение метрики с **максимальной дисперсией** по батчу от её среднего; ось **y** — **первый главный компонент sklearn `PCA(n_components=1)`**, обученный на **остальных 11** столбцах (sklearn центрирует эти признаки внутри `fit`).
-3. **k-means Lloyd** по строкам memmap (центроиды `**k×12`**, метки в отдельном memmap).
-4. **Проход 2:** для индекса `**i`** берётся `**worlds[i]**` и строка memmap; раскладка в 2D (`**dominant_metric_delta_xy**`), `**cluster_id**`, запись **одной JSON-строки** в основной файл (если задан `**path`**) и при `**echo_stdout=True**` — в stdout. Если задан `**metrics_trace_path**`, после прохода 2 в этот файл пишется по строке на мир: `**yield_index**` плюс те же поля, что и в основной записи (`world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`) — вход для `**python -m worldspace.visualizer --metrics-jsonl**`.
+1. **Pass 1:** for each world from **generator.iter_worlds(n)** — **run_world** (metric vector **after the full run** is written to **memmap** `(n × 12)`). The list of **WorldSpec** for all `n` worlds is kept for pass 2 (no second **iter_worlds**, avoiding a second HTTP round for **LLMWorldGenerator**). If **ca_step_trace_path** is set, a file descriptor is passed into **run_world**: on **each CA step** a JSON line is appended with **yield_index**, **ca_step**, **metrics** (only from this pipeline pass).
+2. On the batch metrics matrix: **_fit_dominant_metric_orthogonal_pca** — axis **x** as deviation of the metric with **maximum variance** in the batch from its mean; axis **y** — **first principal component of sklearn `PCA(n_components=1)`** fit on the **other 11** columns (sklearn centers those features inside `fit`).
+3. **k-means Lloyd** on memmap rows (centroids **k×12**, labels in a separate memmap).
+4. **Pass 2:** for index **i**, take **worlds[i]** and the memmap row; 2D layout (**dominant_metric_delta_xy**), **cluster_id**, write **one JSON line** to the main file (if **path** is set) and, with **echo_stdout=True**, to stdout. If **metrics_trace_path** is set, after pass 2 this file gets one line per world: **yield_index** plus the same fields as the main record (`world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`) — input for **python -m worldspace.visualizer --metrics-jsonl**.
 
-Основной JSONL (если задан аргумент `**path**` в `**stream_world_space_to_jsonl**`) и строки в `**--metrics-trace**` после прохода 2 содержат поля `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`; в `**--metrics-trace**` дополнительно есть `**yield_index**`. Временный memmap метрик удаляется после завершения функции. При `**n_worlds ≤ 0**` trace-файлы **не открываются**.
+The main JSONL (if **path** in **stream_world_space_to_jsonl**) and lines in **--metrics-trace** after pass 2 contain `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`; **--metrics-trace** also has **yield_index**. Temporary metrics memmap is removed when the function finishes. For **n_worlds ≤ 0**, trace files are **not** opened.
 
-### 6.1. Поля `dominant_metric_delta_xy` и `dominant_metric_delta_axis_labels`
+### 6.1. Fields `dominant_metric_delta_xy` and `dominant_metric_delta_axis_labels`
 
-Это **не** нейросетевый embedding и **не** то же самое, что `**pca.png**` / `**umap.png**` (там снижение размерности по **всем 12** финальным метрикам).
+This is **not** a neural embedding and **not** the same as **pca.png** / **umap.png** (those reduce **all 12** final metrics).
 
-| Поле | Смысл |
+| Field | Meaning |
 |------|--------|
-| `**dominant_metric_delta_xy**` | `[x, y]` — координаты мира: Δ доминирующей метрики и PC1 **остальных 11** |
-| `**dominant_metric_delta_axis_labels**` | Подписи осей: какая метрика на **x**, текст для **y** |
+| **dominant_metric_delta_xy** | `[x, y]` — world coordinates: Δ of dominant metric and PC1 of the **other 11** |
+| **dominant_metric_delta_axis_labels** | Axis labels: which metric on **x**, text for **y** |
 
-**Ось x:** метрика с **наибольшей дисперсией в текущем батче** минус её среднее по батчу: «насколько мир отклоняется по самой «размазанной» метрике».
+**x-axis:** metric with **highest variance in the current batch** minus its batch mean: “how far the world deviates on the most ‘spread’ metric.”
 
-**Ось y:** **PC1 sklearn** по **остальным 11** метрикам (доминирующая на x **не входит** в PCA). Центрирование только внутри `PCA` по этим столбцам (`pca.mean_` — их средние). При `**n < 2**` миров **y = 0** у всех.
+**y-axis:** **sklearn PC1** on the **other 11** metrics (the x-dominant metric is **excluded** from PCA). Centering only inside `PCA` on those columns (`pca.mean_` — their means). For **n < 2** worlds, **y = 0** for all.
 
-**Цвет точек** на графиках: `**cluster_id**` (k-means Lloyd по полному 12D-вектору метрик в пайплайне) или пересчёт k-means в visualizer (`**--k-clusters**`).
+**Point color** on plots: **cluster_id** (k-means Lloyd on the full 12D metric vector in the pipeline) or recomputed k-means in the visualizer (**--k-clusters**).
 
-Старые trace: visualizer читает алиасы `embedding_2d` / `embedding_axes`, `world_space_xy` / `world_space_axis_labels`. Пайплайн пишет только `dominant_metric_delta_*`.
+Legacy traces: the visualizer reads aliases `embedding_2d` / `embedding_axes`, `world_space_xy` / `world_space_axis_labels`. The pipeline writes only `dominant_metric_delta_*`.
 
-**Три scatter из `--metrics-jsonl`:**
+**Three scatters from `--metrics-jsonl`:**
 
-| PNG | Геометрия |
+| PNG | Geometry |
 |-----|-----------|
-| `**dominant_metric_delta.png**` | Δ доминирующей метрики vs PC1 остальных 11 (как в trace) |
-| `**pca.png**` | 2D PCA по всем 12 метрикам |
-| `**umap.png**` | 2D UMAP по всем 12 метрикам (≥3 мира) |
+| **dominant_metric_delta.png** | Δ dominant metric vs PC1 of other 11 (as in trace) |
+| **pca.png** | 2D PCA on all 12 metrics |
+| **umap.png** | 2D UMAP on all 12 metrics (≥3 worlds) |
 
 ```mermaid
 flowchart TB
-  subgraph batch["Батч из N миров"]
+  subgraph batch["Batch of N worlds"]
     W1["WorldSpec 1"]
     WN["WorldSpec N"]
   end
-  subgraph metrics_mat["Матрица N×12"]
-    MROW["каждая строка — as_vector(metrics)"]
+  subgraph metrics_mat["Matrix N×12"]
+    MROW["each row — as_vector(metrics)"]
   end
-  subgraph proj["Проекция и группы"]
-    PCA["доминирующая метрика + sklearn PCA(1) на 11 столбцах → (x,y)"]
+  subgraph proj["Projection and groups"]
+    PCA["dominant metric + sklearn PCA(1) on 11 cols → (x,y)"]
     KM["k-means → cluster_id"]
   end
   W1 --> MROW
@@ -439,15 +432,13 @@ flowchart TB
   MROW --> KM
 ```
 
-
-
-**Важно:** PCA здесь применяется **к метрикам поведения**, а не к «сырым» параметрам `WorldSpec`. Это создаёт карту «похожести поведения», которая может не совпадать с евклидовым расстоянием в пространстве правил.
+**Important:** PCA here applies to **behavior metrics**, not raw `WorldSpec` parameters. This yields a map of “behavioral similarity” that may not match Euclidean distance in rule space.
 
 ---
 
-## 7. Генераторы миров
+## 7. World generators
 
-Идея «лестницы генераторов»:
+The “generator ladder” idea:
 
 ```mermaid
 flowchart TB
@@ -458,7 +449,7 @@ flowchart TB
   TS["TwoStateNoiseMarkovGenerator"]
   RB["RuleBiasMarkovGenerator"]
   GA["GeneticWorldGenerator (PyGAD)"]
-  LLM["LLMWorldGenerator (итеративный поиск)"]
+  LLM["LLMWorldGenerator (iterative search)"]
   HBR["HybridGALlmWorldGenerator (population + mixed mutation)"]
   NN["NeuralWorldGenerator (YAML MLP)"]
   RW --> RWW
@@ -470,39 +461,37 @@ flowchart TB
   LLM --> HBR
 ```
 
+- **RandomWorldGenerator** — independent random rules and parameters.
+- **RandomWalkWorldGenerator** — sequence of worlds: small random changes from a start world.
+- **TwoStateNoiseMarkovGenerator** — hidden “calm / chaotic” state changes noise scale.
+- **RuleBiasMarkovGenerator** — bias on `birth`/`survival` sets.
+- **GeneticWorldGenerator** — world evolution via PyGAD on `mo_eoc_indicator` fitness (chromosome = rules + scalars).
+- **LLMWorldGenerator** — loop `simulate -> score -> LLM patch -> validate/clamp -> next`.
+- **HybridGALlmWorldGenerator** — population scheme: selection (top-k + random diversity), then `random mutation` + `LLM-guided mutation`; the LLM sees the top fraction of best worlds.
+- **NeuralWorldGenerator** — generation via latent MLP with YAML spec.
 
-
-- `**RandomWorldGenerator**` — независимые случайные правила и параметры.
-- `**RandomWalkWorldGenerator**` — последовательность миров: небольшие случайные изменения от стартового.
-- `**TwoStateNoiseMarkovGenerator**` — скрытое состояние «спокойный / хаотичный» меняет масштаб шума.
-- `**RuleBiasMarkovGenerator**` — смещение множеств `birth`/`survival`.
-- `**GeneticWorldGenerator**` — эволюция миров через PyGAD по фитнесу `mo_eoc_indicator` (хромосома = правила + скаляры).
-- `**LLMWorldGenerator**` — цикл `simulate -> score -> LLM patch -> validate/clamp -> next`.
-- `**HybridGALlmWorldGenerator**` — популяционная схема: отбор (top-k + random diversity), затем `random mutation` + `LLM-guided mutation`; LLM видит верхнюю долю лучших миров.
-- `**NeuralWorldGenerator**` — генерация через латентный MLP с YAML-спекой.
-
-### vi7.1 YAML-конфиги генераторов
+### 7.1 Generator YAML configs
 
 - `worldspace/specs/genetic_world_generator.yaml`
 - `worldspace/specs/llm_world_generator.yaml`
 - `worldspace/specs/hybrid_world_generator.yaml`
 - `worldspace/specs/neural_world_generator.yaml`
 
-CLI поддерживает переопределение пути к YAML через единый флаг `--generator-spec` (вместе с `--generator genetic|llm|hybrid|neural`); форма файла проверяется и должна соответствовать выбранному генератору.
+The CLI supports overriding the YAML path via a single `--generator-spec` flag (with `--generator genetic|llm|hybrid|neural`); file shape is validated for the chosen generator.
 
 ---
 
-## 8. CLI и файлы результатов
+## 8. CLI and output files
 
-Запуск пакета как модуля использует `**worldspace/__main__.py**` → `**cli.main()**`.
+Package entry: `worldspace/__main__.py` → `cli.main()`.
 
-Примеры:
+Examples:
 
 ```bash
 python -m worldspace --generator random --worlds 30 --steps 200 --grid 40
 ```
 
-Другие режимы генератора:
+Other generator modes:
 
 ```bash
 python -m worldspace --generator genetic --generator-spec worldspace/specs/genetic_world_generator.yaml
@@ -511,18 +500,18 @@ python -m worldspace --generator hybrid --generator-spec worldspace/specs/hybrid
 python -m worldspace --generator neural --generator-spec worldspace/specs/neural_world_generator.yaml
 ```
 
-Запись **JSONL** из CLI: основной поток — `**--metrics-trace PATH`** (одна JSON-строка на мир после dominant-metric-delta + k-means: `yield_index`, `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`) и/или `**--ca-step-trace PATH**`. Дополнительно (любой `**--generator**`):
+**JSONL** from the CLI: main stream — **--metrics-trace PATH** (one JSON line per world after dominant-metric-delta + k-means: `yield_index`, `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`) and/or **--ca-step-trace PATH**. Additionally (any **--generator**):
 
-- `**--echo-lines**` — печатать в stdout те же полные записи по миру (без `yield_index`), что и в строках основного конвейера при записи в файл через API `**path**`; без этого флага и без `**--metrics-trace**` / `**--ca-step-trace**` stdout остаётся пустым.
-- `**--ca-step-trace PATH**` — JSONL: на каждый **шаг CA** внутри `**run_world`** для каждого такого мира — `yield_index`, `ca_step`, `metrics`. Внутренние вызовы `**run_world**` из генераторов (например, оценка родителя в `**LLMWorldGenerator**`) **не** пишутся в этот файл.
+- **--echo-lines** — print to stdout the same full per-world records as the main pipeline lines when writing via API **path** (without `yield_index`); without this flag and without **--metrics-trace** / **--ca-step-trace**, stdout stays empty.
+- **--ca-step-trace PATH** — JSONL: on every **CA step** inside **run_world** for each such world — `yield_index`, `ca_step`, `metrics`. Internal **run_world** calls from generators (e.g. parent evaluation in **LLMWorldGenerator**) are **not** written to this file.
 
 ```bash
 python -m worldspace --metrics-trace results/trace.jsonl --ca-step-trace results/ca_steps.jsonl
 ```
 
-Чтобы дублировать полные записи по миру в stdout (без записи в файл), задайте `**--echo-lines**`.
+To duplicate full per-world records to stdout (without writing a file), set **--echo-lines**.
 
-**Визуализация** (единая точка входа, pandas + matplotlib):
+**Visualization** (single entry point, pandas + matplotlib):
 
 ```bash
 uv run python -m worldspace.visualizer \
@@ -533,29 +522,69 @@ uv run python -m worldspace.visualizer \
   --summary
 ```
 
-Из `**--metrics-jsonl**`: `**dominant_metric_delta.png**`, `**pca.png**`, `**umap.png**` (см. §6.1; цвет k-means). Из `**--ca-step-jsonl**`: `**ca_step_timeseries.png**`, `**pca_trajectories.png**`, `**umap_trajectories.png**`; `**--summary**` печатает сводку **mean/std/min/max** по метрикам в разрезе `**yield_index**`.
+From **--metrics-jsonl**: **dominant_metric_delta.png**, **pca.png**, **umap.png** (see §6.1; k-means color). From **--ca-step-jsonl**: **ca_step_timeseries.png**, **pca_trajectories.png**, **umap_trajectories.png**; **--summary** prints **mean/std/min/max** of metrics by **yield_index**.
 
-`**plot_simulation_final_grid**` (API в `**worldspace.visualizer.plotting**`) использует `**result.final_life**`.
+`plot_simulation_final_grid` (API in `worldspace.visualizer.plotting`) uses `result.final_life`.
+
+### 8.1 MAP-Elites (quality-diversity)
+
+Separate mode, not mixed with `--generator`:
+
+```bash
+python -m worldspace --illuminator mapelites \
+  --scheduler worldspace/specs/map_elites_scheduler.yaml \
+  --output-dir output/map_elites \
+  --steps 200 --grid 50 --seed 0
+```
+
+Archive behavioral coordinates: `stability`, `diversity` (from `WorldMetrics`). **Fitness** for cell insertion — `illuminators/evaluation.py` (`compute_fitness`), not `mo_eoc_indicator`. Each candidate: canonical `seed` from hash of `WorldSpec`, simulation with `early_extinction_step` (default 200), strict improvement `fitness_new > fitness_old` in `GridArchive`.
+
+| Scheduler YAML | Purpose |
+| --- | --- |
+| `map_elites_scheduler.yaml` | Production: 10000 iterations, LLM enabled |
+| `map_elites_scheduler_mini.yaml` | CI smoke (`make smoke-map-elites`) |
+| `map_elites_scheduler_nightly.yaml` | Nightly, phase 1: buffer collection, surrogate off |
+| `map_elites_scheduler_nightly_surrogate.yaml` | Nightly, phase 3: surrogate on, resume archive |
+
+Output: `{output_dir}/map_elites_archive.jsonl` (schema 1.2). Resume: `--load-archive PATH` (collapse JSONL → in-memory archive).
 
 ---
 
-## 9. Ограничения и честные оговорки
+## 9. Surrogate model (brief)
 
-1. `**cell_types**` и `**neighborhood**` в основном для совместимости со спецификацией «мира как JSON»; симулятор реализует **бинарную жизнь + еду + Moore**.
-2. Начальная плотность жизни **фиксирована (20%)** в коде симулятора.
-3. `**entropy`** — это не информационная энтропия конфигурации сетки, а функция от **средней плотности во времени**.
-4. `**diversity`** — выборочная эвристика по последнему кадру, не полный спектр паттернов.
-5. **Кластеризация и PCA** упрощённые (учебный MVP); для серьёзной карты миров имеет смысл нормализация признаков, другие методы снижения размерности и выбор расстояния.
+The `worldspace/surrogate/` package speeds up **hints** for the LLM emitter; it does not replace simulation.
+
+| What it does | What it does not do (MVP) |
+| --- | --- |
+| After each `evaluate_candidate`, appends a line to the JSONL buffer (`features`, `targets`) | Does not skip `run_world` |
+| In the LLM user prompt, inserts `surrogate_mean` and `surrogate_uncertainty` | Does not change archive fitness (only real simulation) |
+
+Training: `python scripts/train_surrogate.py` (full mode ≥ 2000 buffer lines; `--micro` for smoke). Checkpoint: `artifacts/surrogate/checkpoints/latest.pkl`. Nightly pipeline: `make nightly-map-elites` → baseline → train → `nightly.pkl` → second phase with `surrogate.enabled: true`.
+
+Details: [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md), [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
 ---
 
-## 10. Зависимости
+## 10. Limitations and honest caveats
 
-Пакет использует `**numpy`**, `**matplotlib**`, `**scikit-learn**`, `**pandas**`, `**pyyaml**`, `**pygad**`, `**torch**` (см. `**pyproject.toml**`). Установка: `**uv sync**` в корне репозитория.
+1. **cell_types** and **neighborhood** are mainly for compatibility with “world as JSON” spec; the simulator implements **binary life + food + Moore**.
+2. Initial life density is **fixed (20%)** in the simulator code.
+3. **entropy** is not configuration entropy of the grid, but a function of **mean density over time**.
+4. **diversity** is a sampled heuristic on the last frame, not the full pattern spectrum.
+5. **Clustering and PCA** are simplified (teaching MVP); for a serious world map, feature normalization, other dimensionality reduction, and distance choice matter.
 
 ---
 
-## См. также
+## 11. Dependencies
 
-- `worldspace/ARCHITECTURE.md` — короткая архитектурная выжимка на английском.
+The package uses `numpy`, `matplotlib`, `scikit-learn`, `pandas`, `pyyaml`, `pygad`, `torch`, `lightgbm` (see `pyproject.toml`). Install: `uv sync` at the repository root.
 
+Makefile: `make smoke-map-elites`, `make nightly-map-elites`.
+
+---
+
+## See also
+
+- [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md) — package architecture overview (MAP-Elites, surrogate, nightly).
+- [`docs/MAPELITES.md`](MAPELITES.md) — MAP-Elites: algorithm, schemas, JSONL inputs/outputs.
+- [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate: stages, I/O, quality thresholds.

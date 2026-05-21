@@ -83,9 +83,11 @@ Inside the loop there are **no growing Python lists** of per-step grids or full 
 
 ### MAP-Elites evaluation (illuminator core)
 
+Full guide (algorithm, I/O, state diagrams): `docs/MAPELITES.md`.
+
 Package: `worldspace/illuminators/`
 
-`evaluate_candidate(world_spec, *, resolution=50, early_extinction_step=200) -> EvalResult` wires canonical seed, `run_world`, behavioral `measures` (`stability`, `diversity`), `fitness`, and archive `bin`. Used by the illuminator loop before archive insert (see project MAP-Elites docs).
+`evaluate_candidate(world_spec, *, resolution=50, early_extinction_step=200) -> EvalResult` wires canonical seed, `run_world`, behavioral `measures` (`stability`, `diversity`), `fitness`, and archive `bin`. Archive `fitness` is `compute_fitness` in `evaluation.py` (weighted mix of diversity, survival, oscillation, topology; `0.0` on early extinction)—distinct from `mo_eoc_indicator` used by legacy GA/LLM generators. Used by the illuminator loop before archive insert.
 
 File: `worldspace/illuminators/archive.py`
 
@@ -99,7 +101,7 @@ File: `worldspace/illuminators/grid_neighbors.py` — bounded cardinal/Moore nei
 
 File: `worldspace/illuminators/scheduler.py`
 
-Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm, `initial_random_candidates` 100). CI reproducibility uses `worldspace/specs/map_elites_scheduler_mini.yaml` (`iterations` 20, `batch_size` 4, `grid_resolution` 10, `llm.enabled: false`) via `DEFAULT_MINI_SCHEDULER_PATH`; not the production CLI default. `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size`). `resolve_emitter_for_slot(config, candidate_id, candidates_evaluated)` returns the effective emitter: while `candidates_evaluated < initial_random_candidates`, always `random` (ignoring the YAML slot); afterward the slot entry from `batch_emitters`. `RunCounters` holds `candidates_evaluated` across iterations; call `record_evaluation()` after each candidate run. `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
+Production defaults live in `worldspace/specs/map_elites_scheduler.yaml` (`schema_version` 1.2, `batch_size` 50 with a fixed `batch_emitters` list: 20 random + 20 genetic + 10 llm, `initial_random_candidates` 100, `surrogate.enabled: false`). CI reproducibility uses `worldspace/specs/map_elites_scheduler_mini.yaml` (`iterations` 20, `batch_size` 4, `grid_resolution` 10, `llm.enabled: false`) via `DEFAULT_MINI_SCHEDULER_PATH`; not the production CLI default. Nightly baselines use `map_elites_scheduler_nightly.yaml` (`iterations: 650`, surrogate off, buffer `artifacts/surrogate/buffer_nightly.jsonl`); surrogate phase uses `map_elites_scheduler_nightly_surrogate.yaml` (`surrogate.enabled: true`, same batch mix, checkpoint `artifacts/surrogate/checkpoints/nightly.pkl`). `load_scheduler(path, iterations_override=None) -> SchedulerConfig` validates the YAML (including `len(batch_emitters) == batch_size` and `surrogate` block). `surrogate_config_from_scheduler` / `resolve_surrogate_stub` wire LLM prompt hints. `resolve_emitter_for_slot(config, candidate_id, candidates_evaluated)` returns the effective emitter: while `candidates_evaluated < initial_random_candidates`, always `random` (ignoring the YAML slot); afterward the slot entry from `batch_emitters`. `RunCounters` holds `candidates_evaluated` across iterations; call `record_evaluation()` after each candidate run. `select_target_bin(archive, rng) -> TargetBin` picks a niche for the next candidate: uniform over the grid when the archive is empty, else occupied cells on the archive frontier (cardinal neighbor empty) with minimum elite `fitness` (lexicographic tie-break on `(i, j)`), else uniform random over the grid; returns bin indices plus BC centers via `bin_center`.
 
 File: `worldspace/illuminators/illuminator.py`
 
@@ -109,15 +111,29 @@ CLI: `python -m worldspace --illuminator mapelites` via `worldspace/cli_mapelite
 
 CI smoke (E6.1): `tests/test_map_elites_smoke.py` runs the mini scheduler end-to-end via `MapElitesIlluminator`, writes persistent artifacts under `artifacts/map_elites_smoke/` (`map_elites_archive.jsonl`, `smoke_run_summary.json`), validates JSONL schema, and completes without LLM calls. GitHub Actions workflow `.github/workflows/map_elites_smoke.yml`; local: `make smoke-map-elites`.
 
-Nightly: default pipeline in `worldspace/scripts/run_map_elites_nightly.py` (`make nightly-map-elites`): (1) baseline with `map_elites_scheduler_nightly.yaml` (`iterations: 650`, `steps: 200` in the nightly entrypoint, surrogate off, buffer `artifacts/surrogate/buffer_nightly.jsonl`) → (2) `scripts/train_surrogate.py` → `artifacts/surrogate/checkpoints/nightly.pkl` → (3) surrogate phase with `map_elites_scheduler_nightly_surrogate.yaml`, resuming baseline archive (~3h full pipeline on a ~140 ms/eval host). Outputs under `artifacts/map_elites_nightly/baseline/` and `.../surrogate/` plus `nightly_pipeline_summary.json`. `--single-run` runs one phase; production scheduler remains `map_elites_scheduler.yaml` (`iterations: 10000`).
+Nightly: default pipeline in `worldspace/scripts/run_map_elites_nightly.py` (`make nightly-map-elites`): (1) baseline with `map_elites_scheduler_nightly.yaml` (`iterations: 650`, `steps: 200` in the nightly entrypoint, surrogate off, buffer `artifacts/surrogate/buffer_nightly.jsonl`) → (2) `scripts/train_surrogate.py` on that buffer → `artifacts/surrogate/checkpoints/nightly.pkl` + `nightly.summary.json` → (3) surrogate phase with `map_elites_scheduler_nightly_surrogate.yaml`, resuming baseline archive (~3h full pipeline on a ~140 ms/eval host). Per-phase summaries via `illuminators/nightly_report.py` (`nightly_run_summary.json`); combined `nightly_pipeline_summary.json` at the output root. Outputs under `artifacts/map_elites_nightly/baseline/` and `.../surrogate/`. Flags: `--single-run`, `--skip-training`, `--output-dir`. Production scheduler remains `map_elites_scheduler.yaml` (`iterations: 10000`).
 
 File: `worldspace/illuminators/loop.py`
 
-`run_iteration(config, archive, rng, counters, emitter, grid_size=..., steps=..., jsonl_path=None)` processes one batch: for `candidate_id` in `0 .. batch_size-1`, resolves the emitter, selects a target bin, calls `CandidateEmitter.emit`, runs `evaluate_candidate`, then `insert_evaluated` or `insert_and_persist`, and increments `RunCounters`. `run_scheduler` repeats for `config.iterations`. Batch tie-break: strict `>` insert plus fixed slot order means equal fitness in the same bin within one iteration keeps the first accepted elite.
+`run_iteration(..., jsonl_path=None, surrogate_buffer=None)` processes one batch: for each slot, emit → `evaluate_candidate` → optional `append_eval_to_buffer` → archive insert → `RunCounters.record_evaluation()`. `run_scheduler` repeats for `config.iterations` and flushes the buffer. Batch tie-break: strict `>` insert plus fixed slot order means equal fitness in the same bin within one iteration keeps the first accepted elite.
 
 Package `worldspace/illuminators/emitters/`: `CandidateEmitter` protocol; `RandomEmitter` (independent random worlds, §8.7); `GeneticEmitter` (uniform crossover + Gaussian mutation on 21-gene encoding, parent selection §8.8, `mutation_scale` from scheduler YAML); `LlmEmitter` (LLM JSON → `WorldSpec`, invalid → one `RandomWalkWorldGenerator` step from parent 1, `emitter_type` `llm` or `llm_fallback`); `MapElitesEmitter` dispatches by resolved slot kind (`resolve_emitter_for_slot` maps disabled LLM slots to `random` before `emit`); `StubCandidateEmitter` remains for simple tests. Emitters return specs with `seed=0` and canonical `cell_types`; `evaluate_candidate` assigns the canonical hash seed.
 
-LLM prompts live under repository `prompts/` and load via `worldspace/prompt_files.read_prompt`. MAP-Elites: `map_elites_llm_emitter_system.txt`, `map_elites_llm_emitter_user.txt` (`render_system_prompt`, `build_user_prompt`; `system_prompt_version()` hashes the system file). Legacy generators: `llm_patch_system.txt`, `llm_patch_local_goal.txt`, `llm_patch_global_goal.txt`, `llm_patch_global_rules.txt`, `llm_patch_instruction.txt`, `llm_patch_output_format.json`, `llm_hybrid_local_user.txt`, `llm_vision_system.txt`, `llm_vision_user.txt`. Parsing: `worldspace/specs/world_spec_from_llm.py`. Shared field bounds: `worldspace/specs/world_spec_constraints.py`.
+LLM prompts live under repository `prompts/` and load via `worldspace/prompt_files.read_prompt`. MAP-Elites: `map_elites_llm_emitter_system.txt`, `map_elites_llm_emitter_user.txt` (`illuminators/emitters/llm_prompts.py`: `render_system_prompt`, `build_user_prompt`; `system_prompt_version()` hashes the system file). Legacy generators: `llm_patch_system.txt`, `llm_patch_local_goal.txt`, `llm_patch_global_goal.txt`, `llm_patch_global_rules.txt`, `llm_patch_instruction.txt`, `llm_patch_output_format.json`, `llm_hybrid_local_user.txt`, `llm_vision_system.txt`, `llm_vision_user.txt`. Parsing: `worldspace/specs/world_spec_from_llm.py`. Shared field bounds: `worldspace/specs/world_spec_constraints.py` (validation) and `worldspace/specs/world_param_bounds.py` (genetic genome / random-walk clamps).
+
+### Surrogate (MAP-Elites MVP)
+
+Package: `worldspace/surrogate/`. Design doc: `docs/SURROGATE_MODEL.md`. Artifacts: `artifacts/surrogate/README.md`.
+
+| Piece | Role |
+|-------|------|
+| `feature_extractor.py` | Deterministic feature vector from `WorldSpec` |
+| `buffer.py` | Append-only JSONL after each real `evaluate_candidate` |
+| `get_surrogate()` | `StubSurrogate` when disabled or checkpoint missing; else `SurrogateFacade` + `SurrogateModel` pickle |
+| `resolve_surrogate_stub()` | `surrogate_mean` / `surrogate_uncertainty` injected into LLM user prompts only |
+| `scripts/train_surrogate.py` | Offline LightGBM training; quality gate (R², MAE) on hold-out fitness/stability |
+
+MVP: surrogate does **not** skip simulation or change archive fitness; it logs training rows and hints the LLM emitter. `run_iteration` calls `append_eval_to_buffer` when `SurrogateBuffer` is configured (`MapElitesIlluminator.run` always opens the buffer path from scheduler YAML).
 
 ### Math helpers
 
@@ -159,7 +175,8 @@ RAM: memmap metrics stay **O(1)** vs batch size for the metric matrix; plus **O(
 Package: `worldspace/visualizer/` — Matplotlib uses the **`Agg`** backend (file output only).
 
 - **`plotting.py`**: `plot_dominant_metric_delta_scatter_from_jsonl`, `plot_world_metrics_pca_scatter_from_jsonl`, `plot_world_metrics_umap_scatter_from_jsonl`, `plot_simulation_final_grid`; pandas helpers `load_ca_step_trace_jsonl`, `summarize_ca_step_trace_by_world`; `plot_ca_step_metrics_timeseries`, `plot_ca_step_pca_trajectories`, `plot_ca_step_umap_trajectories` for `--ca-step-trace` JSONL.
-- **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with **`--output-dir`** (required) and optional **`--metrics-jsonl`** (writes `dominant_metric_delta.png`, `pca.png`, `umap.png`) and/or **`--ca-step-jsonl`** (writes `ca_step_timeseries.png`, `pca_trajectories.png`, `umap_trajectories.png`). Optional **`--ca-trace-worlds`**, **`--metrics`**, **`--summary`** for CA plots (see `docs/WORLDSPACE.md` §6.1, §8).
+- **`diagnostics.py`**: single-world dashboard (`plot_diagnostic_dashboard`) and metric tertile galleries for the five topology/ecology/compressibility metrics (defaults wired into visualizer CLI).
+- **`visualizer.py`** + **`__main__.py`**: run as `python -m worldspace.visualizer` with **`--output-dir`** (required) and optional **`--metrics-jsonl`** (writes `dominant_metric_delta.png`, `pca.png`, `umap.png`) and/or **`--ca-step-jsonl`** (writes `ca_step_timeseries.png`, `pca_trajectories.png`, `umap_trajectories.png`). Optional **`--ca-trace-worlds`**, **`--metrics`**, **`--summary`**, diagnostic/gallery flags (see `docs/WORLDSPACE.md` §6.1, §8).
 
 Public re-exports also live on `worldspace` (from `worldspace.visualizer`).
 
@@ -173,6 +190,8 @@ Files:
 - `worldspace/specs/neural_world_generator.yaml`
 - `worldspace/specs/map_elites_scheduler.yaml` (MAP-Elites illuminator iteration mix and limits)
 - `worldspace/specs/map_elites_scheduler_mini.yaml` (fast CI / reproducibility scheduler)
+- `worldspace/specs/map_elites_scheduler_nightly.yaml` (nightly baseline, 650 iterations)
+- `worldspace/specs/map_elites_scheduler_nightly_surrogate.yaml` (nightly phase 2, surrogate on)
 
 These files define default generator behavior and provider/model routing; the CLI flag `--generator-spec PATH` overrides the path when using `--generator genetic|llm|hybrid|neural` (the YAML shape is validated for that generator).
 
@@ -194,6 +213,12 @@ Other generator modes:
 Optional persistence (JSONL only, one JSON object per line):
 
 - `--metrics-trace PATH` — JSONL: one line per world after dominant-metric-delta layout + k-means (`yield_index`, `world`, `metrics`, `dominant_metric_delta_xy`, `dominant_metric_delta_axis_labels`, `cluster_id`). See `docs/WORLDSPACE.md` §6.1.
+
+MAP-Elites illuminator (separate from `--generator`):
+
+`python -m worldspace --illuminator mapelites --scheduler worldspace/specs/map_elites_scheduler.yaml --output-dir output/`
+
+Flags in `worldspace/cli_mapelites.py`: `--seed`, `--grid-resolution`, `--iterations`, `--scheduler`, `--load-archive`, `--output-dir`, plus shared `--steps` (≥ 200), `--grid`.
 
 Optional copy of each full space record to stdout (no `yield_index` in those lines):
 
