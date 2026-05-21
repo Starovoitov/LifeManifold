@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_dashboard_dir = Path(__file__).resolve().parent
+if str(_dashboard_dir) not in sys.path:
+    sys.path.insert(0, str(_dashboard_dir))
+
+import path_setup
+
+path_setup.install_paths(__file__)
+
 import streamlit as st
 
 from dashboard.utils.bootstrap import ensure_repo_on_path

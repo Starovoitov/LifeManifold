@@ -26,9 +26,18 @@ Alternative: `pip install -r dashboard/requirements.txt`
 
 ## Run
 
+From the `dashboard/` directory (recommended):
+
 ```bash
 cd dashboard
 streamlit run Home.py
+```
+
+Entry scripts call `path_setup.install_paths()` before `import dashboard` so the repo root is on `PYTHONPATH`. If you see `ModuleNotFoundError: No module named 'dashboard'`, run from repo root instead:
+
+```bash
+cd /path/to/LifeManifold
+PYTHONPATH=. streamlit run dashboard/Home.py
 ```
 
 Smoke data for local development: `artifacts/map_elites_smoke/map_elites_archive.jsonl`.

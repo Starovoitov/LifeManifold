@@ -16,6 +16,7 @@ __all__ = [
     "load_config",
     "repo_root",
     "resolve_repo_path",
+    "resolve_surrogate_buffer_path",
 ]
 
 
@@ -62,3 +63,17 @@ def existing_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
         if resolved.is_file():
             found.append(resolved)
     return found
+
+
+def resolve_surrogate_buffer_path(cfg: dict[str, Any] | None = None) -> Path:
+    """Resolve configured surrogate training buffer JSONL path."""
+    config = cfg if cfg is not None else load_config()
+    paths_section = config.get("paths")
+    if not isinstance(paths_section, dict):
+        msg = "config paths section missing"
+        raise KeyError(msg)
+    raw = paths_section.get("surrogate_buffer")
+    if not isinstance(raw, str) or not raw.strip():
+        msg = "paths.surrogate_buffer must be a non-empty string"
+        raise KeyError(msg)
+    return resolve_repo_path(raw)
