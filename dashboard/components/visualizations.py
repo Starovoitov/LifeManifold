@@ -56,6 +56,7 @@ __all__ = [
     "create_archive_heatmap",
     "create_diagnostic_dashboard",
     "create_metrics_radar",
+    "plot_calibration_by_uncertainty",
     "plot_real_vs_predicted",
 ]
 
@@ -219,6 +220,55 @@ def plot_real_vs_predicted(
         title=f"Real vs predicted — {label}",
         xaxis_title=f"Real {label}",
         yaxis_title=f"Predicted {label}",
+        height=default_figure_height(),
+    )
+    return apply_dark_theme(fig)
+
+
+def plot_calibration_by_uncertainty(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    uncertainty: np.ndarray,
+    *,
+    n_bins: int = 8,
+) -> go.Figure:
+    """Bar chart of mean absolute error per uncertainty quantile bin."""
+    from dashboard.utils.surrogate_analysis import calibration_table
+
+    table = calibration_table(y_true, y_pred, uncertainty, n_bins=n_bins)
+    fig = go.Figure()
+    if table.empty:
+        fig.add_annotation(
+            text="Not enough points for calibration bins.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(
+            height=default_figure_height(), margin=dict(l=40, r=40, t=40, b=40)
+        )
+        return apply_dark_theme(fig)
+
+    labels = [
+        f"{row['uncertainty_lo']:.2f}–{row['uncertainty_hi']:.2f}"
+        for _, row in table.iterrows()
+    ]
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=table["mae"].to_numpy(dtype=np.float64),
+            name="MAE",
+            marker_color="#4a6fa5",
+            hovertemplate="bin %{x}<br>MAE=%{y:.4f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Calibration — MAE by uncertainty bin",
+        xaxis_title="Uncertainty bin",
+        yaxis_title="Mean absolute error",
         height=default_figure_height(),
     )
     return apply_dark_theme(fig)

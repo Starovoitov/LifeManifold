@@ -18,6 +18,8 @@ defaults:
 
 surrogate:
   enabled: true
+  stub_mean: 0.5
+  stub_uncertainty: 0.85
   micro_checkpoint_fallback: artifacts/surrogate/checkpoints/micro.pkl
 
 performance:

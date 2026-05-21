@@ -159,10 +159,19 @@ def render_diagnostic_panel(
     title = " — ".join(title_parts)
 
     sim_result = run_cached_simulation_with_ui(world_spec)
+    resolved_surrogate = surrogate_pred
+    if resolved_surrogate is None:
+        from dashboard.components.surrogate_widget import (
+            predict_world_spec_dict,
+            surrogate_status,
+        )
+
+        if not surrogate_status().is_stub:
+            resolved_surrogate = predict_world_spec_dict(world_spec)
     diagnostic_fig = create_diagnostic_dashboard(
         sim_result,
         title=title,
-        surrogate_pred=surrogate_pred,
+        surrogate_pred=resolved_surrogate,
     )
 
     archive_metrics = metrics_dict_from_row(row_dict)

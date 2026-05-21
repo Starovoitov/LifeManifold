@@ -73,6 +73,17 @@ class TestDashboardVisualizations(unittest.TestCase):
         add_boundary_overlay(fig, interface)
         self.assertEqual(_figure_traces(fig)[0].type, "contour")
 
+    def test_plot_calibration_by_uncertainty_builds_bar(self) -> None:
+        from dashboard.components.visualizations import plot_calibration_by_uncertainty
+
+        rng = np.random.default_rng(1)
+        y_true = rng.random(32)
+        y_pred = y_true + rng.normal(0.0, 0.05, 32)
+        uncertainty = rng.random(32)
+        fig = plot_calibration_by_uncertainty(y_true, y_pred, uncertainty, n_bins=4)
+        trace_types = {trace.type for trace in _figure_traces(fig)}
+        self.assertIn("bar", trace_types)
+
     def test_plot_real_vs_predicted_has_scatter_and_reference(self) -> None:
         from dashboard.components.visualizations import plot_real_vs_predicted
 
