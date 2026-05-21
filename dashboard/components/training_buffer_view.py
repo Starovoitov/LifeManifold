@@ -228,7 +228,11 @@ def target_distribution_chart_frame(series: pd.Series) -> pd.DataFrame:
     n_bins = min(20, max(5, len(clean) // 10))
     if unique_count <= n_bins:
         counts = clean.value_counts().sort_index()
-        return counts.rename("count").to_frame()
-    binned = pd.cut(clean, bins=n_bins)
-    counts = binned.value_counts().sort_index()
-    return counts.rename("count").to_frame()
+        frame = counts.rename("count").to_frame()
+    else:
+        binned = pd.cut(clean, bins=n_bins)
+        counts = binned.value_counts().sort_index()
+        frame = counts.rename("count").to_frame()
+    # Streamlit/Altair require plain string (or numeric) axis labels, not pd.Interval.
+    frame.index = frame.index.map(str)
+    return frame

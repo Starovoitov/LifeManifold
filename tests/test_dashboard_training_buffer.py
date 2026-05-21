@@ -226,6 +226,15 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         self.assertTrue(filtered.empty)
         self.assertEqual(filtered_raw, [])
 
+    def test_target_distribution_chart_frame_string_index_for_bins(self) -> None:
+        from dashboard.components.training_buffer_view import target_distribution_chart_frame
+
+        series = pd.Series([0.01 * i for i in range(50)])
+        frame = target_distribution_chart_frame(series)
+        self.assertFalse(frame.empty)
+        for label in frame.index:
+            self.assertIsInstance(label, str)
+
     def test_effective_table_page_size_clamps_invalid_config(self) -> None:
         from dashboard.components.training_buffer_view import effective_table_page_size
 
