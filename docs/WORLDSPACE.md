@@ -92,7 +92,7 @@ flowchart TB
 | `cli.py`, `cli_mapelites.py`, `__main__.py` | Legacy `--generator` and `--illuminator mapelites` |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
-Short package architecture overview: [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md). This file covers parameter semantics, metrics, and CLI.
+Package architecture overview: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md). This file covers parameter semantics, metrics, and CLI.
 
 ---
 
@@ -303,7 +303,7 @@ flowchart LR
 
 ### 5.1. Scalar `mo_eoc_indicator` (Multi-Objective + Edge-of-Chaos)
 
-The final value is written to JSON as `metrics.mo_eoc_indicator` and computed in `worldspace.metrics.multi_objective_edge_of_chaos_indicator` after `run_world`. Below, the same notation as in code.
+The final value is written to JSON as `metrics.mo_eoc_indicator` and computed in `worldspace.metrics.multi_objective_edge_of_chaos_indicator` after `run_world`. Full coefficient rationale: [**FORMULAS.md §5**](FORMULAS.md). Below, the same notation as in code.
 
 **Inputs (already computed world scalars):**
 
@@ -585,6 +585,7 @@ Makefile: `make smoke-map-elites`, `make nightly-map-elites`.
 
 ## See also
 
-- [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md) — package architecture overview (MAP-Elites, surrogate, nightly).
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — package map, two execution paths, module layout.
+- [`docs/FORMULAS.md`](FORMULAS.md) — all metrics, `mo_eoc_indicator`, MAP-Elites fitness, genome encoding.
 - [`docs/MAPELITES.md`](MAPELITES.md) — MAP-Elites: algorithm, schemas, JSONL inputs/outputs.
 - [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate: stages, I/O, quality thresholds.

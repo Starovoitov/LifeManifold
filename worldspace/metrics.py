@@ -73,7 +73,7 @@ def multi_objective_edge_of_chaos_indicator(
 
     Uses **curvature** ``C_H = H(1-H)`` on binary entropy ``H`` (not raw ``H`` alone in the EoC
     gate) and **activity × persistence** ``C_AP = A · P`` with ``A = oscillation_score``,
-    ``P = clip(average_lifespan/10, 0, 1)``. See ``docs/WORLDSPACE.md`` §5.1 for coefficients.
+    ``P = clip(average_lifespan/10, 0, 1)``. See ``docs/FORMULAS.md`` §5 for coefficients.
     """
     h = float(entropy)
     c_h = h * (1.0 - h)

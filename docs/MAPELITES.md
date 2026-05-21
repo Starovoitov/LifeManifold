@@ -6,7 +6,8 @@ Related material:
 
 - [`docs/WORLDSPACE.md`](WORLDSPACE.md) — simulator, `WorldSpec`, 12 behavioral metrics
 - [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate (LLM hints, training buffer)
-- [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md) — `worldspace` package architecture overview
+- [`docs/FORMULAS.md`](FORMULAS.md) — `compute_fitness`, BC metrics, coefficients
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — `worldspace` package map and execution paths
 
 ---
 
@@ -616,4 +617,5 @@ The pipeline builds a **similarity map** for one batch (PCA/k-means). MAP-Elites
 
 - [`docs/WORLDSPACE.md`](WORLDSPACE.md) — simulator and metrics
 - [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate in MAP-Elites
-- [`worldspace/ARCHITECTURE.md`](../worldspace/ARCHITECTURE.md) — full `worldspace` overview
+- [`docs/FORMULAS.md`](FORMULAS.md) — fitness and metric formulas
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — full `worldspace` overview
