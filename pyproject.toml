@@ -30,6 +30,9 @@ dashboard = [
     "plotly",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"dashboard/**" = ["E402"]
+
 [tool.pyright]
 pythonVersion = "3.11"
 venvPath = "."

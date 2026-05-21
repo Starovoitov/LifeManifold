@@ -5,8 +5,11 @@ from __future__ import annotations
 import plotly.graph_objects as go
 import streamlit as st
 
-from utils.config import existing_archive_paths, load_config, repo_root
-from utils.plotting import apply_dark_theme, default_figure_height
+from dashboard.utils.bootstrap import ensure_repo_on_path
+from dashboard.utils.config import existing_archive_paths, load_config, repo_root
+from dashboard.utils.plotting import apply_dark_theme, default_figure_height
+
+ensure_repo_on_path()
 
 st.set_page_config(
     page_title="LifeManifold Dashboard",
