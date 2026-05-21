@@ -4,13 +4,25 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
+import plotly.graph_objects as go
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SMOKE_ARCHIVE = (
     _REPO_ROOT / "artifacts" / "map_elites_smoke" / "map_elites_archive.jsonl"
 )
+
+
+def _figure_traces(fig: go.Figure) -> tuple[Any, ...]:
+    """Plotly stubs type ``fig.data`` as ``Unknown | Figure``; cast for tests."""
+    return tuple(cast(Any, fig).data)
+
+
+def _figure_layout(fig: go.Figure) -> Any:
+    """Same stub issue for ``fig.layout`` / nested layout fields."""
+    return cast(Any, fig).layout
 
 
 class TestDashboardVisualizations(unittest.TestCase):
@@ -26,10 +38,11 @@ class TestDashboardVisualizations(unittest.TestCase):
             metric="fitness",
             resolution=50,
         )
-        self.assertGreater(len(fig.data), 0)
-        self.assertEqual(fig.layout.height, 620)
-        x_title = fig.layout.xaxis.title.text
-        y_title = fig.layout.yaxis.title.text
+        self.assertGreater(len(_figure_traces(fig)), 0)
+        layout = _figure_layout(fig)
+        self.assertEqual(layout.height, 620)
+        x_title = layout.xaxis.title.text
+        y_title = layout.yaxis.title.text
         self.assertIn("Diversity", x_title)
         self.assertIn("Stability", y_title)
 
@@ -43,24 +56,22 @@ class TestDashboardVisualizations(unittest.TestCase):
             "fitness": 0.42,
         }
         fig = create_metrics_radar(metrics)
-        self.assertEqual(fig.data[0].type, "scatterpolar")
+        self.assertEqual(_figure_traces(fig)[0].type, "scatterpolar")
 
     def test_add_boundary_overlay_skips_none(self) -> None:
         from dashboard.components.visualizations import add_boundary_overlay
-        import plotly.graph_objects as go
 
         fig = go.Figure()
         add_boundary_overlay(fig, None)
-        self.assertEqual(len(fig.data), 0)
+        self.assertEqual(len(_figure_traces(fig)), 0)
 
     def test_add_boundary_overlay_adds_contour(self) -> None:
         from dashboard.components.visualizations import add_boundary_overlay
-        import plotly.graph_objects as go
 
         fig = go.Figure()
         interface = np.linspace(0.0, 1.0, 16).reshape(4, 4)
         add_boundary_overlay(fig, interface)
-        self.assertEqual(fig.data[0].type, "contour")
+        self.assertEqual(_figure_traces(fig)[0].type, "contour")
 
     def test_plot_real_vs_predicted_has_scatter_and_reference(self) -> None:
         from dashboard.components.visualizations import plot_real_vs_predicted
@@ -75,16 +86,30 @@ class TestDashboardVisualizations(unittest.TestCase):
             uncertainty,
             metric_name="fitness",
         )
-        types = {trace.type for trace in fig.data}
+        types = {trace.type for trace in _figure_traces(fig)}
         self.assertIn("scatter", types)
-        self.assertGreaterEqual(len(fig.data), 2)
+        self.assertGreaterEqual(len(_figure_traces(fig)), 2)
 
-    def test_create_diagnostic_dashboard_stub(self) -> None:
+    def test_create_diagnostic_dashboard_full_layout(self) -> None:
+        import json
+
         from dashboard.components.visualizations import create_diagnostic_dashboard
+        from dashboard.components.world_renderer import run_world_for_spec_dict
+        from dashboard.utils.data_processing import flatten_archive_record
 
-        fig = create_diagnostic_dashboard()
-        self.assertIsNotNone(fig.layout.title)
-        self.assertGreaterEqual(len(fig.layout.annotations), 1)
+        record = json.loads(_SMOKE_ARCHIVE.read_text(encoding="utf-8").splitlines()[0])
+        row = flatten_archive_record(record)
+        result = run_world_for_spec_dict(row["world_spec"])
+        fig = create_diagnostic_dashboard(result, title="Smoke elite")
+        trace_types = {trace.type for trace in _figure_traces(fig)}
+        self.assertIn("image", trace_types)
+        self.assertIn("heatmap", trace_types)
+        self.assertIn("bar", trace_types)
+        self.assertIn("scatterpolar", trace_types)
+        layout = _figure_layout(fig)
+        self.assertIsNotNone(layout.title)
+        title_text = layout.title.text
+        self.assertIn("Smoke elite", title_text)
 
     def test_pivot_from_dataframe_resolution_50(self) -> None:
         from dashboard.components.visualizations import _pivot_from_dataframe

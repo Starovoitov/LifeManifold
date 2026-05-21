@@ -19,7 +19,12 @@ from dashboard.components.filters import (
     rebuild_pivots_from_collapsed,
     render_archive_filters,
 )
-from dashboard.components.visualizations import create_archive_heatmap
+from dashboard.components.metrics import metrics_dict_from_row
+from dashboard.components.visualizations import (
+    create_archive_heatmap,
+    create_diagnostic_dashboard,
+)
+from dashboard.components.world_renderer import run_and_cache_world_from_dict
 from dashboard.utils.config import existing_archive_paths, load_config, repo_root
 
 st.set_page_config(page_title="Archive Explorer", layout="wide")
@@ -92,3 +97,46 @@ else:
         resolution=filter_state.resolution,
     )
     st.plotly_chart(heatmap_fig, use_container_width=True)
+
+if filtered.empty:
+    st.info("No elites match the current filters.")
+elif "world_spec" not in filtered.columns:
+    st.warning("Archive rows lack world_spec; cannot run diagnostics.")
+else:
+    st.subheader("Elite diagnostic")
+
+    def _elite_label(index: int) -> str:
+        row = filtered.iloc[index]
+        fitness = float(row["fitness"]) if "fitness" in row else float("nan")
+        return (
+            f"bin ({int(row['bin_x'])}, {int(row['bin_y'])}) · "
+            f"fitness={fitness:.4f}"
+        )
+
+    elite_index = st.selectbox(
+        "Select elite",
+        list(range(len(filtered))),
+        format_func=_elite_label,
+    )
+    elite_row = filtered.iloc[elite_index]
+    world_spec = elite_row["world_spec"]
+    if not isinstance(world_spec, dict):
+        st.error("Selected row has no valid world_spec.")
+    else:
+        with st.spinner("Running world simulation…"):
+            sim_result = run_and_cache_world_from_dict(world_spec)
+        archive_metrics = metrics_dict_from_row(elite_row.to_dict())
+        diag_title = _elite_label(elite_index)
+        diagnostic_fig = create_diagnostic_dashboard(
+            sim_result,
+            title=diag_title,
+        )
+        if archive_metrics:
+            st.caption(
+                "Archive metrics (precomputed): "
+                + ", ".join(
+                    f"{key}={value:.3f}"
+                    for key, value in sorted(archive_metrics.items())
+                )
+            )
+        st.plotly_chart(diagnostic_fig, use_container_width=True)
