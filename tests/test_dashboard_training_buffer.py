@@ -227,7 +227,9 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         self.assertEqual(filtered_raw, [])
 
     def test_target_distribution_chart_frame_string_index_for_bins(self) -> None:
-        from dashboard.components.training_buffer_view import target_distribution_chart_frame
+        from dashboard.components.training_buffer_view import (
+            target_distribution_chart_frame,
+        )
 
         series = pd.Series([0.01 * i for i in range(50)])
         frame = target_distribution_chart_frame(series)

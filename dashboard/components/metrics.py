@@ -13,13 +13,72 @@ ensure_repo_on_path()
 
 from worldspace.metrics import METRIC_KEYS
 
+# Short hover / glossary text (aligned with docs/FORMULAS.md §4, WORLD_SPEC_AUDIT §7).
+METRIC_HELP: dict[str, str] = {
+    "entropy": (
+        "Binary Shannon H on the time-mean live density (not spatial pattern entropy). "
+        "Mid occupancy → higher; all-dead or all-live → low."
+    ),
+    "stability": (
+        "1 − σ(ρ)/(μ(ρ)+ε) over per-step mean density. "
+        "Steady density trace → high; wild swings → low. MAP-Elites behavior axis."
+    ),
+    "average_lifespan": (
+        "Mean age at death when a live cell dies (1→0). "
+        "Long-lived cells → high; bar display divides raw value by 10."
+    ),
+    "density_mean": (
+        "Time-mean fraction of live cells. Feeds entropy and extinction-related terms."
+    ),
+    "oscillation_score": (
+        "Peak normalized autocorrelation of recent density (512-step window). "
+        "Rhythmic activity → high."
+    ),
+    "diversity": (
+        "Fraction of unique random 3×3 life patches on the final grid (128 samples). "
+        "MAP-Elites behavior axis."
+    ),
+    "mo_eoc_indicator": (
+        "Multi-objective + edge-of-chaos scalar for GA/LLM search (not MAP-Elites fitness). "
+        "Bar display divides raw value by 3."
+    ),
+    "topology_interface_index": (
+        "Mean Moore share of neighbors where life differs. "
+        "Fragmented boundaries → high (proxy, not Betti numbers)."
+    ),
+    "topology_window_heterogeneity": (
+        "Share of toroidal 2×2 windows with mixed corners. "
+        "Local mesoscale mixing → high."
+    ),
+    "compressibility_score": (
+        "1 − zlib(life‖food)/raw length. Ordered configurations → high; noisy → low."
+    ),
+    "ecology_state_entropy_norm": (
+        "Shannon entropy of joint (life, food) per-cell classes, normalized by log₂(k)."
+    ),
+    "ecology_resource_adjacency": (
+        "On live cells only: mean Moore fraction of food neighbors. "
+        "Consumers near resources → high."
+    ),
+    "fitness": (
+        "MAP-Elites archive fitness (weighted stability, diversity, oscillation, topology)."
+    ),
+}
+
 __all__ = [
+    "METRIC_HELP",
     "METRIC_KEYS",
     "add_metrics_columns",
     "correlation_matrix",
+    "metric_help_text",
     "metrics_dict_from_row",
     "metrics_series_from_dataframe",
 ]
+
+
+def metric_help_text(key: str) -> str:
+    """Return glossary text for a metric key (falls back to the key name)."""
+    return METRIC_HELP.get(key, key.replace("_", " "))
 
 
 def metrics_dict_from_row(row: dict[str, Any]) -> dict[str, float]:

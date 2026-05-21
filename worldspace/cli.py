@@ -114,7 +114,9 @@ def main() -> None:
             "(yield_index, world, metrics, dominant_metric_delta_xy, "
             "dominant_metric_delta_axis_labels, "
             "cluster_id); "
-            "suitable for ``python -m worldspace.visualizer``; any --generator."
+            "suitable for legacy ``python -m worldspace.visualizer`` PNG export; "
+            "MAP-Elites archives: use Streamlit dashboard (dashboard/Home.py). "
+            "Any --generator."
         ),
     )
     parser.add_argument(

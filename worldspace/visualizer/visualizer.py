@@ -5,15 +5,24 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import warnings
 from pathlib import Path
 
 from ..metrics import METRICS_VECTOR_DIM
 
+_CLI_DEPRECATION = (
+    "python -m worldspace.visualizer is deprecated for MAP-Elites research. "
+    "Use: cd dashboard && streamlit run Home.py. "
+    "This CLI remains for pipeline metrics/CA-step PNG export only."
+)
+
 
 def main(argv: list[str] | None = None) -> None:
+    warnings.warn(_CLI_DEPRECATION, DeprecationWarning, stacklevel=1)
     parser = argparse.ArgumentParser(
         prog="python -m worldspace.visualizer",
         description=(
+            "[DEPRECATED for archive research — use Streamlit dashboard.] "
             "Render visualizations into ``--output-dir`` using fixed filenames. "
             "Always writes ``diagnostic_dashboard.png`` (optional ``--world-spec-json`` "
             "overrides the default random world) and ``gallery_<metric>.png`` for each "

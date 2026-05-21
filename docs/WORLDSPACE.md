@@ -88,7 +88,7 @@ flowchart TB
 | `illuminators/` | Archive, `evaluate_candidate`, scheduler, emitters, loop, `MapElitesIlluminator` |
 | `surrogate/` | Features, JSONL buffer, `get_surrogate`, training (see [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md)) |
 | `visualizer/plotting.py`, `diagnostics.py` | Scatter/trajectories; single-world dashboard and tertile galleries |
-| `visualizer/` | `python -m worldspace.visualizer` |
+| `visualizer/` | **Deprecated** PNG CLI (`python -m worldspace.visualizer`); use `dashboard/` for archives |
 | `cli.py`, `cli_mapelites.py`, `__main__.py` | Legacy `--generator` and `--illuminator mapelites` |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
@@ -513,7 +513,16 @@ python -m worldspace --metrics-trace results/trace.jsonl --ca-step-trace results
 
 To duplicate full per-world records to stdout (without writing a file), set **--echo-lines**.
 
-**Visualization** (single entry point, pandas + matplotlib):
+**Research dashboard (primary, MAP-Elites archives and diagnostics):**
+
+```bash
+cd dashboard
+streamlit run Home.py
+```
+
+See [DASHBOARD.md](DASHBOARD.md).
+
+**Legacy matplotlib CLI (deprecated)** — pipeline metrics / CA-step PNG only:
 
 ```bash
 uv run python -m worldspace.visualizer \
@@ -526,7 +535,7 @@ uv run python -m worldspace.visualizer \
 
 From **--metrics-jsonl**: **dominant_metric_delta.png**, **pca.png**, **umap.png** (see §6.1; k-means color). From **--ca-step-jsonl**: **ca_step_timeseries.png**, **pca_trajectories.png**, **umap_trajectories.png**; **--summary** prints **mean/std/min/max** of metrics by **yield_index**.
 
-`plot_simulation_final_grid` (API in `worldspace.visualizer.plotting`) uses `result.final_life`.
+Plot helpers live in `worldspace.visualizer.plotting` (not re-exported from `import worldspace`).
 
 ### 8.1 MAP-Elites (quality-diversity)
 

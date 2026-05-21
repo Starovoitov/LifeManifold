@@ -17,6 +17,7 @@ The package is an **offline research pipeline** (no `celery`, `redis`, or legacy
 | [**WORLDSPACE.md**](WORLDSPACE.md) | `WorldSpec`, simulator step-by-step, legacy pipeline (PCA/k-means), generators, CLI flags |
 | [**MAPELITES.md**](MAPELITES.md) | MAP-Elites algorithm, archive JSONL schema, state diagrams, schedulers, emitters, resume |
 | [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md) | Surrogate buffer, training, LLM hints, quality gates |
+| [**DASHBOARD.md**](DASHBOARD.md) | Streamlit research dashboard (setup, pages, config) |
 | [artifacts/surrogate/README.md](../artifacts/surrogate/README.md) | Buffer paths, train commands |
 
 
@@ -114,7 +115,8 @@ flowchart LR
 | `pipeline.py` | `stream_world_space_to_jsonl` |
 | `illuminators/` | MAP-Elites loop, archive, evaluation |
 | `surrogate/` | Features, buffer, `get_surrogate` |
-| `visualizer/` | Plots from JSONL traces |
+| `visualizer/` | **Deprecated** matplotlib PNG from pipeline JSONL traces |
+| `dashboard/` | **Primary** Streamlit research UI (archives, surrogate, metrics) |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
 ---
@@ -206,7 +208,8 @@ flowchart TD
 | `--generator random --worlds N --steps S --grid G` | [WORLDSPACE.md §8](WORLDSPACE.md) |
 | `--metrics-trace`, `--ca-step-trace`, `--echo-lines` | [WORLDSPACE.md §8](WORLDSPACE.md) |
 | `--illuminator mapelites --scheduler … --output-dir …` | [MAPELITES.md §2](MAPELITES.md) |
-| `python -m worldspace.visualizer --output-dir …` | [WORLDSPACE.md §8](WORLDSPACE.md) |
+| `cd dashboard && streamlit run Home.py` | Streamlit dashboard (MAP-Elites research) |
+| `python -m worldspace.visualizer --output-dir …` | **Deprecated** pipeline PNG only — [WORLDSPACE.md §8](WORLDSPACE.md) |
 
 ---
 

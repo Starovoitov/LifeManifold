@@ -9,6 +9,7 @@ import streamlit as st
 
 from dashboard.components.metrics import metrics_dict_from_row
 from dashboard.components.visualizations import (
+    DIAGNOSTIC_PANEL_HELP,
     create_diagnostic_dashboard,
     format_diagnostic_interpretation,
 )
@@ -94,31 +95,34 @@ def format_elite_bin_label(frame: pd.DataFrame, bin_xy: tuple[int, int]) -> str:
     return " · ".join(parts)
 
 
+def _normalize_bin_xy(value: object) -> tuple[int, int] | None:
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return (int(value[0]), int(value[1]))
+    return None
+
+
 def sync_selected_bin_selectbox(
     frame: pd.DataFrame,
     *,
     label: str = "Selected bin",
 ) -> pd.Series | None:
-    """Fallback bin picker until heatmap click (E4.2); updates session state."""
+    """Bin picker wired to ``SESSION_KEY_SELECTED_BIN`` (one rerun per change)."""
     bins = list_bins_from_frame(frame)
     if not bins:
         return None
 
-    current = st.session_state.get(SESSION_KEY_SELECTED_BIN)
-    if not isinstance(current, (list, tuple)) or len(current) != 2:
-        st.session_state[SESSION_KEY_SELECTED_BIN] = bins[0]
-    elif (int(current[0]), int(current[1])) not in bins:
+    current = _normalize_bin_xy(st.session_state.get(SESSION_KEY_SELECTED_BIN))
+    if current is None or current not in bins:
         st.session_state[SESSION_KEY_SELECTED_BIN] = bins[0]
 
-    index = bins.index(tuple(st.session_state[SESSION_KEY_SELECTED_BIN]))
     chosen = st.selectbox(
         label,
         bins,
-        index=index,
         format_func=lambda bin_xy: format_elite_bin_label(frame, bin_xy),
+        key=SESSION_KEY_SELECTED_BIN,
     )
-    st.session_state[SESSION_KEY_SELECTED_BIN] = chosen
-    return elite_row_for_bin(frame, chosen[0], chosen[1])
+    bin_xy = _normalize_bin_xy(chosen) or bins[0]
+    return elite_row_for_bin(frame, bin_xy[0], bin_xy[1])
 
 
 def run_cached_simulation_with_ui(world_spec: dict[str, Any]) -> SimulationResult:
@@ -161,6 +165,7 @@ def render_diagnostic_panel(
     title_parts.append(f"fitness={fitness:.4f}")
     title = " — ".join(title_parts)
 
+    spec_hash = canonical_world_spec_hash(world_spec)
     sim_result = run_cached_simulation_with_ui(world_spec)
     resolved_surrogate = surrogate_pred
     if resolved_surrogate is None:
@@ -185,7 +190,15 @@ def render_diagnostic_panel(
                 f"{key}={value:.3f}" for key, value in sorted(archive_metrics.items())
             )
         )
-    st.plotly_chart(diagnostic_fig, use_container_width=True)
+    chart_key = "explorer_diagnostic"
+    if bin_x is not None and bin_y is not None:
+        chart_key = f"{chart_key}_{bin_x}_{bin_y}_{spec_hash[:16]}"
+    else:
+        chart_key = f"{chart_key}_{spec_hash[:16]}"
+    st.plotly_chart(diagnostic_fig, use_container_width=True, key=chart_key)
+    with st.expander("What do these panels mean?", expanded=False):
+        for panel_key, blurb in DIAGNOSTIC_PANEL_HELP.items():
+            st.markdown(f"**{panel_key.replace('_', ' ').title()}** — {blurb}")
     if sim_result.metrics is not None:
         st.markdown("##### Interpretation")
         for paragraph in format_diagnostic_interpretation(sim_result.metrics).split(

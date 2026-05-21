@@ -10,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from dashboard.components.metrics import METRIC_HELP, metric_help_text
 from dashboard.utils.bootstrap import ensure_repo_on_path
 from dashboard.utils.plotting import apply_dark_theme, default_figure_height
 
@@ -61,6 +62,24 @@ _HETERO_LABELS: dict[float, str] = {
     1.0: "Mixed corners",
 }
 
+_HETERO_HELP: dict[int, str] = {
+    0: ("Uniform 2×2 torus window: all four corners share the same life state."),
+    1: ("Mixed 2×2 window: corners differ — local edge / blending (mesoscale proxy)."),
+}
+
+DIAGNOSTIC_PANEL_HELP: dict[str, str] = {
+    "life_food": (
+        "Final life/food field with warm boundary tint (life vs non-life edge strength). "
+        "Hover a cell for state and boundary."
+    ),
+    "hetero": "Per-cell 2×2 window heterogeneity (0 = uniform, 1 = mixed corners).",
+    "food_neighbor": (
+        "Food density in 8 Moore neighbors; tint on live cells only (cool → warm)."
+    ),
+    "metrics": "All 12 world metrics on a 0–1 display scale (some rescaled for bars).",
+    "radar": "Subset of metrics on the radar (values clipped to [0, 1]).",
+}
+
 DIAGNOSTIC_FIGURE_WIDTH = 1280
 DIAGNOSTIC_FIGURE_HEIGHT = 920
 
@@ -75,6 +94,8 @@ __all__ = [
     "create_archive_heatmap",
     "create_correlation_heatmap",
     "create_diagnostic_dashboard",
+    "DIAGNOSTIC_PANEL_HELP",
+    "METRIC_HELP",
     "format_diagnostic_interpretation",
     "create_metric_histogram",
     "create_metrics_radar",
@@ -538,6 +559,89 @@ def _add_panel_legend(
         y_cursor -= line_h
 
 
+def _add_cell_hover_layer(
+    fig: go.Figure,
+    hover_text: np.ndarray,
+    *,
+    row: int,
+    col: int,
+) -> None:
+    """Invisible heatmap so Image panels get per-cell hover text."""
+    fig.add_trace(
+        go.Heatmap(
+            z=np.zeros(hover_text.shape, dtype=np.float32),
+            text=hover_text,
+            hovertemplate="%{text}<extra></extra>",
+            opacity=0.0,
+            showscale=False,
+        ),
+        row=row,
+        col=col,
+    )
+
+
+def _life_food_hover_text(
+    life: np.ndarray,
+    food: np.ndarray,
+    boundary: np.ndarray,
+) -> np.ndarray:
+    """Per-cell hover lines for the life + food · boundary panel."""
+    life_on = life >= 0.5
+    food_on = food >= 0.5
+    both = life_on & food_on
+    life_only = life_on & ~food_on
+    food_only = food_on & ~life_on
+    empty = ~life_on & ~food_on
+    state = np.full(life.shape, "empty", dtype=object)
+    state[life_only] = "life only"
+    state[food_only] = "food only"
+    state[both] = "life + food"
+    state[empty] = "empty"
+    b = boundary.astype(np.float64)
+    lines = np.empty(life.shape, dtype=object)
+    for i in range(life.shape[0]):
+        for j in range(life.shape[1]):
+            lines[i, j] = f"<b>{state[i, j]}</b><br>boundary strength={b[i, j]:.2f}"
+    return lines
+
+
+def _food_neighbor_hover_text(
+    life: np.ndarray,
+    food: np.ndarray,
+    fnb: np.ndarray,
+) -> np.ndarray:
+    """Per-cell hover lines for the food-neighbor panel."""
+    life_on = life >= 0.5
+    food_on = food >= 0.5
+    both = life_on & food_on
+    life_only = life_on & ~food_on
+    food_only = food_on & ~life_on
+    empty = ~life_on & ~food_on
+    state = np.full(life.shape, "empty", dtype=object)
+    state[life_only] = "life only"
+    state[food_only] = "food only"
+    state[both] = "life + food"
+    state[empty] = "empty"
+    lines = np.empty(life.shape, dtype=object)
+    for i in range(life.shape[0]):
+        for j in range(life.shape[1]):
+            if life_on[i, j]:
+                lines[i, j] = (
+                    f"<b>live</b> · {state[i, j]}<br>"
+                    f"food in 8 neighbors={float(fnb[i, j]):.2f}"
+                )
+            else:
+                lines[i, j] = f"<b>non-live</b> · {state[i, j]}"
+    return lines
+
+
+def _heterogeneity_hover_text(hetero: np.ndarray) -> np.ndarray:
+    text = np.empty(hetero.shape, dtype=object)
+    text[hetero < 0.5] = _HETERO_HELP[0]
+    text[hetero >= 0.5] = _HETERO_HELP[1]
+    return text
+
+
 def format_diagnostic_interpretation(metrics: WorldMetrics) -> str:
     """Human-readable summary for the diagnostic panel (render in Streamlit, not Plotly)."""
     return _interpretation_block(metrics)
@@ -549,7 +653,7 @@ def create_diagnostic_dashboard(
     surrogate_pred: dict[str, float] | None = None,
     title: str | None = None,
 ) -> go.Figure:
-    """Composite diagnostic figure aligned with ``worldspace.visualizer.diagnostics``."""
+    """Composite diagnostic figure (Plotly; panels aligned with legacy matplotlib diagnostic layout)."""
     life = result.final_life
     food = result.final_food
     if life is None or food is None:
@@ -593,21 +697,29 @@ def create_diagnostic_dashboard(
 
     blended_main = _blend_boundary_on_rgb(base, boundary)
     fig.add_trace(_rgb_image_trace(blended_main), row=1, col=1)
+    _add_cell_hover_layer(
+        fig, _life_food_hover_text(life, food, boundary), row=1, col=1
+    )
+    hetero_hover = _heterogeneity_hover_text(hetero)
     fig.add_trace(
         go.Heatmap(
             z=hetero,
+            text=hetero_hover,
             colorscale=_heterogeneity_colorscale(),
             zmin=0.0,
             zmax=1.0,
             zsmooth=False,
             showscale=False,
-            hovertemplate="hetero=%{z:.0f}<extra></extra>",
+            hovertemplate=(
+                "<b>2×2 heterogeneity=%{z:.0f}</b><br>%{text}<extra></extra>"
+            ),
         ),
         row=1,
         col=2,
     )
     blend_adj = _blend_food_neighbor_rgb(life, base, fnb)
     fig.add_trace(_rgb_image_trace(blend_adj), row=1, col=3)
+    _add_cell_hover_layer(fig, _food_neighbor_hover_text(life, food, fnb), row=1, col=3)
 
     _add_panel_legend(
         fig,
@@ -636,13 +748,30 @@ def create_diagnostic_dashboard(
 
     names, bar_vals = _metrics_bar_values(metrics)
     bar_colors = ["#4a6fa5"] * 7 + ["#b85c38"] * 5
+    bar_help = [metric_help_text(name) for name in names]
     fig.add_trace(
         go.Bar(
             x=bar_vals,
             y=names,
             orientation="h",
             marker=dict(color=bar_colors, line=dict(color="#222222", width=0.3)),
-            hovertemplate="%{y}: %{x:.3f}<extra></extra>",
+            customdata=bar_help,
+            hovertemplate=(
+                "<b>%{y}</b><br>display=%{x:.3f}<br>%{customdata}<extra></extra>"
+            ),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=np.zeros(len(names), dtype=np.float64),
+            y=names,
+            mode="markers",
+            marker=dict(size=16, color="rgba(0,0,0,0)"),
+            customdata=bar_help,
+            hovertemplate="%{customdata}<extra></extra>",
+            showlegend=False,
         ),
         row=2,
         col=1,
@@ -653,6 +782,19 @@ def create_diagnostic_dashboard(
     radar_metrics = {key: float(value) for key, value in asdict(metrics).items()}
     radar = create_metrics_radar(radar_metrics)
     for trace in radar.data:
+        if trace.type == "scatterpolar" and trace.theta is not None:
+            thetas = (
+                list(trace.theta)[:-1] if len(trace.theta) > 1 else list(trace.theta)
+            )
+            key_lookup = {k.replace("_", " ").title(): k for k in RADAR_METRIC_KEYS}
+            hover = [
+                metric_help_text(key_lookup.get(str(label), str(label)))
+                for label in thetas
+            ]
+            trace.hovertemplate = (
+                "<b>%{theta}</b><br>%{r:.3f}<br>%{text}<extra></extra>"
+            )
+            trace.text = hover
         fig.add_trace(trace, row=2, col=3)
 
     for col in (1, 2, 3):
@@ -704,6 +846,7 @@ def create_diagnostic_dashboard(
         height=DIAGNOSTIC_FIGURE_HEIGHT,
         showlegend=False,
         margin=dict(l=48, r=24, t=100, b=48),
+        hoverlabel=dict(namelength=-1, font_size=11),
     )
     themed = apply_dark_theme(fig)
     themed.update_layout(title=dict(font=dict(color="#ffffff")))
