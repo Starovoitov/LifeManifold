@@ -101,6 +101,7 @@ def run_map_elites_nightly(
         scheduler_path=sched_path,
         seed=seed,
         elapsed_seconds=elapsed,
+        resume_archive_path=load_archive_path,
     )
     summary_path = out_dir / "nightly_run_summary.json"
     write_nightly_summary(summary_path, report)
@@ -148,9 +149,7 @@ def _write_pipeline_summary(
     path.parent.mkdir(parents=True, exist_ok=True)
     training_payload: dict | None = None
     if training_summary_path.is_file():
-        training_payload = json.loads(
-            training_summary_path.read_text(encoding="utf-8")
-        )
+        training_payload = json.loads(training_summary_path.read_text(encoding="utf-8"))
     payload = {
         "schema_version": baseline.schema_version,
         "seed": baseline.seed,
@@ -161,7 +160,10 @@ def _write_pipeline_summary(
         "baseline": {
             "scheduler": baseline.scheduler_path,
             "output_summary": str(
-                (Path(baseline.archive_jsonl_path).parent / "nightly_run_summary.json").resolve()
+                (
+                    Path(baseline.archive_jsonl_path).parent
+                    / "nightly_run_summary.json"
+                ).resolve()
             ),
             "evaluations": baseline.evaluations,
             "filled_cells": baseline.filled_cells,
@@ -172,7 +174,10 @@ def _write_pipeline_summary(
         "surrogate_run": {
             "scheduler": surrogate.scheduler_path,
             "output_summary": str(
-                (Path(surrogate.archive_jsonl_path).parent / "nightly_run_summary.json").resolve()
+                (
+                    Path(surrogate.archive_jsonl_path).parent
+                    / "nightly_run_summary.json"
+                ).resolve()
             ),
             "evaluations": surrogate.evaluations,
             "filled_cells": surrogate.filled_cells,

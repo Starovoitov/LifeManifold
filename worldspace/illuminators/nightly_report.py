@@ -9,8 +9,10 @@ from pathlib import Path
 
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
+    GridArchive,
     count_archive_jsonl_lines,
     load_and_collapse_jsonl,
+    merge_archives,
 )
 from worldspace.illuminators.illuminator import MapElitesRunResult
 from worldspace.illuminators.scheduler import SchedulerConfig
@@ -54,12 +56,18 @@ def build_nightly_report(
     scheduler_path: str | Path,
     seed: int,
     elapsed_seconds: float,
+    resume_archive_path: str | Path | None = None,
 ) -> NightlyRunReport:
     """Validate on-disk JSONL and compute fill metrics."""
     jsonl_path = result.archive_jsonl_path
     resolution = config.grid_resolution
     raw_lines = count_archive_jsonl_lines(jsonl_path)
-    collapsed = load_and_collapse_jsonl(jsonl_path, resolution=resolution)
+    run_only = load_and_collapse_jsonl(jsonl_path, resolution=resolution)
+    collapsed = _collapsed_archive_for_validation(
+        jsonl_path,
+        resolution=resolution,
+        resume_archive_path=resume_archive_path,
+    )
     collapsed_cells = collapsed.filled_count()
     if collapsed_cells != result.filled_cells:
         msg = (
@@ -70,8 +78,9 @@ def build_nightly_report(
     if collapsed_cells > _MAX_ARCHIVE_CELLS:
         msg = f"collapsed cells {collapsed_cells} exceed grid capacity {_MAX_ARCHIVE_CELLS}"
         raise RuntimeError(msg)
-    if raw_lines < collapsed_cells:
-        msg = "raw JSONL line count must be >= collapsed cell count"
+    run_only_cells = run_only.filled_count()
+    if raw_lines < run_only_cells:
+        msg = "raw JSONL line count must be >= collapsed cell count for this run"
         raise RuntimeError(msg)
     total_cells = resolution * resolution
     coverage = float(collapsed_cells) / float(total_cells) if total_cells else 0.0
@@ -141,3 +150,18 @@ def log_nightly_report(report: NightlyRunReport) -> None:
         f"elapsed={report.elapsed_seconds:.1f}s, "
         f"archive={report.archive_jsonl_path}"
     )
+
+def _collapsed_archive_for_validation(
+    jsonl_path: str | Path,
+    *,
+    resolution: int,
+    resume_archive_path: str | Path | None = None,
+) -> GridArchive:
+    """Collapse run JSONL; when resuming, merge with the prior archive snapshot."""
+    run_archive = load_and_collapse_jsonl(jsonl_path, resolution=resolution)
+    if resume_archive_path is None:
+        return run_archive
+    base = load_and_collapse_jsonl(resume_archive_path, resolution=resolution)
+    merge_archives(base, run_archive)
+    return base
+

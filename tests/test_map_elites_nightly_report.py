@@ -7,9 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from worldspace.illuminators.archive import load_and_collapse_jsonl
+from worldspace.illuminators.archive import (
+    load_and_collapse_jsonl,
+)
 from worldspace.illuminators.illuminator import MapElitesRunResult
 from worldspace.illuminators.nightly_report import (
+    _collapsed_archive_for_validation,
     build_nightly_report,
     write_nightly_summary,
 )
@@ -121,6 +124,46 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             self.assertEqual(report.filled_cells, 1)
             self.assertEqual(report.jsonl_raw_lines, 1)
             self.assertEqual(report.jsonl_collapsed_cells, 1)
+
+    def test_build_nightly_report_merges_resume_archive(self) -> None:
+        """Phase-3 JSONL is append-only delta; validation must merge baseline."""
+        config = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)
+        with tempfile.TemporaryDirectory() as tmp:
+            base_path = Path(tmp) / "baseline.jsonl"
+            run_path = Path(tmp) / "run.jsonl"
+            lines = [
+                json.dumps(_record_for_bin((0, 0), 0.4, elite_id="base-a")),
+                json.dumps(_record_for_bin((1, 1), 0.5, elite_id="base-b")),
+            ]
+            base_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            run_path.write_text(
+                json.dumps(_record_for_bin((2, 2), 0.6, elite_id="run-c")) + "\n",
+                encoding="utf-8",
+            )
+            merged = _collapsed_archive_for_validation(
+                run_path,
+                resolution=config.grid_resolution,
+                resume_archive_path=base_path,
+            )
+            self.assertEqual(merged.filled_count(), 3)
+            result = MapElitesRunResult(
+                iterations=1,
+                evaluations=4,
+                filled_cells=3,
+                archive_jsonl_path=run_path,
+                counters=RunCounters(candidates_evaluated=4),
+            )
+            report = build_nightly_report(
+                result=result,
+                config=config,
+                scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
+                seed=0,
+                elapsed_seconds=0.0,
+                resume_archive_path=base_path,
+            )
+            self.assertEqual(report.filled_cells, 3)
+            self.assertEqual(report.jsonl_collapsed_cells, 3)
+            self.assertEqual(report.jsonl_raw_lines, 1)
 
     def test_filled_cells_mismatch_raises(self) -> None:
         if not _SMOKE_JSONL.is_file():

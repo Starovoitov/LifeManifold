@@ -17,7 +17,9 @@ class TestNightlyPipelineSummary(unittest.TestCase):
     def test_write_pipeline_summary(self) -> None:
         baseline = NightlyRunReport(
             schema_version="1.0",
-            scheduler_path=str(_REPO_ROOT / "worldspace/specs/map_elites_scheduler_nightly.yaml"),
+            scheduler_path=str(
+                _REPO_ROOT / "worldspace/specs/map_elites_scheduler_nightly.yaml"
+            ),
             seed=0,
             iterations=2,
             evaluations=100,
@@ -30,7 +32,8 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             llm_enabled=False,
             surrogate_enabled=False,
             archive_jsonl_path=str(
-                _REPO_ROOT / "artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
+                _REPO_ROOT
+                / "artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
             ),
         )
         surrogate = NightlyRunReport(
@@ -51,7 +54,8 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             llm_enabled=False,
             surrogate_enabled=True,
             archive_jsonl_path=str(
-                _REPO_ROOT / "artifacts/map_elites_nightly/surrogate/map_elites_archive.jsonl"
+                _REPO_ROOT
+                / "artifacts/map_elites_nightly/surrogate/map_elites_archive.jsonl"
             ),
         )
         with tempfile.TemporaryDirectory() as tmp:
