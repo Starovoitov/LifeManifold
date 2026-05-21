@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from worldspace.surrogate.feature_extractor import FEATURE_NAMES
 from worldspace.surrogate.determinism import (
     DEFAULT_ENSEMBLE_SIZE,
     DEFAULT_RANDOM_STATE,
@@ -69,11 +70,12 @@ class SurrogateModel:
         """Predict all Strategy A target components from extracted features."""
         vector = np.asarray(features, dtype=float).reshape(-1)
         if self._uses_lightgbm:
+            row = _lightgbm_feature_row(vector)
             return {
                 key: float(
                     np.mean(
                         [
-                            float(estimator.predict(vector.reshape(1, -1))[0])
+                            float(estimator.predict(row)[0])
                             for estimator in self._ensemble[key]
                         ]
                     )
@@ -90,11 +92,10 @@ class SurrogateModel:
         if not self._uses_lightgbm:
             return 0.0
         fitness_values: list[float] = []
+        row = _lightgbm_feature_row(vector)
         for member_index in range(self.ensemble_size):
             components = {
-                key: float(
-                    self._ensemble[key][member_index].predict(vector.reshape(1, -1))[0]
-                )
+                key: float(self._ensemble[key][member_index].predict(row)[0])
                 for key in TARGET_KEYS
             }
             prediction = SurrogatePrediction(
@@ -118,7 +119,7 @@ class SurrogateModel:
     ) -> None:
         import lightgbm as lgb
 
-        x_train = np.asarray(feature_matrix, dtype=float)
+        x_train = _lightgbm_feature_matrix(feature_matrix)
         base_params = {
             **lightgbm_deterministic_params(),
             "n_estimators": 64,
@@ -138,6 +139,25 @@ class SurrogateModel:
                 estimators.append(regressor)
             self._ensemble[key] = estimators
         self._uses_lightgbm = True
+
+
+def _lightgbm_feature_matrix(feature_matrix: np.ndarray) -> Any:
+    """Wrap feature rows with stable column names for sklearn LightGBM."""
+    import pandas as pd
+
+    matrix = np.asarray(feature_matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[1] != len(FEATURE_NAMES):
+        msg = (
+            f"feature matrix must be (N, {len(FEATURE_NAMES)}), "
+            f"got shape={matrix.shape!r}"
+        )
+        raise ValueError(msg)
+    return pd.DataFrame(matrix, columns=list(FEATURE_NAMES))
+
+
+def _lightgbm_feature_row(vector: np.ndarray) -> Any:
+    """Single-row feature frame for LightGBM predict."""
+    return _lightgbm_feature_matrix(np.asarray(vector, dtype=float).reshape(1, -1))
 
 
 def _as_float_array(targets: dict[str, np.ndarray], key: str) -> np.ndarray:

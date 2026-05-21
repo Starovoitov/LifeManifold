@@ -7,8 +7,19 @@ import numpy as np
 from worldspace.specs.spec import WorldSpec
 
 FEATURE_SCHEMA_VERSION = "1.0"
+FEATURE_NAMES: tuple[str, ...] = (
+    "birth_density",
+    "survival_density",
+    "noise",
+    "resource_regen",
+    "predation",
+    "grid_size",
+    "steps",
+    "seed",
+)
 
 __all__ = [
+    "FEATURE_NAMES",
     "FEATURE_SCHEMA_VERSION",
     "extract",
 ]

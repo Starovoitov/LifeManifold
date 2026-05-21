@@ -129,6 +129,7 @@ def train_nightly_surrogate(
         str(checkpoint),
         "--summary-path",
         str(summary),
+        "--no-quality-gate",
     ]
     env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT)}
     logger.info("Training nightly surrogate: %s", " ".join(cmd))

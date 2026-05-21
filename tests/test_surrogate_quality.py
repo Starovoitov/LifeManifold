@@ -21,6 +21,23 @@ from worldspace.surrogate.training import holdout_split, load_buffer
 
 
 class TestSurrogateHoldoutQuality(unittest.TestCase):
+    def test_holdout_evaluate_without_sklearn_feature_name_warnings(self) -> None:
+        import warnings
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=400, seed=11)
+            features, targets = load_buffer(buffer_path)
+            x_train, y_train, x_holdout, y_holdout = holdout_split(features, targets)
+            model = SurrogateModel(
+                model_type="lightgbm", random_state=42, ensemble_size=8
+            )
+            model.fit(x_train, y_train)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", UserWarning)
+                metrics = evaluate_holdout(model, x_holdout, y_holdout)
+            self.assertIn("r2_fitness", metrics)
+
     def test_synthetic_buffer_meets_mvp_thresholds(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             buffer_path = Path(tmpdir) / "buffer.jsonl"

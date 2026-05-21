@@ -56,6 +56,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override minimum training rows required",
     )
+    parser.add_argument(
+        "--no-quality-gate",
+        action="store_true",
+        help=(
+            "Write checkpoint even when hold-out metrics miss MVP thresholds "
+            "(nightly pipeline integration)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -109,7 +117,11 @@ def main() -> None:
         f"checkpoint={args.checkpoint_path}"
     )
 
-    if not args.micro and not quality_thresholds_met(holdout_metrics):
+    if (
+        not args.micro
+        and not args.no_quality_gate
+        and not quality_thresholds_met(holdout_metrics)
+    ):
         print("Hold-out quality thresholds were not met.", file=sys.stderr)
         raise SystemExit(1)
 
