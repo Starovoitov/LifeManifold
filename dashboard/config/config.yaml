@@ -1,4 +1,8 @@
 paths:
+  run_scan_dirs:
+    - output
+    - artifacts/map_elites_nightly
+    - artifacts/map_elites_smoke
   archives:
     - output/map_elites_archive.jsonl
     - artifacts/map_elites_nightly/map_elites_archive.jsonl
