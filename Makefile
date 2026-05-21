@@ -1,10 +1,13 @@
 UV ?= uv
 
-.PHONY: install activate pylint fix smoke-map-elites nightly-map-elites
+.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites
 
 install:
 	$(UV) venv
 	$(UV) sync --all-groups
+
+install-dashboard:
+	$(UV) sync --group dashboard
 	@echo ""
 	@echo "Environment ready."
 	@echo "Activate it with: source .venv/bin/activate"

@@ -24,6 +24,11 @@ dev = [
     "ruff",
     "types-PyYAML",
 ]
+dashboard = [
+    "streamlit>=1.42",
+    "polars",
+    "plotly",
+]
 
 [tool.pyright]
 pythonVersion = "3.11"

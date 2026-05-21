@@ -1,0 +1,30 @@
+paths:
+  archives:
+    - output/map_elites_archive.jsonl
+    - artifacts/map_elites_nightly/map_elites_archive.jsonl
+    - artifacts/map_elites_smoke/map_elites_archive.jsonl
+  surrogate_buffer: artifacts/surrogate/buffer.jsonl
+  surrogate_checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  prompts_dir: prompts
+
+defaults:
+  grid_resolution: 50
+  heatmap_metric: fitness
+  min_fitness: 0.0
+
+surrogate:
+  enabled: true
+  micro_checkpoint_fallback: artifacts/surrogate/checkpoints/micro.pkl
+
+performance:
+  prefer_polars: true
+  large_archive_line_threshold: 5000
+  table_max_rows: 500
+  simulation_cache_size: 32
+  heatmap_metrics:
+    - fitness
+    - stability
+    - diversity
+    - topology_interface_index
+    - topology_window_heterogeneity
+    - oscillation_score

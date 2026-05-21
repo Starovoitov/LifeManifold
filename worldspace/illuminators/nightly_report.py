@@ -151,6 +151,7 @@ def log_nightly_report(report: NightlyRunReport) -> None:
         f"archive={report.archive_jsonl_path}"
     )
 
+
 def _collapsed_archive_for_validation(
     jsonl_path: str | Path,
     *,
@@ -164,4 +165,3 @@ def _collapsed_archive_for_validation(
     base = load_and_collapse_jsonl(resume_archive_path, resolution=resolution)
     merge_archives(base, run_archive)
     return base
-
