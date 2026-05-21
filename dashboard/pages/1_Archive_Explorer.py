@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
+from pathlib import Path
+
 import streamlit as st
 
 from dashboard.utils.bootstrap import ensure_repo_on_path
@@ -18,6 +19,7 @@ from dashboard.components.filters import (
     rebuild_pivots_from_collapsed,
     render_archive_filters,
 )
+from dashboard.components.visualizations import create_archive_heatmap
 from dashboard.utils.config import existing_archive_paths, load_config, repo_root
 
 st.set_page_config(page_title="Archive Explorer", layout="wide")
@@ -30,7 +32,7 @@ if not archives:
     st.stop()
 
 
-def _archive_label(path: object) -> str:
+def _archive_label(path: Path) -> str:
     return str(path.relative_to(repo_root()))
 
 
@@ -78,12 +80,15 @@ st.dataframe(
     hide_index=True,
 )
 
-st.subheader("Pivot preview")
+st.subheader("Archive heatmap")
 metric = filter_state.heatmap_metric
 pivot = filtered_pivots.get(metric)
-if pivot is not None:
-    filled = int((~np.isnan(pivot)).sum())
-    st.write(
-        f"Metric `{metric}`: grid {pivot.shape[0]}×{pivot.shape[1]}, "
-        f"{filled} filled cells (heatmap in E2)."
+if pivot is None:
+    st.info("No pivot data for the selected metric.")
+else:
+    heatmap_fig = create_archive_heatmap(
+        pivot=pivot,
+        metric=metric,
+        resolution=filter_state.resolution,
     )
+    st.plotly_chart(heatmap_fig, use_container_width=True)
