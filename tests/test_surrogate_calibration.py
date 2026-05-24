@@ -1,4 +1,4 @@
-"""Unit tests for surrogate uncertainty calibration (SA-5)."""
+"""Unit tests for surrogate uncertainty calibration."""
 
 from __future__ import annotations
 

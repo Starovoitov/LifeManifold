@@ -1,4 +1,4 @@
-"""Tests for optional consistency refinement during training (SA-6.1)."""
+"""Tests for optional consistency refinement during training."""
 
 from __future__ import annotations
 

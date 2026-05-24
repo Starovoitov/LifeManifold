@@ -1,4 +1,4 @@
-"""Unit and integration tests for nested surrogate retrain (SA-8)."""
+"""Unit and integration tests for nested surrogate retrain."""
 
 from __future__ import annotations
 

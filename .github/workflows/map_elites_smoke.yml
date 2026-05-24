@@ -23,6 +23,13 @@ jobs:
       - name: Run MAP-Elites mini smoke
         run: uv run python -m unittest tests.test_map_elites_smoke -v
 
+      - name: Run surrogate acquisition reproducibility
+        run: |
+          uv run python -m unittest \
+            tests.test_surrogate_reproducibility.TestAcquisitionReproducibility \
+            tests.test_acquisition_filter_smoke \
+            -v
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4

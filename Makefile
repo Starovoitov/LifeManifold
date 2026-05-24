@@ -37,7 +37,7 @@ surrogate-artifacts:
 surrogate-artifacts-quick:
 	$(UV) run python scripts/bootstrap_surrogate_artifacts.py --quick
 
-# SA-0: backfill buffer from artifacts/map_elites_nightly, train latest.pkl, baseline manifest
+# Backfill buffer from artifacts/map_elites_nightly, train latest.pkl, baseline manifest
 surrogate-acquisition-baseline:
 	$(UV) run python scripts/record_surrogate_acquisition_baseline.py --all-archive-lines --allow-quality-fail
 

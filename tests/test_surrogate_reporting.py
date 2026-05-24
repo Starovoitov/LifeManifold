@@ -1,4 +1,4 @@
-"""Unit tests for surrogate acquisition reporting (SA-6.2)."""
+"""Unit tests for surrogate acquisition reporting."""
 
 from __future__ import annotations
 

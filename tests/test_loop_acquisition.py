@@ -1,4 +1,4 @@
-"""Integration tests for acquisition modes in the illuminator loop (SA-3)."""
+"""Integration tests for acquisition modes in the illuminator loop."""
 
 from __future__ import annotations
 

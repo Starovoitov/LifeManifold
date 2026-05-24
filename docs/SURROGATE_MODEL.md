@@ -446,7 +446,37 @@ Specification: [`artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md`](../artifacts
 
 Implemented in `worldspace/surrogate/`: acquisition policies (`acquisition.py`), loop integration (`illuminators/loop.py`), `SurrogateArchive` JSONL, nested retrain (optional YAML), and **uncertainty calibration** (`calibration.py`).
 
-### 8.1 Calibrated uncertainty (SA-5)
+### 8.0 Operating modes and decision point
+
+| `acquisition.mode` | Real `evaluate_candidate` | MAP-Elites archive | SurrogateArchive |
+|--------------------|---------------------------|--------------------|------------------|
+| `off` (default) | Always | Normal | Not written |
+| `shadow` | Always (policy may recommend skip) | Must match `off` | One row per slot; `decision` may be `skip` |
+| `filter` | Only when policy accepts | May differ from `off` | `decision=eval` or `skip` |
+
+Single gate in `worldspace/illuminators/loop.py` inside `run_iteration`, after the emitter produces a `WorldSpec` and before evaluation:
+
+```mermaid
+flowchart TD
+  emit[Emitter emits WorldSpec]
+  prep[prepare_world_spec + canonical seed]
+  pred[surrogate.predict]
+  pol[acquisition_policy.decide]
+  mode{mode?}
+  skip[Log SurrogateArchive skip]
+  eval[evaluate_candidate + buffer + archive insert]
+  emit --> prep --> pred --> pol --> mode
+  mode -->|filter + skip| skip
+  mode -->|off / shadow / filter + eval| eval
+```
+
+**Counters** (`IterationStats`): `evaluated`, `skipped`, `shadow_would_skip`. Skipped slots do not increment `RunCounters.candidates_evaluated` (phase transitions count completed evaluations only).
+
+**CI policy:** pull requests run `shadow` reproducibility tests (`tests/test_surrogate_reproducibility.py`, `tests/test_acquisition_filter_smoke.py`). Full `filter` A/B vs baseline is manual or nightly (see `artifacts/surrogate/README.md`).
+
+Scheduler specs for CI: `worldspace/specs/map_elites_scheduler_mini_surrogate_shadow.yaml`, `..._filter.yaml`.
+
+### 8.1 Calibrated uncertainty
 
 - Offline: `scripts/calibrate_surrogate_uncertainty.py` or `train_surrogate.py --calibrate` → `checkpoints/calibration.pkl`.
 - Runtime: `SurrogateFacade.predict` maps raw ensemble spread through isotonic regression fit on hold-out `|pred_fitness - actual_fitness|`.
@@ -455,7 +485,7 @@ Implemented in `worldspace/surrogate/`: acquisition policies (`acquisition.py`),
 
 Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
-### 8.2 Training and acquisition reports (SA-6)
+### 8.2 Training and acquisition reports
 
 - `train_surrogate.py --consistency-weight 0.1` — optional stability/diversity refinement pass.
 - `--acquisition-report` — hold-out replay: `recommended_skip_rate`, `false_skip_rate_estimate`, `calibration_ece`.

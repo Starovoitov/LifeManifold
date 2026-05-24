@@ -1,4 +1,4 @@
-"""Unit tests for SurrogateArchive writer (SA-4)."""
+"""Unit tests for SurrogateArchive writer."""
 
 from __future__ import annotations
 

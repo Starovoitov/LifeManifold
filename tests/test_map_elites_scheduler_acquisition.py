@@ -1,4 +1,4 @@
-"""Unit tests for Surrogate Acquisition scheduler YAML (SA-1)."""
+"""Unit tests for Surrogate Acquisition scheduler YAML."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""SA-0: backfill buffer from nightly archive, train checkpoint, write baseline manifest."""
+"""Backfill buffer from nightly archive, train checkpoint, write baseline manifest."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ _MANIFEST_SCHEMA = "1.0"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Record Surrogate Acquisition baseline (SA-0)",
+        description="Record Surrogate Acquisition baseline",
     )
     parser.add_argument(
         "--archive-path",
