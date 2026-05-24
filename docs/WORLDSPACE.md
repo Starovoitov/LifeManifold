@@ -570,7 +570,7 @@ The `worldspace/surrogate/` package speeds up **hints** for the LLM emitter; it 
 | After each `evaluate_candidate`, appends a line to the JSONL buffer (`features`, `targets`) | Does not skip `run_world` |
 | In the LLM user prompt, inserts `surrogate_mean` and `surrogate_uncertainty` | Does not change archive fitness (only real simulation) |
 
-Training: `python scripts/train_surrogate.py` (full mode ≥ 2000 buffer lines; `--micro` for smoke). Checkpoint: `artifacts/surrogate/checkpoints/latest.pkl`. Nightly pipeline: `make nightly-map-elites` → baseline → train → `nightly.pkl` → second phase with `surrogate.enabled: true`.
+Local artifacts (synthetic buffer): `make surrogate-artifacts` → `artifacts/surrogate/buffer.jsonl`, `checkpoints/micro.pkl`, `checkpoints/latest.pkl` (see `artifacts/surrogate/README.md`). Training: `python scripts/train_surrogate.py` (full mode ≥ 2000 buffer lines; `--micro` for smoke). Nightly pipeline: `make nightly-map-elites` → baseline → train → `nightly.pkl` → second phase with `surrogate.enabled: true`.
 
 Details: [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md), [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 

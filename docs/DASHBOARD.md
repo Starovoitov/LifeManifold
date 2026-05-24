@@ -42,6 +42,15 @@ PYTHONPATH=. streamlit run dashboard/Home.py
 
 Smoke data for local development: `artifacts/map_elites_smoke/map_elites_archive.jsonl`.
 
+Surrogate buffer and checkpoints (not in git):
+
+```bash
+make surrogate-artifacts        # buffer.jsonl + micro.pkl + latest.pkl
+make surrogate-artifacts-quick  # micro only (~faster)
+```
+
+See `artifacts/surrogate/README.md`.
+
 ## Layout
 
 | Path | Role |

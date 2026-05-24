@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites
+.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick
 
 install:
 	$(UV) venv
@@ -29,3 +29,10 @@ smoke-map-elites:
 
 nightly-map-elites:
 	$(UV) run python -m worldspace.scripts.run_map_elites_nightly
+
+# Local surrogate buffer + checkpoints (synthetic data; artifacts/surrogate/ is gitignored)
+surrogate-artifacts:
+	$(UV) run python scripts/bootstrap_surrogate_artifacts.py
+
+surrogate-artifacts-quick:
+	$(UV) run python scripts/bootstrap_surrogate_artifacts.py --quick

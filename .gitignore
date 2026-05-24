@@ -53,6 +53,7 @@ results/
 artifacts/*
 !artifacts/map_elites_smoke/README.md
 !artifacts/map_elites_nightly/README.md
+!artifacts/surrogate/README.md
 
 # Environment / secrets (never commit)
 .env

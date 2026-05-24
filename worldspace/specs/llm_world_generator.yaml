@@ -2,7 +2,7 @@ version: 1
 
 llm:
   mode: remote
-  active_provider: qwen
+  active_provider: ollama
   global_search: false
   temperature: 0.2
   max_tokens: 350

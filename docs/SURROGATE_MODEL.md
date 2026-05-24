@@ -442,6 +442,11 @@ surrogate:
 
 ## 8. Phase 2 (out of scope for current code)
 
-Planned extensions (separate spec): surrogate-assisted candidate filtering, nested loops, `SurrogateArchive`, acquisition (UCB / EI / Thompson), consistency losses, calibrated uncertainty.
+Specification and task breakdown live in artifacts (not implemented in `worldspace/surrogate/` yet):
+
+- [`artifacts/SURROGATE_MODEL_TZ_PHASE2_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_PHASE2_v1.0.md)
+- [`artifacts/SURROGATE_EPICS_AND_TASKS_PHASE2_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_PHASE2_v1.1.md)
+
+Planned: acquisition modes (`off` / `shadow` / `filter`), `SurrogateArchive` JSONL, threshold (and optional UCB) policies, calibrated uncertainty, optional nested retrain, consistency loss in training.
 
 The MVP pipeline (features → components → `compute_fitness` → prompt + buffer) is designed so Phase 2 can reuse the same contracts.
