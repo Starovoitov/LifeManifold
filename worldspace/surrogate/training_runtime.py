@@ -151,7 +151,9 @@ def train_from_buffer(
             holdout_metrics=holdout_metrics,
             micro=micro,
         )
-    except Exception as exc:  # noqa: BLE001 — training failures must not crash illuminator
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — training failures must not crash illuminator
         return TrainResult(
             success=False,
             sample_count=sample_count,

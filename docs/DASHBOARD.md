@@ -57,12 +57,16 @@ make surrogate-acquisition-baseline
 
 See `artifacts/surrogate/README.md`.
 
+### Acquisition log (SurrogateArchive)
+
+Page **Acquisition Log** reads `paths.surrogate_archive` (default `artifacts/surrogate/surrogate_archive.jsonl`): per-slot `decision`, `acquisition_mode`, and skip KPIs. For local UI smoke tests without a full illuminator run, point config at `tests/fixtures/surrogate_archive_smoke.jsonl`.
+
 ## Layout
 
 | Path | Role |
 |------|------|
 | `dashboard/Home.py` | Overview and navigation |
-| `dashboard/pages/` | Multi-page app (Archive, Surrogate, Metrics, LLM, Buffer) |
+| `dashboard/pages/` | Multi-page app (Archive, Surrogate, Metrics, LLM, Buffer, Acquisition log) |
 | `dashboard/components/` | Loaders, charts, filters |
 | `dashboard/utils/config.py` | YAML config and repo path resolver |
 | `dashboard/utils/plotting.py` | Shared Plotly dark theme |

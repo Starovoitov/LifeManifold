@@ -116,7 +116,7 @@ flowchart LR
 | `illuminators/` | MAP-Elites loop, archive, evaluation |
 | `surrogate/` | Features, buffer, `get_surrogate` |
 | `visualizer/` | **Deprecated** matplotlib PNG from pipeline JSONL traces |
-| `dashboard/` | **Primary** Streamlit research UI (archives, surrogate, metrics) |
+| `dashboard/` | **Primary** Streamlit research UI (archives, surrogate, metrics, acquisition log) |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
 ---
@@ -139,6 +139,7 @@ flowchart LR
 | `--ca-step-trace` JSONL | 1 line / CA step | `pipeline` only | [WORLDSPACE.md §8](WORLDSPACE.md) |
 | `map_elites_archive.jsonl` | schema 1.2 | `illuminators/archive.py` | [MAPELITES.md §10](MAPELITES.md) |
 | Surrogate buffer JSONL | `features` + `targets` | `surrogate/buffer.py` | [SURROGATE_MODEL.md](SURROGATE_MODEL.md) |
+| SurrogateArchive JSONL | acquisition decisions schema 1.0 | dashboard loader | Surrogate Acquisition |
 | `nightly_run_summary.json` | JSON | `nightly_report.py` | [MAPELITES.md §10.3](MAPELITES.md) |
 
 ---
