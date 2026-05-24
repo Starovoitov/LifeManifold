@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+from worldspace.illuminators.cli import print_run_summary, run_illuminator_cli
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS
-from worldspace.illuminators.illuminator import MapElitesIlluminator
 from worldspace.illuminators.scheduler import DEFAULT_SCHEDULER_PATH
 
 
@@ -61,22 +61,8 @@ def run_mapelites_cli(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"--steps must be >= {ILLUMINATOR_MIN_STEPS} for --illuminator mapelites"
         )
-    scheduler_path = args.scheduler.strip() or DEFAULT_SCHEDULER_PATH
-    load_path = args.load_archive.strip()
-    result = MapElitesIlluminator().run(
-        scheduler_path=scheduler_path,
-        output_dir=args.output_dir,
-        seed=args.seed,
-        grid_resolution=args.grid_resolution,
-        grid_size=args.grid,
-        steps=args.steps,
-        iterations=args.iterations,
-        load_archive_path=load_path or None,
-    )
-    print(
-        f"MAP-Elites done: {result.evaluations} evaluations, "
-        f"{result.filled_cells} occupied bins, archive {result.archive_jsonl_path}"
-    )
+    result = run_illuminator_cli(args)
+    print_run_summary(result)
 
 
 _DEFAULT_GRID = 50

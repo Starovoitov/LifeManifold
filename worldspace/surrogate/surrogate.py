@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
 from worldspace.surrogate.feature_extractor import extract as extract_features
 from worldspace.surrogate.model import SurrogateModel
@@ -20,8 +19,6 @@ __all__ = [
     "SurrogateFacade",
     "build_surrogate_facade",
 ]
-
-_CANONICAL_JSON_KWARGS = {"sort_keys": True, "separators": (",", ":")}
 
 
 @dataclass(frozen=True)
@@ -110,10 +107,7 @@ class SurrogateFacade:
             self._cache.popitem(last=False)
 
     def _cache_key(self, world_spec: WorldSpec) -> str:
-        # Use canonical payload so cache identity is independent of runtime ``seed``.
-        payload = world_spec.to_canonical_dict()
-        canonical = json.dumps(payload, **_CANONICAL_JSON_KWARGS)
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return world_spec_canonical_hash(world_spec)
 
 
 def build_surrogate_facade(

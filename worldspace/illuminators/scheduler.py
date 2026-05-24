@@ -102,7 +102,7 @@ class RunCounters:
     candidates_evaluated: int = 0
 
     def record_evaluation(self) -> None:
-        """Increment after each candidate is evaluated (accepted or rejected)."""
+        """Increment after each completed real simulation (skipped slots excluded)."""
         self.candidates_evaluated += 1
 
 

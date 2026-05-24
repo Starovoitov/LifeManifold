@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -32,6 +33,7 @@ class MapElitesRunResult:
     filled_cells: int
     archive_jsonl_path: Path
     counters: RunCounters
+    surrogate_archive_jsonl_path: Path | None = None
 
 
 class MapElitesIlluminator:
@@ -50,7 +52,7 @@ class MapElitesIlluminator:
         load_archive_path: str | Path | None = None,
         emitter: CandidateEmitter | None = None,
     ) -> MapElitesRunResult:
-        """Run MAP-Elites for ``iterations × batch_size`` candidate evaluations."""
+        """Run MAP-Elites for ``iterations × batch_size`` candidate slots."""
         config = load_scheduler(
             scheduler_path or DEFAULT_SCHEDULER_PATH,
             iterations_override=iterations,
@@ -70,6 +72,10 @@ class MapElitesIlluminator:
         rng = np.random.default_rng(seed)
         from worldspace.surrogate import get_surrogate
         from worldspace.surrogate.buffer import SurrogateBuffer
+        from worldspace.surrogate.surrogate_archive import (
+            open_surrogate_archive,
+            surrogate_archive_path_for_output,
+        )
 
         surrogate = get_surrogate(surrogate_config_from_scheduler(config))
         surrogate_buffer = SurrogateBuffer(
@@ -90,33 +96,57 @@ class MapElitesIlluminator:
             scheduler=config,
             surrogate=surrogate,
         )
-        counters = run_scheduler(
-            config,
-            archive,
-            rng,
-            effective_emitter,
-            grid_size=grid_size,
-            steps=effective_steps,
-            jsonl_path=jsonl_path,
-            counters=counters,
-            surrogate_buffer=surrogate_buffer,
-            surrogate=surrogate,
-            retrain_state=retrain_state,
+        run_id = uuid.uuid4().hex
+        surrogate_archive_path = surrogate_archive_path_for_output(out_dir)
+        archive_logging_enabled = (
+            config.surrogate_enabled and config.acquisition.mode != "off"
         )
+        surrogate_archive = open_surrogate_archive(
+            surrogate_archive_path,
+            run_id=run_id,
+            enabled=archive_logging_enabled,
+        )
+        try:
+            counters = run_scheduler(
+                config,
+                archive,
+                rng,
+                effective_emitter,
+                grid_size=grid_size,
+                steps=effective_steps,
+                jsonl_path=jsonl_path,
+                counters=counters,
+                surrogate_buffer=surrogate_buffer,
+                surrogate=surrogate,
+                retrain_state=retrain_state,
+                surrogate_archive=surrogate_archive,
+            )
+        finally:
+            surrogate_archive.close()
         surrogate_buffer.flush()
-        expected_evaluations = config.iterations * config.batch_size
+        expected_slots = config.iterations * config.batch_size
         run_evaluations = counters.candidates_evaluated - start_evaluated
-        if run_evaluations != expected_evaluations:
+        if run_evaluations > expected_slots:
             msg = (
-                f"expected {expected_evaluations} evaluations this run, "
+                f"expected at most {expected_slots} evaluations this run, "
                 f"got {run_evaluations}"
             )
             raise RuntimeError(msg)
+        if config.acquisition.mode in ("off", "shadow"):
+            if run_evaluations != expected_slots:
+                msg = (
+                    f"expected {expected_slots} evaluations this run, "
+                    f"got {run_evaluations}"
+                )
+                raise RuntimeError(msg)
         return MapElitesRunResult(
             iterations=config.iterations,
-            evaluations=expected_evaluations,
+            evaluations=run_evaluations,
             filled_cells=archive.filled_count(),
             archive_jsonl_path=jsonl_path,
+            surrogate_archive_jsonl_path=(
+                surrogate_archive_path if archive_logging_enabled else None
+            ),
             counters=counters,
         )
 
@@ -163,3 +193,20 @@ def _load_archive_and_counters(
             counters = RunCounters()
         return archive, counters
     return GridArchive(config.grid_resolution), RunCounters()
+
+
+def _cli_main() -> None:
+    """Delegate to package CLI (see ``python -m worldspace.illuminators``)."""
+    import sys
+
+    print(
+        "Note: prefer `python -m worldspace.illuminators` " "(no import warning).\n",
+        file=sys.stderr,
+    )
+    from worldspace.illuminators.cli import main
+
+    main()
+
+
+if __name__ == "__main__":
+    _cli_main()

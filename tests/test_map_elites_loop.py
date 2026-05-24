@@ -101,6 +101,7 @@ class TestRunIteration(unittest.TestCase):
             np.random.default_rng(1),
             counters,
             StubCandidateEmitter(),
+            iteration_index=1,
             grid_size=8,
             steps=200,
         )
@@ -115,6 +116,7 @@ class TestRunIteration(unittest.TestCase):
             np.random.default_rng(0),
             RunCounters(),
             StubCandidateEmitter(),
+            iteration_index=1,
             grid_size=8,
             steps=200,
         )
@@ -130,6 +132,7 @@ class TestRunIteration(unittest.TestCase):
                 np.random.default_rng(3),
                 RunCounters(),
                 StubCandidateEmitter(),
+                iteration_index=1,
                 grid_size=8,
                 steps=200,
                 jsonl_path=path,
@@ -164,12 +167,17 @@ class TestBatchEqualFitness(unittest.TestCase):
             np.random.default_rng(0),
             counters,
             FixedSpecEmitter(_FIXED_SPEC),
+            iteration_index=1,
             grid_size=8,
             steps=200,
         )
-        self.assertEqual(stats.evaluations, 2)
+        self.assertEqual(stats.evaluated, 2)
         self.assertEqual(stats.accepted, 1)
         self.assertEqual(stats.rejected, 1)
+        assert outcomes[0].insert is not None and outcomes[1].insert is not None
+        assert (
+            outcomes[0].eval_result is not None and outcomes[1].eval_result is not None
+        )
         self.assertTrue(outcomes[0].insert.accepted)
         self.assertTrue(outcomes[1].insert.rejected)
         self.assertEqual(outcomes[0].eval_result.bin, outcomes[1].eval_result.bin)
@@ -191,6 +199,7 @@ class TestBatchEqualFitness(unittest.TestCase):
                 np.random.default_rng(0),
                 RunCounters(),
                 FixedSpecEmitter(_FIXED_SPEC),
+                iteration_index=1,
                 grid_size=8,
                 steps=200,
                 jsonl_path=path,

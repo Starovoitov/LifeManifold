@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,11 +30,22 @@ from worldspace.illuminators.scheduler import (
     select_target_bin,
 )
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.acquisition import (
+    AcquisitionDecision,
+    decide,
+    effective_action,
+    policy_recommends_skip,
+)
+from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
+from worldspace.surrogate.types import SurrogatePrediction
 
 if TYPE_CHECKING:
     from worldspace.surrogate.buffer import SurrogateBuffer
     from worldspace.surrogate.retrain import RetrainState
+    from worldspace.surrogate.surrogate_archive import SurrogateArchiveWriterProtocol
     from worldspace.surrogate.types import SurrogateProtocol
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "IterationStats",
@@ -47,10 +59,18 @@ __all__ = [
 class IterationStats:
     """Aggregate outcomes for one scheduler iteration."""
 
-    evaluations: int
+    slots: int
+    evaluated: int
+    skipped: int
+    shadow_would_skip: int
     accepted: int
     improved: int
     rejected: int
+
+    @property
+    def evaluations(self) -> int:
+        """Completed real simulations in this iteration (legacy alias)."""
+        return self.evaluated
 
 
 @dataclass(frozen=True)
@@ -60,8 +80,11 @@ class SlotOutcome:
     candidate_id: int
     emitter_kind: EmitterKind
     target_bin: TargetBin
-    eval_result: EvalResult
-    insert: InsertResult
+    skipped: bool
+    eval_result: EvalResult | None
+    insert: InsertResult | None
+    prediction: SurrogatePrediction | None = None
+    decision: AcquisitionDecision | None = None
 
 
 def run_iteration(
@@ -71,21 +94,28 @@ def run_iteration(
     counters: RunCounters,
     emitter: CandidateEmitter,
     *,
+    iteration_index: int,
     grid_size: int,
     steps: int,
     jsonl_path: str | Path | None = None,
     surrogate_buffer: SurrogateBuffer | None = None,
+    surrogate: SurrogateProtocol | None = None,
+    surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
-    """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate, insert, count.
+    """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate or skip, insert.
 
     Candidates are processed in ascending ``candidate_id``. Together with strict
     ``fitness_new > fitness_old`` in ``GridArchive.try_insert``, equal fitness in the
     same bin within one iteration leaves the first accepted elite in place.
     """
     outcomes: list[SlotOutcome] = []
+    evaluated = 0
+    skipped = 0
+    shadow_would_skip = 0
     accepted = 0
     improved = 0
     rejected = 0
+    acquisition_active = _acquisition_logging_active(config)
 
     for candidate_id in range(config.batch_size):
         emitter_kind = resolve_emitter_for_slot(
@@ -103,6 +133,50 @@ def run_iteration(
             steps=steps,
         )
         spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
+
+        prediction: SurrogatePrediction | None = None
+        decision: AcquisitionDecision | None = None
+        runtime_action = "eval"
+
+        if config.surrogate_enabled and surrogate is not None:
+            prediction = surrogate.predict(spec)
+            if acquisition_active:
+                decision = decide(config.acquisition, prediction, target, archive)
+                runtime_action = effective_action(
+                    config.acquisition.mode,
+                    decision,
+                )
+                if policy_recommends_skip(decision):
+                    shadow_would_skip += 1
+
+        if runtime_action == "skip":
+            assert prediction is not None and decision is not None
+            skipped += 1
+            if surrogate_archive is not None:
+                surrogate_archive.append_slot(
+                    iteration=iteration_index,
+                    candidate_id=candidate_id,
+                    emitter_type=output.metadata.emitter_type,
+                    target=target,
+                    world_spec_hash=world_spec_canonical_hash(spec),
+                    prediction=prediction,
+                    decision=decision,
+                    acquisition_mode=config.acquisition.mode,
+                )
+            outcomes.append(
+                SlotOutcome(
+                    candidate_id=candidate_id,
+                    emitter_kind=emitter_kind,
+                    target_bin=target,
+                    skipped=True,
+                    eval_result=None,
+                    insert=None,
+                    prediction=prediction,
+                    decision=decision,
+                )
+            )
+            continue
+
         eval_result = evaluate_candidate(
             spec,
             resolution=config.grid_resolution,
@@ -124,6 +198,7 @@ def run_iteration(
         else:
             insert = insert_evaluated(archive, eval_result, output.metadata)
         counters.record_evaluation()
+        evaluated += 1
 
         if insert.accepted:
             accepted += 1
@@ -132,21 +207,53 @@ def run_iteration(
         if insert.rejected:
             rejected += 1
 
+        if (
+            acquisition_active
+            and surrogate_archive is not None
+            and prediction is not None
+            and decision is not None
+        ):
+            surrogate_archive.append_slot(
+                iteration=iteration_index,
+                candidate_id=candidate_id,
+                emitter_type=output.metadata.emitter_type,
+                target=target,
+                world_spec_hash=world_spec_canonical_hash(spec),
+                prediction=prediction,
+                decision=decision,
+                acquisition_mode=config.acquisition.mode,
+                eval_result=eval_result,
+                insert=insert,
+            )
+
         outcomes.append(
             SlotOutcome(
                 candidate_id=candidate_id,
                 emitter_kind=emitter_kind,
                 target_bin=target,
+                skipped=False,
                 eval_result=eval_result,
                 insert=insert,
+                prediction=prediction,
+                decision=decision,
             )
         )
 
     stats = IterationStats(
-        evaluations=config.batch_size,
+        slots=config.batch_size,
+        evaluated=evaluated,
+        skipped=skipped,
+        shadow_would_skip=shadow_would_skip,
         accepted=accepted,
         improved=improved,
         rejected=rejected,
+    )
+    logger.debug(
+        "iteration=%s evaluated=%s skipped=%s shadow_would_skip=%s",
+        iteration_index,
+        evaluated,
+        skipped,
+        shadow_would_skip,
     )
     return stats, outcomes
 
@@ -164,6 +271,7 @@ def run_scheduler(
     surrogate_buffer: SurrogateBuffer | None = None,
     surrogate: SurrogateProtocol | None = None,
     retrain_state: RetrainState | None = None,
+    surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
     if counters is None:
@@ -175,13 +283,18 @@ def run_scheduler(
             rng,
             counters,
             emitter,
+            iteration_index=iteration_index,
             grid_size=grid_size,
             steps=steps,
             jsonl_path=jsonl_path,
             surrogate_buffer=surrogate_buffer,
+            surrogate=surrogate,
+            surrogate_archive=surrogate_archive,
         )
         if surrogate_buffer is not None:
             surrogate_buffer.flush()
+        if surrogate_archive is not None:
+            surrogate_archive.flush()
         if (
             config.retrain.enabled
             and surrogate is not None
@@ -197,7 +310,13 @@ def run_scheduler(
             )
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
+    if surrogate_archive is not None:
+        surrogate_archive.flush()
     return counters
+
+
+def _acquisition_logging_active(config: SchedulerConfig) -> bool:
+    return config.surrogate_enabled and config.acquisition.mode != "off"
 
 
 def _prepare_world_spec(spec: WorldSpec, *, grid_size: int, steps: int) -> WorldSpec:

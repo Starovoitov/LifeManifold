@@ -16,6 +16,19 @@ from worldspace.illuminators.illuminator import MapElitesRunResult
 from worldspace.illuminators.scheduler import DEFAULT_MINI_SCHEDULER_PATH, RunCounters
 
 
+class TestIlluminatorsModuleCli(unittest.TestCase):
+    def test_module_help_lists_flags(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, "-m", "worldspace.illuminators", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("--scheduler", proc.stdout)
+        self.assertIn("--output-dir", proc.stdout)
+
+
 class TestCliMapelitesHelp(unittest.TestCase):
     def test_help_lists_mapelites_flags(self) -> None:
         proc = subprocess.run(
@@ -49,7 +62,7 @@ class TestCliMapelitesValidation(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_mapelites_cli(args)
 
-    @patch("worldspace.cli_mapelites.MapElitesIlluminator")
+    @patch("worldspace.illuminators.cli.MapElitesIlluminator")
     def test_invokes_illuminator(self, mock_cls: mock.MagicMock) -> None:
         import argparse
 

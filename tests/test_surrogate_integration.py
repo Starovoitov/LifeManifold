@@ -124,6 +124,7 @@ class TestLoopSurrogateBuffer(unittest.TestCase):
                 rng,
                 RunCounters(),
                 StubCandidateEmitter(),
+                iteration_index=1,
                 grid_size=8,
                 steps=200,
                 surrogate_buffer=buffer,
