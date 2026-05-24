@@ -22,7 +22,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from worldspace.surrogate.evaluation import MIN_TRAIN_SAMPLES_FULL, MIN_TRAIN_SAMPLES_MICRO
+from worldspace.surrogate.evaluation import (
+    MIN_TRAIN_SAMPLES_FULL,
+    MIN_TRAIN_SAMPLES_MICRO,
+)
 from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
 
 _TRAIN_SCRIPT = _REPO_ROOT / "scripts" / "train_surrogate.py"
@@ -111,7 +114,9 @@ def run_train(
     subprocess.run(cmd, cwd=_REPO_ROOT, env=env, check=True)
 
 
-def bootstrap(*, paths: BootstrapPaths, quick: bool, seed: int, model_type: str) -> None:
+def bootstrap(
+    *, paths: BootstrapPaths, quick: bool, seed: int, model_type: str
+) -> None:
     paths.buffer_path.parent.mkdir(parents=True, exist_ok=True)
     paths.micro_checkpoint.parent.mkdir(parents=True, exist_ok=True)
 

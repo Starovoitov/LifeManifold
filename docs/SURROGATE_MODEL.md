@@ -20,7 +20,7 @@ Related material:
 |------|-------------|
 | **LLM hint** | Before each LLM emitter call, inject two numbers into the user prompt: expected fitness (`surrogate_mean`) and model uncertainty (`surrogate_uncertainty`). |
 | **Training data** | After every real evaluation, append one JSONL row `(features, targets)` for offline retraining. |
-| **Future scaling** | Same pipeline (features → predict → fitness) is intended for Phase 2 (pre-filtering candidates, acquisition). Not active in MVP. |
+| **Future scaling** | Same pipeline (features → predict → fitness) is intended for Surrogate Acquisition (pre-filtering candidates, acquisition). Not active in MVP. |
 
 ### 1.3 What the surrogate does *not* do in MVP
 
@@ -393,7 +393,7 @@ worldspace/illuminators/
 
 **Intent:** tell the LLM when the surrogate is unreliable so it can avoid over-trusting the fitness hint. It is **not** the variance of repeated simulations.
 
-**Future (Phase 2):** ensemble spread across LightGBM models (e.g. eight estimators), calibration, active learning.
+**Future (Surrogate Acquisition):** ensemble spread across LightGBM models (e.g. eight estimators), calibration, active learning.
 
 ---
 
@@ -440,13 +440,13 @@ surrogate:
 
 ---
 
-## 8. Phase 2 (out of scope for current code)
+## 8. Surrogate Acquisition (out of scope for current code)
 
 Specification and task breakdown live in artifacts (not implemented in `worldspace/surrogate/` yet):
 
-- [`artifacts/SURROGATE_MODEL_TZ_PHASE2_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_PHASE2_v1.0.md)
-- [`artifacts/SURROGATE_EPICS_AND_TASKS_PHASE2_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_PHASE2_v1.1.md)
+- [`artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md)
+- [`artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md)
 
 Planned: acquisition modes (`off` / `shadow` / `filter`), `SurrogateArchive` JSONL, threshold (and optional UCB) policies, calibrated uncertainty, optional nested retrain, consistency loss in training.
 
-The MVP pipeline (features → components → `compute_fitness` → prompt + buffer) is designed so Phase 2 can reuse the same contracts.
+The MVP pipeline (features → components → `compute_fitness` → prompt + buffer) is designed so Surrogate Acquisition can reuse the same contracts.

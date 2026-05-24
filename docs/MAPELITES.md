@@ -549,8 +549,8 @@ sequenceDiagram
 flowchart LR
   P1["Phase 1: nightly.yaml\nsurrogate off\nbuffer_nightly.jsonl"]
   TR["train_surrogate.py\n→ nightly.pkl"]
-  P2["Phase 2: nightly_surrogate.yaml\nresume archive\nsurrogate on"]
-  P1 --> TR --> P2
+  SUR["Step 3: nightly_surrogate.yaml\nresume archive\nsurrogate on"]
+  P1 --> TR --> SUR
 ```
 
 Artifacts: `artifacts/map_elites_nightly/baseline/`, `.../surrogate/`, `nightly_pipeline_summary.json`.

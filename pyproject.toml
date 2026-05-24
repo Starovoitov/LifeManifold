@@ -32,6 +32,7 @@ dashboard = [
 
 [tool.ruff.lint.per-file-ignores]
 "dashboard/**" = ["E402"]
+"scripts/**" = ["E402"]
 
 [tool.pyright]
 pythonVersion = "3.11"

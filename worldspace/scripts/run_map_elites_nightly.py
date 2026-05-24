@@ -207,7 +207,7 @@ def run_nightly_pipeline(
     baseline_dir = root / _BASELINE_SUBDIR
     surrogate_dir = root / _SURROGATE_SUBDIR
 
-    logger.info("Nightly phase 1/3: baseline (surrogate disabled)")
+    logger.info("Nightly step 1/3: baseline (surrogate disabled)")
     baseline = run_map_elites_nightly(
         scheduler_path=DEFAULT_NIGHTLY_SCHEDULER_PATH,
         output_dir=baseline_dir,
@@ -220,12 +220,12 @@ def run_nightly_pipeline(
 
     training_summary = _NIGHTLY_TRAINING_SUMMARY_PATH
     if not skip_training:
-        logger.info("Nightly phase 2/3: train surrogate from %s", _NIGHTLY_BUFFER_PATH)
+        logger.info("Nightly step 2/3: train surrogate from %s", _NIGHTLY_BUFFER_PATH)
         training_summary = train_nightly_surrogate()
     else:
         logger.info("Skipping surrogate training (--skip-training)")
 
-    logger.info("Nightly phase 3/3: surrogate-enabled run (resume baseline archive)")
+    logger.info("Nightly step 3/3: surrogate-enabled run (resume baseline archive)")
     surrogate = run_map_elites_nightly(
         scheduler_path=DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
         output_dir=surrogate_dir,

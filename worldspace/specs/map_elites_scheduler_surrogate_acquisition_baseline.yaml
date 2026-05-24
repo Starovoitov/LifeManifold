@@ -1,0 +1,29 @@
+schema_version: "1.2"
+# Surrogate Acquisition SA-0: reproducible surrogate-enabled baseline (acquisition.mode off until SA-3).
+iterations: 20
+batch_size: 4
+grid_resolution: 10
+early_extinction_step: 200
+min_steps: 200
+
+batch_emitters:
+  - random
+  - genetic
+  - genetic
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: true
+  model_type: lightgbm
+  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  buffer_path: artifacts/surrogate/baseline/run_buffer.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0

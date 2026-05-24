@@ -49,6 +49,12 @@ make surrogate-artifacts        # buffer.jsonl + micro.pkl + latest.pkl
 make surrogate-artifacts-quick  # micro only (~faster)
 ```
 
+Production surrogate from nightly archive:
+
+```bash
+make surrogate-acquisition-baseline
+```
+
 See `artifacts/surrogate/README.md`.
 
 ## Layout
