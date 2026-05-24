@@ -18,6 +18,8 @@ from worldspace.surrogate.determinism import (
 from worldspace.surrogate.types import SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
 
+_CONSISTENCY_REFINE_KEYS: tuple[str, ...] = ("stability", "diversity")
+
 TARGET_KEYS: tuple[str, ...] = (
     "stability",
     "diversity",
@@ -31,6 +33,7 @@ TARGET_KEYS: tuple[str, ...] = (
 __all__ = [
     "TARGET_KEYS",
     "SurrogateModel",
+    "consistency_mae_on_rows",
 ]
 
 
@@ -59,6 +62,49 @@ class SurrogateModel:
         if self.model_type != "lightgbm" or find_spec("lightgbm") is None:
             return
         self._fit_lightgbm_ensemble(feature_matrix, targets)
+
+    def apply_consistency_refinement(
+        self,
+        feature_matrix: np.ndarray,
+        targets: dict[str, np.ndarray],
+        *,
+        weight: float,
+    ) -> float:
+        """Refit stability/diversity after nudging targets by fitness residual."""
+        if weight <= 0.0 or not self._uses_lightgbm:
+            return consistency_mae_on_rows(self, feature_matrix, targets)
+        from worldspace.surrogate.evaluation import fitness_from_target_row
+
+        before = consistency_mae_on_rows(self, feature_matrix, targets)
+        adjusted = {
+            key: np.asarray(targets[key], dtype=float).copy() for key in TARGET_KEYS
+        }
+        n_rows = int(feature_matrix.shape[0])
+        for row_index in range(n_rows):
+            row_features = feature_matrix[row_index]
+            components = self.predict_components(row_features)
+            prediction = SurrogatePrediction(
+                components=components,
+                measures={
+                    "stability": float(components["stability"]),
+                    "diversity": float(components["diversity"]),
+                },
+                fitness=0.0,
+                uncertainty=0.0,
+            )
+            pred_fitness = compute_fitness_from_prediction(prediction)
+            actual_fitness = fitness_from_target_row(
+                {key: float(targets[key][row_index]) for key in TARGET_KEYS}
+            )
+            delta = float(weight) * (actual_fitness - pred_fitness) * 0.5
+            for key in _CONSISTENCY_REFINE_KEYS:
+                adjusted[key][row_index] = float(
+                    np.clip(adjusted[key][row_index] + delta, 0.0, 1.0)
+                )
+        self._refit_lightgbm_components(
+            feature_matrix, adjusted, _CONSISTENCY_REFINE_KEYS
+        )
+        return before
 
     def set_component_defaults(self, value: float) -> None:
         """Set all target means to one deterministic value."""
@@ -139,6 +185,66 @@ class SurrogateModel:
                 estimators.append(regressor)
             self._ensemble[key] = estimators
         self._uses_lightgbm = True
+
+    def _refit_lightgbm_components(
+        self,
+        feature_matrix: np.ndarray,
+        targets: dict[str, np.ndarray],
+        keys: tuple[str, ...],
+    ) -> None:
+        import lightgbm as lgb
+
+        if not self._uses_lightgbm:
+            return
+        x_train = _lightgbm_feature_matrix(feature_matrix)
+        base_params = {
+            **lightgbm_deterministic_params(),
+            "n_estimators": 32,
+            "num_leaves": 31,
+            "learning_rate": 0.03,
+            "verbosity": -1,
+        }
+        for key in keys:
+            y_train = _as_float_array(targets, key)
+            estimators: list[Any] = []
+            for member_index in range(self.ensemble_size):
+                member_params = dict(base_params)
+                member_params["random_state"] = member_random_state(member_index)
+                regressor = lgb.LGBMRegressor(**member_params)
+                regressor.fit(x_train, y_train)
+                estimators.append(regressor)
+            self._ensemble[key] = estimators
+
+
+def consistency_mae_on_rows(
+    model: SurrogateModel,
+    feature_matrix: np.ndarray,
+    targets: dict[str, np.ndarray],
+) -> float:
+    """Mean |predicted fitness - target fitness| on matrix rows."""
+    from worldspace.surrogate.evaluation import fitness_from_target_row
+
+    n_rows = int(feature_matrix.shape[0])
+    if n_rows == 0:
+        return float("nan")
+    errors = np.empty(n_rows, dtype=float)
+    for row_index in range(n_rows):
+        components = model.predict_components(feature_matrix[row_index])
+        prediction = SurrogatePrediction(
+            components=components,
+            measures={
+                "stability": float(components["stability"]),
+                "diversity": float(components["diversity"]),
+            },
+            fitness=0.0,
+            uncertainty=0.0,
+        )
+        pred_fitness = compute_fitness_from_prediction(prediction)
+        actual_fitness = fitness_from_target_row(
+            {key: float(targets[key][row_index]) for key in TARGET_KEYS}
+        )
+        errors[row_index] = abs(pred_fitness - actual_fitness)
+    return float(np.mean(errors))
 
 
 def _lightgbm_feature_matrix(feature_matrix: np.ndarray) -> Any:

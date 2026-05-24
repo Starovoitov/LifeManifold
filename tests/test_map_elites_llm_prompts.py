@@ -88,6 +88,12 @@ class TestSystemPrompt(unittest.TestCase):
 
 
 class TestUserPrompt(unittest.TestCase):
+    def test_user_prompt_template_keeps_surrogate_placeholders(self) -> None:
+        from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
+
+        self.assertIn("{surrogate_mean:", USER_PROMPT_TEMPLATE)
+        self.assertIn("{surrogate_uncertainty:", USER_PROMPT_TEMPLATE)
+
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
         archive = GridArchive(5)
         target = TargetBin(bin=(2, 2), target_stability=0.42, target_diversity=0.57)

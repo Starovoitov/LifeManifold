@@ -21,6 +21,7 @@ from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
     world_spec_from_llm_payload,
 )
+from worldspace.surrogate.types import SurrogatePrediction
 
 _TARGET = TargetBin(bin=(1, 1), target_stability=0.5, target_diversity=0.6)
 _BASE = WorldSpec(
@@ -161,6 +162,43 @@ class TestLlmEmitter(unittest.TestCase):
         )
         self.assertEqual(output.metadata.emitter_type, "llm_fallback")
         self.assertNotEqual(output.world_spec.birth, parent.birth)
+
+
+class TestLlmEmitterCalibratedSurrogate(unittest.TestCase):
+    def test_emitter_uses_predicted_surrogate_values(self) -> None:
+        captured: list[str] = []
+
+        class _PredictingSurrogate:
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={},
+                    measures={"stability": 0.31, "diversity": 0.29},
+                    fitness=0.31,
+                    uncertainty=0.07,
+                )
+
+        def mock_llm(**kwargs: object) -> str:
+            captured.append(str(kwargs.get("prompt", "")))
+            return "not json"
+
+        config = _scheduler_config(surrogate_enabled=True)
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_PredictingSurrogate(),
+            call_llm_text=mock_llm,
+        )
+        emitter.emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("0.310", captured[0])
+        self.assertIn("0.070", captured[0])
+        self.assertNotIn("0.500", captured[0])
 
 
 class TestSurrogateStub(unittest.TestCase):

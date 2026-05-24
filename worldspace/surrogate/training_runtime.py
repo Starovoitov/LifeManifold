@@ -15,7 +15,17 @@ from worldspace.surrogate.evaluation import (
     evaluate_holdout,
     quality_thresholds_met,
 )
-from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
+from worldspace.surrogate.acquisition_config import AcquisitionConfig
+from worldspace.surrogate.model import (
+    TARGET_KEYS,
+    SurrogateModel,
+    consistency_mae_on_rows,
+)
+from worldspace.surrogate.reporting import (
+    evaluate_acquisition_replay,
+    load_calibration_for_report,
+    merge_acquisition_into_summary,
+)
 from worldspace.surrogate.training import holdout_split, load_buffer
 
 ModelType = Literal["lightgbm", "mlp"]
@@ -40,6 +50,8 @@ class TrainResult:
     quality_passed: bool
     checkpoint_path: Path
     summary_path: Path
+    consistency_mae_before: float | None = None
+    consistency_mae_after: float | None = None
     error_message: str | None = None
 
 
@@ -71,6 +83,10 @@ def train_from_buffer(
     micro: bool = False,
     min_samples: int | None = None,
     require_quality_gate: bool = True,
+    consistency_weight: float = 0.0,
+    acquisition_report: bool = False,
+    calibration_path: Path | str | None = None,
+    acquisition_policy: AcquisitionConfig | None = None,
 ) -> TrainResult:
     """Train a surrogate from buffer JSONL and write checkpoint + summary."""
     resolved_summary = summary_path or default_summary_path(checkpoint_path)
@@ -128,6 +144,15 @@ def train_from_buffer(
             ensemble_size=8,
         )
         model.fit(x_train, y_train)
+        consistency_before: float | None = None
+        consistency_after: float | None = None
+        if consistency_weight > 0.0:
+            consistency_before = model.apply_consistency_refinement(
+                x_train,
+                y_train,
+                weight=consistency_weight,
+            )
+            consistency_after = consistency_mae_on_rows(model, x_train, y_train)
         holdout_metrics = evaluate_holdout(model, x_holdout, y_holdout)
         quality_passed = quality_thresholds_met(holdout_metrics)
         if not micro and require_quality_gate and not quality_passed:
@@ -138,6 +163,8 @@ def train_from_buffer(
                 quality_passed=False,
                 checkpoint_path=checkpoint_path,
                 summary_path=resolved_summary,
+                consistency_mae_before=consistency_before,
+                consistency_mae_after=consistency_after,
                 error_message="Hold-out quality thresholds were not met",
             )
         save_surrogate_checkpoint(model, checkpoint_path)
@@ -150,7 +177,32 @@ def train_from_buffer(
             feature_dim=int(feature_matrix.shape[1]),
             holdout_metrics=holdout_metrics,
             micro=micro,
+            consistency_mae_before=consistency_before,
+            consistency_mae_after=consistency_after,
         )
+        if acquisition_report:
+            policy = acquisition_policy or AcquisitionConfig(mode="filter")
+            calibrator = load_calibration_for_report(calibration_path)
+            replay = evaluate_acquisition_replay(
+                model,
+                x_holdout,
+                y_holdout,
+                policy,
+                calibrator=calibrator,
+            )
+            acquisition_block = replay.as_dict()
+            acquisition_block["policy_mode"] = policy.mode
+            acquisition_block["policy_min_predicted_fitness"] = (
+                policy.min_predicted_fitness
+            )
+            acquisition_block["policy_max_uncertainty_to_skip"] = (
+                policy.max_uncertainty_to_skip
+            )
+            if consistency_before is not None:
+                acquisition_block["consistency_mae_train_before"] = consistency_before
+            if consistency_after is not None:
+                acquisition_block["consistency_mae_train_after"] = consistency_after
+            merge_acquisition_into_summary(resolved_summary, acquisition_block)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — training failures must not crash illuminator
@@ -171,6 +223,8 @@ def train_from_buffer(
         quality_passed=quality_passed,
         checkpoint_path=checkpoint_path,
         summary_path=resolved_summary,
+        consistency_mae_before=consistency_before,
+        consistency_mae_after=consistency_after,
     )
 
 
@@ -184,8 +238,10 @@ def _save_summary(
     feature_dim: int,
     holdout_metrics: dict[str, float],
     micro: bool,
+    consistency_mae_before: float | None = None,
+    consistency_mae_after: float | None = None,
 ) -> None:
-    payload = {
+    payload: dict[str, object] = {
         "model_type": model_type,
         "sample_count": sample_count,
         "train_count": train_count,
@@ -196,6 +252,10 @@ def _save_summary(
         "quality_passed": quality_thresholds_met(holdout_metrics),
         "micro": micro,
     }
+    if consistency_mae_before is not None:
+        payload["consistency_mae_train_before"] = consistency_mae_before
+    if consistency_mae_after is not None:
+        payload["consistency_mae_train_after"] = consistency_mae_after
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

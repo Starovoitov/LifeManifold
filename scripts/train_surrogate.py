@@ -79,6 +79,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Keep calibration.pkl even when hold-out ECE exceeds the target",
     )
+    parser.add_argument(
+        "--consistency-weight",
+        type=float,
+        default=0.0,
+        help="Optional fitness-consistency refinement weight (0 disables)",
+    )
+    parser.add_argument(
+        "--acquisition-report",
+        action="store_true",
+        help="Append acquisition replay metrics to the training summary JSON",
+    )
     return parser.parse_args()
 
 
@@ -95,6 +106,11 @@ def main() -> None:
     if min_samples is None:
         min_samples = MIN_TRAIN_SAMPLES_MICRO if args.micro else MIN_TRAIN_SAMPLES_FULL
 
+    calibration_path = (
+        Path(args.calibration_path)
+        if args.calibrate or args.acquisition_report
+        else None
+    )
     result = train_from_buffer(
         buffer_path=Path(args.buffer_path),
         checkpoint_path=Path(args.checkpoint_path),
@@ -103,6 +119,9 @@ def main() -> None:
         micro=args.micro,
         min_samples=min_samples,
         require_quality_gate=not args.no_quality_gate,
+        consistency_weight=max(0.0, float(args.consistency_weight)),
+        acquisition_report=args.acquisition_report,
+        calibration_path=calibration_path,
     )
 
     if not result.success:
@@ -146,6 +165,16 @@ def main() -> None:
             f"Uncertainty calibration: hold-out={cal_result.holdout_samples}, "
             f"ECE={cal_result.ece:.4f}, path={cal_result.calibration_path}"
         )
+        if args.acquisition_report:
+            from worldspace.surrogate.reporting import merge_acquisition_into_summary
+
+            merge_acquisition_into_summary(
+                Path(args.summary_path),
+                {
+                    "calibration_ece": cal_result.ece,
+                    "calibration_holdout_samples": cal_result.holdout_samples,
+                },
+            )
 
 
 if __name__ == "__main__":

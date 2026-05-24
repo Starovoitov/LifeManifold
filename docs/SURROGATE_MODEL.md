@@ -455,4 +455,11 @@ Implemented in `worldspace/surrogate/`: acquisition policies (`acquisition.py`),
 
 Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
-Still planned: consistency loss in training (SA-6), full A/B reporting, optional `ucb_promote` policy.
+### 8.2 Training and acquisition reports (SA-6)
+
+- `train_surrogate.py --consistency-weight 0.1` — optional stability/diversity refinement pass.
+- `--acquisition-report` — hold-out replay: `recommended_skip_rate`, `false_skip_rate_estimate`, `calibration_ece`.
+- `scripts/report_surrogate_acquisition.py` — metrics only from buffer + checkpoint.
+- `scripts/compare_acquisition_runs.py` — A/B eval reduction, filled cells, mean best fitness.
+
+Still planned: optional `ucb_promote` policy.
