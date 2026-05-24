@@ -76,6 +76,16 @@ class MapElitesIlluminator:
             config.surrogate_buffer_path,
             flush_every=32,
         )
+        retrain_state = None
+        if config.retrain.enabled:
+            from worldspace.surrogate.buffer import count_buffer_rows
+            from worldspace.surrogate.retrain import RetrainState
+
+            retrain_state = RetrainState(
+                buffer_row_count_at_last_retrain=count_buffer_rows(
+                    config.surrogate_buffer_path,
+                ),
+            )
         effective_emitter = emitter or MapElitesEmitter(
             scheduler=config,
             surrogate=surrogate,
@@ -90,6 +100,8 @@ class MapElitesIlluminator:
             jsonl_path=jsonl_path,
             counters=counters,
             surrogate_buffer=surrogate_buffer,
+            surrogate=surrogate,
+            retrain_state=retrain_state,
         )
         surrogate_buffer.flush()
         expected_evaluations = config.iterations * config.batch_size

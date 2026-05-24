@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from worldspace.surrogate.model import SurrogateModel
+from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
 from worldspace.surrogate.types import (
     SurrogateConfig,
     SurrogatePrediction,
@@ -35,7 +34,7 @@ def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
     checkpoint = _checkpoint_path(config.checkpoint)
     if checkpoint is None or not checkpoint.is_file():
         return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
-    model = _load_checkpoint(checkpoint)
+    model = load_surrogate_checkpoint(checkpoint)
     return build_surrogate_facade(
         model,
         uncertainty_fallback=config.stub_uncertainty,
@@ -59,12 +58,3 @@ def _checkpoint_path(value: str | None) -> Path | None:
     if not value:
         return None
     return Path(value).expanduser()
-
-
-def _load_checkpoint(path: Path) -> SurrogateModel:
-    with path.open("rb") as fh:
-        loaded = pickle.load(fh)
-    if not isinstance(loaded, SurrogateModel):
-        msg = f"Checkpoint must contain SurrogateModel, got {type(loaded)!r}"
-        raise TypeError(msg)
-    return loaded

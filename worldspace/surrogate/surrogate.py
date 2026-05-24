@@ -6,8 +6,10 @@ import hashlib
 import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
 from worldspace.surrogate.feature_extractor import extract as extract_features
 from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import SurrogatePrediction
@@ -93,6 +95,13 @@ class SurrogateFacade:
     def cache_hits(self) -> int:
         """Return number of successful cache hits."""
         return self._cache_hits
+
+    def reload(self, checkpoint_path: str | Path) -> None:
+        """Load a new checkpoint and clear the prediction LRU cache."""
+        path = Path(checkpoint_path).expanduser()
+        self.model = load_surrogate_checkpoint(path)
+        self._cache.clear()
+        self._cache_hits = 0
 
     def _cache_set(self, key: str, value: SurrogatePrediction) -> None:
         self._cache[key] = value

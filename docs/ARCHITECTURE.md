@@ -187,6 +187,8 @@ MVP: **does not** skip simulation or change archive fitness.
 | Log `(features, targets)` after each eval | Replace `evaluate_candidate` |
 | Inject `surrogate_mean` / uncertainty into LLM prompt | Change archive insert rules |
 
+Optional **nested retrain** (Surrogate Acquisition 2.1): `surrogate.retrain` in scheduler YAML retrains from the buffer and hot-swaps the checkpoint at **iteration** boundaries via `worldspace/surrogate/retrain.py`.
+
 Detail → [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md).
 
 ---

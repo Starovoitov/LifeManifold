@@ -20,8 +20,28 @@ __all__ = [
     "SurrogateBuffer",
     "append_eval_to_buffer",
     "buffer_record",
+    "count_buffer_rows",
     "targets_from_eval_result",
 ]
+
+
+def count_buffer_rows(path: Path | str) -> int:
+    """Count non-empty lines in an append-only surrogate buffer JSONL file.
+
+    Returns 0 when the file is missing or cannot be read (permissions, encoding, I/O).
+    """
+    target = Path(path).expanduser()
+    if not target.is_file():
+        return 0
+    try:
+        count = 0
+        with target.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    count += 1
+        return count
+    except (OSError, UnicodeDecodeError):
+        return 0
 
 
 def targets_from_eval_result(result: EvalResult) -> dict[str, float]:

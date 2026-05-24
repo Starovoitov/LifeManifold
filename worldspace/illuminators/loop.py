@@ -32,6 +32,8 @@ from worldspace.specs.spec import WorldSpec
 
 if TYPE_CHECKING:
     from worldspace.surrogate.buffer import SurrogateBuffer
+    from worldspace.surrogate.retrain import RetrainState
+    from worldspace.surrogate.types import SurrogateProtocol
 
 __all__ = [
     "IterationStats",
@@ -160,11 +162,13 @@ def run_scheduler(
     jsonl_path: str | Path | None = None,
     counters: RunCounters | None = None,
     surrogate_buffer: SurrogateBuffer | None = None,
+    surrogate: SurrogateProtocol | None = None,
+    retrain_state: RetrainState | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
     if counters is None:
         counters = RunCounters()
-    for _ in range(config.iterations):
+    for iteration_index in range(1, config.iterations + 1):
         run_iteration(
             config,
             archive,
@@ -178,6 +182,19 @@ def run_scheduler(
         )
         if surrogate_buffer is not None:
             surrogate_buffer.flush()
+        if (
+            config.retrain.enabled
+            and surrogate is not None
+            and retrain_state is not None
+        ):
+            from worldspace.surrogate.retrain import maybe_retrain_after_iteration
+
+            maybe_retrain_after_iteration(
+                config,
+                iteration_index=iteration_index,
+                state=retrain_state,
+                surrogate=surrogate,
+            )
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
     return counters
