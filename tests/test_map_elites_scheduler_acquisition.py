@@ -40,6 +40,37 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
         config = load_scheduler(_FILTER_PATH)
         self.assertEqual(config.acquisition.mode, "filter")
         self.assertAlmostEqual(config.acquisition.min_predicted_fitness, 0.99)
+        self.assertEqual(
+            config.surrogate_checkpoint,
+            "artifacts/surrogate/checkpoints/latest.pkl",
+        )
+        self.assertEqual(
+            config.surrogate_calibration,
+            "artifacts/surrogate/checkpoints/calibration.pkl",
+        )
+
+    def test_calibration_disabled_via_null_empty_or_false(self) -> None:
+        base = yaml.safe_load(_FILTER_PATH.read_text(encoding="utf-8"))
+        cases: list[tuple[str, object]] = [
+            ("omit", None),
+            ("null", None),
+            ("empty", ""),
+            ("false", False),
+        ]
+        for label, calibration_value in cases:
+            with self.subTest(label=label):
+                doc = yaml.safe_load(yaml.safe_dump(base, sort_keys=False))
+                if label == "omit":
+                    doc["surrogate"].pop("calibration", None)
+                else:
+                    doc["surrogate"]["calibration"] = calibration_value
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    path = Path(tmpdir) / "sched.yaml"
+                    path.write_text(
+                        yaml.safe_dump(doc, sort_keys=False), encoding="utf-8"
+                    )
+                    config = load_scheduler(path)
+                self.assertIsNone(config.surrogate_calibration)
 
     def test_full_acquisition_block_parsed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

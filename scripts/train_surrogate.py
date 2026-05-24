@@ -7,6 +7,10 @@ import sys
 from importlib.util import find_spec
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from worldspace.surrogate.evaluation import (
     MIN_TRAIN_SAMPLES_FULL,
     MIN_TRAIN_SAMPLES_MICRO,
@@ -60,6 +64,21 @@ def parse_args() -> argparse.Namespace:
             "(nightly pipeline integration)"
         ),
     )
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="Fit uncertainty calibration.pkl after a successful train",
+    )
+    parser.add_argument(
+        "--calibration-path",
+        default="artifacts/surrogate/checkpoints/calibration.pkl",
+        help="Output path when --calibrate is set",
+    )
+    parser.add_argument(
+        "--allow-high-ece",
+        action="store_true",
+        help="Keep calibration.pkl even when hold-out ECE exceeds the target",
+    )
     return parser.parse_args()
 
 
@@ -107,6 +126,26 @@ def main() -> None:
     ):
         print("Hold-out quality thresholds were not met.", file=sys.stderr)
         raise SystemExit(1)
+
+    if args.calibrate:
+        from worldspace.surrogate.calibration import fit_calibration_from_buffer
+
+        cal_result = fit_calibration_from_buffer(
+            buffer_path=Path(args.buffer_path),
+            checkpoint_path=Path(args.checkpoint_path),
+            calibration_path=Path(args.calibration_path),
+            require_ece_gate=not args.allow_high_ece,
+        )
+        if not cal_result.success:
+            print(
+                cal_result.error_message or "Calibration failed.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print(
+            f"Uncertainty calibration: hold-out={cal_result.holdout_samples}, "
+            f"ECE={cal_result.ece:.4f}, path={cal_result.calibration_path}"
+        )
 
 
 if __name__ == "__main__":

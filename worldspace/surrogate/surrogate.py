@@ -7,6 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.calibration import (
+    UncertaintyCalibrator,
+    apply_calibrated_uncertainty,
+    load_uncertainty_calibration,
+)
 from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
 from worldspace.surrogate.feature_extractor import extract as extract_features
@@ -47,6 +52,8 @@ class SurrogateFacade:
 
     model: SurrogateModel
     uncertainty_fallback: float
+    calibrator: UncertaintyCalibrator | None = None
+    calibration_configured: bool = False
     cache_capacity: int = 1024
     _cache: OrderedDict[str, SurrogatePrediction] = field(default_factory=OrderedDict)
     _cache_hits: int = 0
@@ -68,9 +75,14 @@ class SurrogateFacade:
 
         features = extract_features(world_spec)
         components = self.model.predict_components(features)
-        uncertainty = self.model.predict_uncertainty(features)
-        if uncertainty <= 0.0:
-            uncertainty = self.uncertainty_fallback
+        raw_uncertainty = self.model.predict_uncertainty(features)
+        if raw_uncertainty <= 0.0:
+            raw_uncertainty = self.uncertainty_fallback
+        uncertainty = apply_calibrated_uncertainty(
+            self.calibrator,
+            float(raw_uncertainty),
+            calibration_configured=self.calibration_configured,
+        )
         prediction = SurrogatePrediction(
             components=components,
             measures={
@@ -78,7 +90,7 @@ class SurrogateFacade:
                 "diversity": float(components["diversity"]),
             },
             fitness=0.0,
-            uncertainty=float(uncertainty),
+            uncertainty=uncertainty,
         )
         resolved = SurrogatePrediction(
             components=prediction.components,
@@ -114,12 +126,19 @@ def build_surrogate_facade(
     model: SurrogateModel,
     *,
     uncertainty_fallback: float,
+    calibration_path: str | Path | None = None,
     cache_capacity: int = 1024,
 ) -> SurrogateFacade:
     """Construct a facade with explicit constructor kwargs for type checkers."""
+    configured = bool(calibration_path and str(calibration_path).strip())
+    calibrator = None
+    if calibration_path is not None and configured:
+        calibrator = load_uncertainty_calibration(calibration_path)
     return SurrogateFacade(
         model=model,
         uncertainty_fallback=uncertainty_fallback,
+        calibrator=calibrator,
+        calibration_configured=configured,
         cache_capacity=cache_capacity,
     )
 

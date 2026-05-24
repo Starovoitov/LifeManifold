@@ -9,7 +9,7 @@ from typing import Literal
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from worldspace.illuminators.archive import GridArchive
 from worldspace.illuminators.evaluation import bin_center
@@ -162,9 +162,17 @@ def load_scheduler(
         acquisition=acquisition,
         surrogate_archive_path=archive_path,
         retrain=retrain,
-        surrogate_calibration=doc.surrogate.calibration,
+        surrogate_calibration=_normalize_calibration_path(doc.surrogate.calibration),
     )
     return _normalize_acquisition_config(config)
+
+
+def _normalize_calibration_path(value: str | None) -> str | None:
+    """Return a non-empty calibration path or None when calibration is disabled."""
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped or None
 
 
 def select_target_bin(
@@ -296,6 +304,17 @@ class _SurrogateSchedulerBlock(BaseModel):
     acquisition: _AcquisitionYamlBlock | None = None
     retrain: _RetrainYamlBlock | None = None
     surrogate_archive_path: str | None = None
+
+    @field_validator("calibration", mode="before")
+    @classmethod
+    def _normalize_calibration_field(cls, value: object) -> str | None:
+        """Treat false, null, and blank as disabled (raw ensemble uncertainty)."""
+        if value is None or value is False:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value  # type: ignore[return-value]
 
 
 class _GeneticSchedulerBlock(BaseModel):

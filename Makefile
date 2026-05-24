@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline
+.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
 
 install:
 	$(UV) venv
@@ -40,3 +40,6 @@ surrogate-artifacts-quick:
 # SA-0: backfill buffer from artifacts/map_elites_nightly, train latest.pkl, baseline manifest
 surrogate-acquisition-baseline:
 	$(UV) run python scripts/record_surrogate_acquisition_baseline.py --all-archive-lines --allow-quality-fail
+
+calibrate-surrogate:
+	$(UV) run python scripts/calibrate_surrogate_uncertainty.py --allow-high-ece

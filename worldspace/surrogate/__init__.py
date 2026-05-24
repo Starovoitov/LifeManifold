@@ -38,6 +38,7 @@ def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
     return build_surrogate_facade(
         model,
         uncertainty_fallback=config.stub_uncertainty,
+        calibration_path=config.calibration,
     )
 
 

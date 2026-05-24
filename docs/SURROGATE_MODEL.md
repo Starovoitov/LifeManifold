@@ -440,13 +440,19 @@ surrogate:
 
 ---
 
-## 8. Surrogate Acquisition (out of scope for current code)
+## 8. Surrogate Acquisition
 
-Specification and task breakdown live in artifacts (not implemented in `worldspace/surrogate/` yet):
+Specification: [`artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md). Task breakdown: [`artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md).
 
-- [`artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md)
-- [`artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md)
+Implemented in `worldspace/surrogate/`: acquisition policies (`acquisition.py`), loop integration (`illuminators/loop.py`), `SurrogateArchive` JSONL, nested retrain (optional YAML), and **uncertainty calibration** (`calibration.py`).
 
-Planned: acquisition modes (`off` / `shadow` / `filter`), `SurrogateArchive` JSONL, threshold (and optional UCB) policies, calibrated uncertainty, optional nested retrain, consistency loss in training.
+### 8.1 Calibrated uncertainty (SA-5)
 
-The MVP pipeline (features → components → `compute_fitness` → prompt + buffer) is designed so Surrogate Acquisition can reuse the same contracts.
+- Offline: `scripts/calibrate_surrogate_uncertainty.py` or `train_surrogate.py --calibrate` → `checkpoints/calibration.pkl`.
+- Runtime: `SurrogateFacade.predict` maps raw ensemble spread through isotonic regression fit on hold-out `|pred_fitness - actual_fitness|`.
+- Scheduler YAML: `surrogate.calibration: artifacts/surrogate/checkpoints/calibration.pkl`.
+- `threshold_gate` and LLM `{surrogate_uncertainty}` use the same calibrated field; missing artifact → raw spread + one warning per process.
+
+Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
+
+Still planned: consistency loss in training (SA-6), full A/B reporting, optional `ucb_promote` policy.
