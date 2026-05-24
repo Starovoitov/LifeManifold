@@ -26,6 +26,7 @@ class SurrogateConfig:
     checkpoint: str | None
     stub_mean: float
     stub_uncertainty: float
+    calibration: str | None = None
 
 
 @dataclass(frozen=True)

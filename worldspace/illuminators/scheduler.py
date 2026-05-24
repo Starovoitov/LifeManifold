@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,15 @@ from worldspace.illuminators.archive import GridArchive
 from worldspace.illuminators.evaluation import bin_center
 from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.acquisition_config import (
+    AcquisitionConfig,
+    AcquisitionPolicyName,
+    DEFAULT_SURROGATE_ARCHIVE_PATH,
+    RetrainConfig,
+)
 from worldspace.surrogate.types import SurrogateConfig, SurrogateProtocol
+
+logger = logging.getLogger(__name__)
 
 EmitterKind = Literal["random", "genetic", "llm"]
 _SCHEDULER_SCHEMA_VERSION = "1.2"
@@ -29,11 +38,13 @@ DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH = (
 )
 
 __all__ = [
+    "AcquisitionConfig",
     "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
+    "RetrainConfig",
     "RunCounters",
     "SchedulerConfig",
     "TargetBin",
@@ -67,6 +78,12 @@ class SchedulerConfig:
     surrogate_stub_mean: float
     surrogate_stub_uncertainty: float
     genetic_mutation_scale: float
+    acquisition: AcquisitionConfig = field(default_factory=AcquisitionConfig)
+    surrogate_archive_path: str = field(
+        default=DEFAULT_SURROGATE_ARCHIVE_PATH,
+    )
+    retrain: RetrainConfig = field(default_factory=RetrainConfig)
+    surrogate_calibration: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +137,12 @@ def load_scheduler(
     iterations = doc.iterations if iterations_override is None else iterations_override
     if iterations < 1:
         raise ValueError(f"iterations must be >= 1, got {iterations}")
-    return SchedulerConfig(
+    acquisition = _acquisition_config_from_yaml(doc.surrogate.acquisition)
+    retrain = _retrain_config_from_yaml(doc.surrogate.retrain)
+    archive_path = (
+        doc.surrogate.surrogate_archive_path or DEFAULT_SURROGATE_ARCHIVE_PATH
+    )
+    config = SchedulerConfig(
         schema_version=doc.schema_version,
         iterations=iterations,
         batch_size=doc.batch_size,
@@ -137,7 +159,12 @@ def load_scheduler(
         surrogate_stub_mean=doc.surrogate.stub_mean,
         surrogate_stub_uncertainty=doc.surrogate.stub_uncertainty,
         genetic_mutation_scale=doc.genetic.mutation_scale,
+        acquisition=acquisition,
+        surrogate_archive_path=archive_path,
+        retrain=retrain,
+        surrogate_calibration=doc.surrogate.calibration,
     )
+    return _normalize_acquisition_config(config)
 
 
 def select_target_bin(
@@ -200,6 +227,7 @@ def surrogate_config_from_scheduler(config: SchedulerConfig) -> SurrogateConfig:
         checkpoint=config.surrogate_checkpoint,
         stub_mean=config.surrogate_stub_mean,
         stub_uncertainty=config.surrogate_stub_uncertainty,
+        calibration=config.surrogate_calibration,
     )
 
 
@@ -236,6 +264,25 @@ class _LlmSchedulerBlock(BaseModel):
     enabled: bool
 
 
+class _AcquisitionYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["off", "shadow", "filter"] = "off"
+    policy: Literal["threshold_gate", "ucb_promote"] = "threshold_gate"
+    min_predicted_fitness: float = Field(default=0.25, ge=0.0, le=1.0)
+    max_uncertainty_to_skip: float = Field(default=0.40, ge=0.0)
+    never_skip_empty_bin: bool = True
+    exploration_weight: float = Field(default=0.15, ge=0.0)
+
+
+class _RetrainYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    every_iterations: int = Field(default=50, ge=1)
+    min_new_buffer_rows: int = Field(default=500, ge=0)
+
+
 class _SurrogateSchedulerBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -245,6 +292,10 @@ class _SurrogateSchedulerBlock(BaseModel):
     buffer_path: str = Field(default="artifacts/surrogate/buffer.jsonl")
     stub_mean: float = Field(..., ge=0.0, le=1.0)
     stub_uncertainty: float = Field(..., ge=0.0)
+    calibration: str | None = None
+    acquisition: _AcquisitionYamlBlock | None = None
+    retrain: _RetrainYamlBlock | None = None
+    surrogate_archive_path: str | None = None
 
 
 class _GeneticSchedulerBlock(BaseModel):
@@ -267,6 +318,58 @@ class _MapElitesSchedulerYaml(BaseModel):
     llm: _LlmSchedulerBlock
     surrogate: _SurrogateSchedulerBlock
     genetic: _GeneticSchedulerBlock = Field(default_factory=_GeneticSchedulerBlock)
+
+
+def _acquisition_config_from_yaml(
+    block: _AcquisitionYamlBlock | None,
+) -> AcquisitionConfig:
+    if block is None:
+        return AcquisitionConfig()
+    return AcquisitionConfig(
+        mode=block.mode,
+        policy=block.policy,
+        min_predicted_fitness=block.min_predicted_fitness,
+        max_uncertainty_to_skip=block.max_uncertainty_to_skip,
+        never_skip_empty_bin=block.never_skip_empty_bin,
+        exploration_weight=block.exploration_weight,
+    )
+
+
+def _retrain_config_from_yaml(block: _RetrainYamlBlock | None) -> RetrainConfig:
+    if block is None:
+        return RetrainConfig()
+    return RetrainConfig(
+        enabled=block.enabled,
+        every_iterations=block.every_iterations,
+        min_new_buffer_rows=block.min_new_buffer_rows,
+    )
+
+
+def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
+    """Apply safe defaults when acquisition settings are inconsistent."""
+    acquisition = config.acquisition
+    policy: AcquisitionPolicyName = acquisition.policy
+    mode = acquisition.mode
+
+    if policy == "ucb_promote":
+        logger.warning(
+            "acquisition policy %r is not implemented yet; using threshold_gate",
+            policy,
+        )
+        policy = "threshold_gate"
+
+    if mode == "filter" and not config.surrogate_enabled:
+        logger.warning(
+            "acquisition.mode filter requires surrogate.enabled; forcing mode off",
+        )
+        mode = "off"
+
+    if policy == acquisition.policy and mode == acquisition.mode:
+        return config
+    return replace(
+        config,
+        acquisition=replace(acquisition, policy=policy, mode=mode),
+    )
 
 
 def _boundary_bins(archive: GridArchive) -> list[tuple[int, int]]:

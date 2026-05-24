@@ -1,0 +1,38 @@
+schema_version: "1.2"
+# SA-1.5 / SA-7: fast run with acquisition.mode shadow (always evaluates).
+iterations: 2
+batch_size: 4
+grid_resolution: 10
+early_extinction_step: 200
+min_steps: 200
+
+batch_emitters:
+  - random
+  - genetic
+  - genetic
+  - llm
+
+initial_random_candidates: 0
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: true
+  model_type: lightgbm
+  checkpoint: artifacts/surrogate/checkpoints/micro.pkl
+  buffer_path: artifacts/surrogate/buffer.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive.jsonl
+  acquisition:
+    mode: shadow
+    policy: threshold_gate
+    min_predicted_fitness: 0.25
+    max_uncertainty_to_skip: 0.40
+    never_skip_empty_bin: true
+  retrain:
+    enabled: false
