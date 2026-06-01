@@ -84,7 +84,7 @@ def render_run_card(run: RunInfo, *, load_stats: bool = True) -> None:
                         for key, value in breakdown.items()
                     ]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 

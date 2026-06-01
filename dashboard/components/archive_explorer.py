@@ -195,7 +195,7 @@ def render_diagnostic_panel(
         chart_key = f"{chart_key}_{bin_x}_{bin_y}_{spec_hash[:16]}"
     else:
         chart_key = f"{chart_key}_{spec_hash[:16]}"
-    st.plotly_chart(diagnostic_fig, use_container_width=True, key=chart_key)
+    st.plotly_chart(diagnostic_fig, width="stretch", key=chart_key)
     with st.expander("What do these panels mean?", expanded=False):
         for panel_key, blurb in DIAGNOSTIC_PANEL_HELP.items():
             st.markdown(f"**{panel_key.replace('_', ' ').title()}** — {blurb}")

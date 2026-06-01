@@ -207,9 +207,9 @@ def render_acquisition_charts(frame: pd.DataFrame) -> None:
     stats = skips_by_iteration(frame)
     col_bar, col_line = st.columns(2)
     with col_bar:
-        st.plotly_chart(plot_skips_per_iteration(stats), use_container_width=True)
+        st.plotly_chart(plot_skips_per_iteration(stats), width="stretch")
     with col_line:
-        st.plotly_chart(plot_cumulative_skips(stats), use_container_width=True)
+        st.plotly_chart(plot_cumulative_skips(stats), width="stretch")
 
 
 def render_acquisition_table(frame: pd.DataFrame, *, table_max_rows: int) -> None:
@@ -219,6 +219,6 @@ def render_acquisition_table(frame: pd.DataFrame, *, table_max_rows: int) -> Non
         st.info("No rows match the current filters.")
         return
     display = frame.head(max(1, table_max_rows))
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(display, width="stretch", hide_index=True)
     if len(frame) > len(display):
         st.caption(f"Showing {len(display)} of {len(frame)} rows.")

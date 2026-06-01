@@ -71,14 +71,14 @@ def render_buffer_stats(bundle: BufferBundle) -> None:
         st.markdown("**By emitter_type**")
         emitter = counts.get("emitter_type")
         if emitter is not None and not emitter.empty:
-            st.dataframe(emitter.rename("count").to_frame(), use_container_width=True)
+            st.dataframe(emitter.rename("count").to_frame(), width="stretch")
         else:
             st.caption("_no data_")
     with right:
         st.markdown("**By feature_schema_version**")
         schema = counts.get("feature_schema_version")
         if schema is not None and not schema.empty:
-            st.dataframe(schema.rename("count").to_frame(), use_container_width=True)
+            st.dataframe(schema.rename("count").to_frame(), width="stretch")
         else:
             st.caption("_no data_")
 
@@ -160,7 +160,7 @@ def render_buffer_table(
     st.caption(
         f"Rows {page_index * page_size + 1}–{page_index * page_size + len(display)} of {total:,}"
     )
-    st.dataframe(display[columns], use_container_width=True, hide_index=True)
+    st.dataframe(display[columns], width="stretch", hide_index=True)
 
 
 def render_buffer_export(

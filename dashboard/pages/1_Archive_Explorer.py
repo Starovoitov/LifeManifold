@@ -92,7 +92,7 @@ display_columns = [
 ]
 st.dataframe(
     filtered[display_columns].head(table_max),
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
 )
 
@@ -107,7 +107,7 @@ else:
         metric=metric,
         resolution=filter_state.resolution,
     )
-    st.plotly_chart(heatmap_fig, use_container_width=True)
+    st.plotly_chart(heatmap_fig, width="stretch")
 
 if filtered.empty:
     st.info("No elites match the current filters.")

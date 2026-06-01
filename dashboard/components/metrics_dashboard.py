@@ -24,7 +24,7 @@ def render_correlation_section(filtered: pd.DataFrame) -> None:
     st.subheader("Metric correlations")
     corr = correlation_matrix(filtered)
     fig = create_correlation_heatmap(corr)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     if not corr.empty:
         st.caption(f"Pearson correlation on {len(filtered)} collapsed elites.")
 
@@ -42,4 +42,4 @@ def render_distributions_section(filtered: pd.DataFrame) -> None:
                 metric,
                 color_by="emitter_type",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")

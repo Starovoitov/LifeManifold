@@ -137,7 +137,7 @@ scatter_fig = plot_real_vs_predicted(
     uncertainty,
     metric_name="fitness",
 )
-st.plotly_chart(scatter_fig, use_container_width=True)
+st.plotly_chart(scatter_fig, width="stretch")
 
 st.subheader("Calibration by uncertainty")
 if len(prediction_frame) < 3:
@@ -149,7 +149,7 @@ else:
         uncertainty,
         n_bins=min(8, len(prediction_frame)),
     )
-    st.plotly_chart(calibration_fig, use_container_width=True)
+    st.plotly_chart(calibration_fig, width="stretch")
 
 model = surrogate_model_from_handle(load_surrogate(cfg))
 importances = feature_importance_from_model(model) if model is not None else None
