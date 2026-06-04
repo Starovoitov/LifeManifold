@@ -20,6 +20,44 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertTrue(config.surrogate_enabled)
         self.assertIn("nightly.pkl", config.surrogate_checkpoint or "")
 
+    def test_resolve_nightly_grid_resolution_from_summary(self) -> None:
+        import json
+        import tempfile
+
+        from scripts.run_github_llm_map_elites import resolve_nightly_grid_resolution
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            archive = run_dir / "map_elites_archive.jsonl"
+            archive.write_text("{}\n", encoding="utf-8")
+            summary = run_dir / "nightly_run_summary.json"
+            summary.write_text(
+                json.dumps({"grid_resolution": 50}),
+                encoding="utf-8",
+            )
+            self.assertEqual(resolve_nightly_grid_resolution(archive), 50)
+
+    def test_resolve_nightly_grid_resolution_invalid_returns_none(self) -> None:
+        import json
+        import tempfile
+
+        from scripts.run_github_llm_map_elites import resolve_nightly_grid_resolution
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            archive = run_dir / "map_elites_archive.jsonl"
+            archive.write_text("{}\n", encoding="utf-8")
+            summary = run_dir / "nightly_run_summary.json"
+            for bad in ("fifty", [], {}):
+                summary.write_text(
+                    json.dumps({"grid_resolution": bad}),
+                    encoding="utf-8",
+                )
+                self.assertIsNone(
+                    resolve_nightly_grid_resolution(archive),
+                    msg=f"expected None for {bad!r}",
+                )
+
     def test_resolve_llm_spec_qwen(self) -> None:
         from scripts.run_github_llm_map_elites import resolve_llm_spec_path
         from worldspace.illuminators.scheduler import DEFAULT_QWEN_LLM_SPEC_PATH

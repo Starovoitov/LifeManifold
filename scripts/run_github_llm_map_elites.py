@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -32,11 +33,17 @@ _NIGHTLY_ROOT = _REPO_ROOT / "artifacts" / "map_elites_nightly"
 _BASELINE_SUBDIR = "baseline"
 
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_github_llm"
+_DEFAULT_GRID_RESOLUTION = 50
 _DEFAULT_GRID_SIZE = 50
 _DEFAULT_STEPS = 200
 _DEFAULT_SEED = 0
 
-__all__ = ["main", "resolve_llm_spec_path", "resolve_nightly_resume_archive"]
+__all__ = [
+    "main",
+    "resolve_llm_spec_path",
+    "resolve_nightly_grid_resolution",
+    "resolve_nightly_resume_archive",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +70,26 @@ def resolve_nightly_resume_archive() -> Path | None:
     if baseline.is_file():
         return baseline
     return None
+
+
+def resolve_nightly_grid_resolution(archive_path: Path | str) -> int | None:
+    """``grid_resolution`` from ``nightly_run_summary.json`` beside the archive."""
+    summary_path = Path(archive_path).parent / "nightly_run_summary.json"
+    if not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("grid_resolution")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
@@ -125,7 +152,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Run output directory.",
     )
     parser.add_argument("--seed", type=int, default=_DEFAULT_SEED)
-    parser.add_argument("--grid-resolution", type=int, default=None)
+    parser.add_argument(
+        "--grid-resolution",
+        type=int,
+        default=_DEFAULT_GRID_RESOLUTION,
+        help="Archive grid side length (default: 50, same as nightly).",
+    )
     parser.add_argument("--grid", type=int, default=_DEFAULT_GRID_SIZE)
     parser.add_argument("--steps", type=int, default=_DEFAULT_STEPS)
     parser.add_argument("--iterations", type=int, default=None)
