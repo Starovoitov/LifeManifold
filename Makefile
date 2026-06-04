@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
+.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites github-llm-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
 
 install:
 	$(UV) venv
@@ -29,6 +29,10 @@ smoke-map-elites:
 
 nightly-map-elites:
 	$(UV) run python -m worldspace.scripts.run_map_elites_nightly
+
+# Qwen LLM + nightly.pkl (expects artifacts/map_elites_nightly from a prior nightly run)
+github-llm-map-elites:
+	$(UV) run python scripts/run_github_llm_map_elites.py --train-surrogate-if-missing
 
 # Local surrogate buffer + checkpoints (synthetic data; artifacts/surrogate/ is gitignored)
 surrogate-artifacts:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -71,6 +72,7 @@ class MapElitesEmitter:
         mutation_scale: float = 0.02,
         scheduler: SchedulerConfig | None = None,
         llm_emitter: LlmEmitter | None = None,
+        llm_spec_path: str | Path | None = None,
         surrogate: SurrogateProtocol | None = None,
     ) -> None:
         from worldspace.generators.llm_config import load_llm_config
@@ -83,7 +85,7 @@ class MapElitesEmitter:
             mutation_scale=mutation_scale,
             random_emitter=self._random,
         )
-        llm_cfg = load_llm_config()
+        llm_cfg = load_llm_config(llm_spec_path)
         if llm_emitter is not None:
             self._llm = llm_emitter
         elif scheduler is not None:
@@ -97,6 +99,7 @@ class MapElitesEmitter:
                 scheduler=scheduler,
                 surrogate=effective_surrogate,
                 fallback_scale=llm_cfg.fallback_scale,
+                llm_spec_path=llm_spec_path,
             )
         else:
             self._llm = LlmEmitter(
@@ -104,6 +107,7 @@ class MapElitesEmitter:
                 surrogate_mean=0.5,
                 surrogate_uncertainty=1.0,
                 fallback_scale=llm_cfg.fallback_scale,
+                llm_spec_path=llm_spec_path,
             )
 
     def emit(

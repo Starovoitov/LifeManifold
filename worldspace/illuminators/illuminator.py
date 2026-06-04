@@ -51,6 +51,7 @@ class MapElitesIlluminator:
         iterations: int | None = None,
         load_archive_path: str | Path | None = None,
         emitter: CandidateEmitter | None = None,
+        llm_spec_path: str | Path | None = None,
     ) -> MapElitesRunResult:
         """Run MAP-Elites for ``iterations × batch_size`` candidate slots."""
         config = load_scheduler(
@@ -95,6 +96,7 @@ class MapElitesIlluminator:
         effective_emitter = emitter or MapElitesEmitter(
             scheduler=config,
             surrogate=surrogate,
+            llm_spec_path=llm_spec_path,
         )
         run_id = uuid.uuid4().hex
         surrogate_archive_path = surrogate_archive_path_for_output(out_dir)

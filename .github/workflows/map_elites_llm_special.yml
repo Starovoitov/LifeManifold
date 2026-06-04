@@ -1,0 +1,89 @@
+name: MAP-Elites LLM special
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Override scheduler iterations (default 20 in github_llm YAML)"
+        required: false
+        default: ""
+      llm_provider:
+        description: "LLM provider (qwen uses llm_world_generator_qwen.yaml)"
+        required: false
+        default: "qwen"
+      resume_nightly_baseline:
+        description: "Resume from last nightly baseline archive"
+        required: false
+        type: boolean
+        default: true
+      download_nightly:
+        description: "Download artifacts from the latest successful nightly workflow"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  llm-special:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Download last nightly artifacts
+        if: inputs.download_nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list \
+            --workflow=map_elites_nightly.yml \
+            --status=success \
+            --limit=1 \
+            --json databaseId \
+            -q '.[0].databaseId')"
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "No successful MAP-Elites nightly run found."
+            exit 1
+          fi
+          echo "Downloading nightly artifacts from run $run_id"
+          gh run download "$run_id" \
+            -n map-elites-nightly \
+            -D artifacts/map_elites_nightly
+          gh run download "$run_id" \
+            -n map-elites-nightly-surrogate \
+            -D . || true
+
+      - name: Run MAP-Elites with LLM and nightly surrogate
+        env:
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "${{ github.event.inputs.iterations }}" ]; then
+            ARGS+=(--iterations "${{ github.event.inputs.iterations }}")
+          fi
+          ARGS+=(--llm-provider "${{ github.event.inputs.llm_provider }}")
+          if [ "${{ github.event.inputs.resume_nightly_baseline }}" != "true" ]; then
+            ARGS+=(--no-resume-nightly)
+          fi
+          if [ "${{ github.event.inputs.download_nightly }}" != "true" ]; then
+            ARGS+=(--train-surrogate-if-missing)
+          fi
+          uv run python scripts/run_github_llm_map_elites.py "${ARGS[@]}"
+
+      - name: Upload LLM special artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: map-elites-llm-special
+          path: artifacts/map_elites_github_llm/
+          retention-days: 14

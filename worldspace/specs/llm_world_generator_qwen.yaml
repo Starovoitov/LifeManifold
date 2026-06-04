@@ -1,0 +1,25 @@
+version: 1
+
+# GitHub Actions / manual LLM runs (workflow sets QWEN_API_KEY).
+llm:
+  mode: remote
+  active_provider: qwen
+  global_search: false
+  temperature: 0.2
+  max_tokens: 350
+  fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
+  providers:
+    openai:
+      provider: openai
+      model: gpt-4o-mini
+      api_base: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+    qwen:
+      provider: openai
+      model: qwen-plus
+      api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+      api_key_env: QWEN_API_KEY

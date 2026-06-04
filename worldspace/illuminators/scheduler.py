@@ -36,12 +36,18 @@ DEFAULT_NIGHTLY_SCHEDULER_PATH = (
 DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate.yaml"
 )
+DEFAULT_GITHUB_LLM_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_github_llm.yaml"
+)
+DEFAULT_QWEN_LLM_SPEC_PATH = _DEFAULT_SPECS_DIR / "llm_world_generator_qwen.yaml"
 
 __all__ = [
     "AcquisitionConfig",
     "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SCHEDULER_PATH",
+    "DEFAULT_GITHUB_LLM_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH",
+    "DEFAULT_QWEN_LLM_SPEC_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "EmitterKind",
     "RetrainConfig",
