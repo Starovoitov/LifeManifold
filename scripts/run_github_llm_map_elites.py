@@ -196,10 +196,6 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("LLM MAP-Elites run complete: %s", result.archive_jsonl_path)
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _nightly_buffer_has_rows() -> bool:
     """True when the nightly buffer file exists and is non-empty."""
     return _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size > 0
@@ -223,3 +219,7 @@ def _ensure_nightly_buffer_from_baseline() -> bool:
     )
     logger.info("Buffer backfill stats: %s", stats)
     return _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size > 0
+
+
+if __name__ == "__main__":
+    main()
