@@ -7,27 +7,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dashboard.utils.config import (
-    existing_archive_paths,
-    load_config,
-    resolve_repo_path,
-)
+from dashboard.utils.config import load_config, repo_root, resolve_repo_path
 
 ARCHIVE_JSONL_NAME = "map_elites_archive.jsonl"
 SUMMARY_FILENAMES = ("nightly_run_summary.json", "smoke_run_summary.json")
 
-_DEFAULT_SCAN_DIRS = (
-    "output",
-    "artifacts/map_elites_nightly",
-    "artifacts/map_elites_smoke",
-)
+# Used only when ``paths.run_scan_dirs`` is missing or empty in config.yaml.
+_DEFAULT_SCAN_DIRS = "artifacts/"
+
+_GLOB_CHARS = frozenset("*?[]")
 
 __all__ = [
     "RunInfo",
+    "default_scan_dir_entries",
     "discover_runs",
+    "expand_scan_dir_entries",
     "load_summary_json",
     "summary_get",
 ]
+
+
+def default_scan_dir_entries() -> list[str]:
+    """Fallback scan patterns when ``paths.run_scan_dirs`` is unset in config.yaml."""
+    return list(_DEFAULT_SCAN_DIRS)
 
 
 @dataclass(frozen=True)
@@ -97,17 +99,18 @@ def summary_get(
     return default
 
 
-def _scan_roots(cfg: dict[str, Any]) -> list[Path]:
+def _scan_dir_entries(cfg: dict[str, Any]) -> list[str]:
+    """``paths.run_scan_dirs`` from config.yaml; code defaults if missing or empty."""
     paths_section = cfg.get("paths")
-    dirs: list[str] = list(_DEFAULT_SCAN_DIRS)
     if isinstance(paths_section, dict):
         raw_dirs = paths_section.get("run_scan_dirs")
-        if isinstance(raw_dirs, list):
-            dirs = [str(entry) for entry in raw_dirs]
+        if isinstance(raw_dirs, list) and raw_dirs:
+            return [text for entry in raw_dirs if (text := str(entry).strip())]
+    return list(_DEFAULT_SCAN_DIRS)
 
-    roots: list[Path] = [_resolve_scan_path(relative) for relative in dirs]
-    for archive in existing_archive_paths(cfg):
-        roots.append(archive.parent)
+
+def _scan_roots(cfg: dict[str, Any]) -> list[Path]:
+    roots: list[Path] = expand_scan_dir_entries(_scan_dir_entries(cfg))
 
     unique: list[Path] = []
     seen: set[str] = set()
@@ -124,6 +127,30 @@ def _find_archives_under(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(root.rglob(ARCHIVE_JSONL_NAME))
+
+
+def expand_scan_dir_entries(entries: list[str]) -> list[Path]:
+    """Expand ``run_scan_dirs`` entries; paths with ``*``, ``?``, or ``[]`` glob under repo root."""
+    roots: list[Path] = []
+    for entry in entries:
+        roots.extend(_expand_scan_dir_entry(entry))
+    return roots
+
+
+def _expand_scan_dir_entry(entry: str) -> list[Path]:
+    text = entry.strip()
+    if not text:
+        return []
+    if not any(char in text for char in _GLOB_CHARS):
+        return [_resolve_scan_path(text)]
+
+    path = Path(text).expanduser()
+    if path.is_absolute():
+        matches = sorted(path.parent.glob(path.name))
+    else:
+        matches = sorted(repo_root().glob(text))
+
+    return [match.resolve() for match in matches if match.is_dir()]
 
 
 def _resolve_scan_path(relative: str) -> Path:

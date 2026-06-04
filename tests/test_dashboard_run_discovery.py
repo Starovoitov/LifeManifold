@@ -13,6 +13,83 @@ _SMOKE_ARCHIVE = (
 )
 
 
+class TestScanDirEntries(unittest.TestCase):
+    def test_config_run_scan_dirs_replaces_defaults(self) -> None:
+        from dashboard.utils.run_discovery import _scan_dir_entries
+
+        cfg = {"paths": {"run_scan_dirs": ["custom/*", "artifacts/*"]}}
+        entries = _scan_dir_entries(cfg)
+        self.assertEqual(entries, ["custom/*", "artifacts/*"])
+
+    def test_empty_or_missing_run_scan_dirs_uses_defaults(self) -> None:
+        from dashboard.utils.run_discovery import (
+            _scan_dir_entries,
+            default_scan_dir_entries,
+        )
+
+        defaults = default_scan_dir_entries()
+        self.assertEqual(_scan_dir_entries({}), defaults)
+        self.assertEqual(_scan_dir_entries({"paths": {}}), defaults)
+        self.assertEqual(_scan_dir_entries({"paths": {"run_scan_dirs": []}}), defaults)
+
+
+class TestExpandScanDirEntries(unittest.TestCase):
+    def test_literal_path_unchanged(self) -> None:
+        from dashboard.utils.run_discovery import expand_scan_dir_entries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            entries = expand_scan_dir_entries([str(root)])
+            self.assertEqual(entries, [root.resolve()])
+
+    def test_wildcard_expands_immediate_subdirs(self) -> None:
+        from dashboard.utils.run_discovery import expand_scan_dir_entries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "artifacts"
+            run_a = base / "run_a"
+            run_b = base / "run_b"
+            run_a.mkdir(parents=True)
+            run_b.mkdir(parents=True)
+            (base / "skip.txt").write_text("", encoding="utf-8")
+
+            entries = expand_scan_dir_entries([str(base / "*")])
+            self.assertEqual(
+                {path.resolve() for path in entries},
+                {run_a.resolve(), run_b.resolve()},
+            )
+
+    def test_wildcard_no_match_returns_empty(self) -> None:
+        from dashboard.utils.run_discovery import expand_scan_dir_entries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "nowhere"
+            empty.mkdir()
+            self.assertEqual(
+                expand_scan_dir_entries([str(empty / "missing_*")]),
+                [],
+            )
+
+    def test_discover_via_wildcard_scan_dir(self) -> None:
+        from dashboard.utils.run_discovery import discover_runs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "artifacts"
+            run_dir = base / "custom_run"
+            run_dir.mkdir(parents=True)
+            archive = run_dir / "map_elites_archive.jsonl"
+            archive.write_text("{}\n", encoding="utf-8")
+            cfg = {
+                "paths": {
+                    "archives": [],
+                    "run_scan_dirs": [str(base / "*")],
+                }
+            }
+            runs = discover_runs(cfg)
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(runs[0].archive_path.resolve(), archive.resolve())
+
+
 class TestDashboardRunDiscovery(unittest.TestCase):
     def test_discover_finds_smoke_archive_when_present(self) -> None:
         from dashboard.utils.run_discovery import discover_runs

@@ -1,12 +1,11 @@
 paths:
   run_scan_dirs:
     - output
-    - artifacts/map_elites_nightly
-    - artifacts/map_elites_smoke
+    - output/*
+    - artifacts/*
   archives:
     - output/map_elites_archive.jsonl
-    - artifacts/map_elites_nightly/map_elites_archive.jsonl
-    - artifacts/map_elites_smoke/map_elites_archive.jsonl
+
   surrogate_buffer: artifacts/surrogate/buffer.jsonl
   surrogate_archive: artifacts/surrogate/surrogate_archive.jsonl
   surrogate_checkpoint: artifacts/surrogate/checkpoints/latest.pkl

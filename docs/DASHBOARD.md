@@ -9,7 +9,7 @@ Task breakdown: `artifacts/STREAMLIT_DASHBOARD_EPICS_AND_TASKS_v1.0.md`
 
 The dashboard reads **JSONL** archives and buffers (plus `.pkl` checkpoints and `.json` run summaries). It does not use Parquet as a project format.
 
-Default paths are in `dashboard/config/config.yaml` (relative to the repository root).
+Default paths are in `dashboard/config/config.yaml` (relative to the repository root). Set `paths.run_scan_dirs` there (wildcards such as `artifacts/*` are supported); each matched folder is searched recursively for `map_elites_archive.jsonl`. The sidebar **Archive JSONL** list merges `paths.archives` with discovery. If `run_scan_dirs` is omitted or empty, `dashboard/utils/run_discovery.py` falls back to built-in defaults.
 
 ## Setup
 

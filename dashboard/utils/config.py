@@ -12,12 +12,14 @@ _DEFAULT_CONFIG_PATH = _CONFIG_DIR / "config.yaml"
 
 __all__ = [
     "config_path",
+    "configured_archive_paths",
     "existing_archive_paths",
     "load_config",
     "repo_root",
     "resolve_repo_path",
     "resolve_surrogate_archive_path",
     "resolve_surrogate_buffer_path",
+    "sort_archive_paths_by_mtime",
 ]
 
 
@@ -47,8 +49,8 @@ def resolve_repo_path(relative: str) -> Path:
     return repo_root() / relative
 
 
-def existing_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
-    """Return configured archive JSONL paths that exist on disk."""
+def configured_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
+    """Return ``paths.archives`` entries that exist on disk (explicit overrides only)."""
     config = cfg if cfg is not None else load_config()
     paths_section = config.get("paths")
     if not isinstance(paths_section, dict):
@@ -64,6 +66,47 @@ def existing_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
         if resolved.is_file():
             found.append(resolved)
     return found
+
+
+def _archive_mtime(path: Path) -> float | None:
+    try:
+        return float(path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def sort_archive_paths_by_mtime(entries: list[tuple[Path, float]]) -> list[Path]:
+    """Sort by cached mtimes; drop paths that no longer exist (no second ``stat()``)."""
+    ordered = sorted(entries, key=lambda item: item[1], reverse=True)
+    return [path for path, _ in ordered if path.is_file()]
+
+
+def existing_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
+    """Archives for the sidebar: ``paths.archives`` plus ``paths.run_scan_dirs`` discovery."""
+    config = cfg if cfg is not None else load_config()
+    seen: set[str] = set()
+    by_mtime: list[tuple[Path, float]] = []
+
+    for path in configured_archive_paths(config):
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        mtime = _archive_mtime(path)
+        if mtime is None:
+            continue
+        seen.add(key)
+        by_mtime.append((path, mtime))
+
+    from dashboard.utils.run_discovery import discover_runs
+
+    for run in discover_runs(config):
+        key = str(run.archive_path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        by_mtime.append((run.archive_path, run.archive_mtime))
+
+    return sort_archive_paths_by_mtime(by_mtime)
 
 
 def resolve_surrogate_archive_path(cfg: dict[str, Any] | None = None) -> Path:

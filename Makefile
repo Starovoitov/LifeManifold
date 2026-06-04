@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate pylint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
+.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
 
 install:
 	$(UV) venv
@@ -15,7 +15,7 @@ install-dashboard:
 activate:
 	@echo "Run: source .venv/bin/activate"
 
-pylint:
+lint:
 	$(UV) run ruff check .
 	$(UV) run pyright .
 	$(UV) run black --check .
