@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: "Override scheduler iterations (default 20 in github_llm YAML)"
+        description: "Override scheduler iterations (default 650, same as nightly)"
         required: false
         default: ""
       llm_provider:
@@ -12,10 +12,10 @@ on:
         required: false
         default: "qwen"
       resume_nightly_baseline:
-        description: "Resume from last nightly baseline archive"
+        description: "Resume saturated nightly baseline (few new inserts; off = fresh archive, more llm lines)"
         required: false
         type: boolean
-        default: true
+        default: false
       download_nightly:
         description: "Download artifacts from the latest successful nightly workflow"
         required: false
@@ -25,7 +25,7 @@ on:
 jobs:
   llm-special:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 

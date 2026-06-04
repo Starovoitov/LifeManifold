@@ -1,18 +1,65 @@
 schema_version: "1.2"
-# GitHub Actions workflow_dispatch: LLM slots + surrogate hints from nightly.pkl (same grid as nightly).
-iterations: 20
-batch_size: 4
+# GitHub LLM special: same scale as nightly (650 × 50) with LLM + surrogate hints.
+# Slot mix biases LLM (20 llm / 15 genetic / 15 random per batch) for more llm archive lines.
+iterations: 650
+batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
 min_steps: 200
 
 batch_emitters:
   - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
   - genetic
   - genetic
   - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
 
-initial_random_candidates: 20
+initial_random_candidates: 100
 
 genetic:
   mutation_scale: 0.02

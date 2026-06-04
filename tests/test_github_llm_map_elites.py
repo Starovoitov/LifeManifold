@@ -19,6 +19,9 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertTrue(config.llm_enabled)
         self.assertTrue(config.surrogate_enabled)
         self.assertIn("nightly.pkl", config.surrogate_checkpoint or "")
+        self.assertEqual(config.iterations, 650)
+        self.assertEqual(config.batch_size, 50)
+        self.assertEqual(config.batch_emitters.count("llm"), 20)
 
     def test_resolve_nightly_grid_resolution_from_summary(self) -> None:
         import json
