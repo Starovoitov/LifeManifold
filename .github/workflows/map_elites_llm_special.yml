@@ -57,9 +57,13 @@ jobs:
           gh run download "$run_id" \
             -n map-elites-nightly \
             -D artifacts/map_elites_nightly
-          gh run download "$run_id" \
-            -n map-elites-nightly-surrogate \
-            -D . || true
+          if ! gh run download "$run_id" -n map-elites-nightly-surrogate -D . 2>/dev/null; then
+            echo "No map-elites-nightly-surrogate artifact (older nightly run); will backfill/train in-script."
+          fi
+          echo "Nightly layout after download:"
+          ls -la artifacts/map_elites_nightly/baseline 2>/dev/null || true
+          ls -la artifacts/surrogate/checkpoints 2>/dev/null || true
+          ls -la artifacts/surrogate/buffer_nightly.jsonl 2>/dev/null || true
 
       - name: Run MAP-Elites with LLM and nightly surrogate
         env:
@@ -75,9 +79,8 @@ jobs:
           if [ "${{ github.event.inputs.resume_nightly_baseline }}" != "true" ]; then
             ARGS+=(--no-resume-nightly)
           fi
-          if [ "${{ github.event.inputs.download_nightly }}" != "true" ]; then
-            ARGS+=(--train-surrogate-if-missing)
-          fi
+          # Build nightly.pkl from buffer or baseline archive when the surrogate artifact is absent.
+          ARGS+=(--train-surrogate-if-missing)
           uv run python scripts/run_github_llm_map_elites.py "${ARGS[@]}"
 
       - name: Upload LLM special artifacts

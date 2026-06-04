@@ -66,7 +66,7 @@ def resolve_nightly_resume_archive() -> Path | None:
 
 
 def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
-    """Require ``nightly.pkl``; optionally train from ``buffer_nightly.jsonl``."""
+    """Require ``nightly.pkl``; train (and backfill buffer) when missing if allowed."""
     checkpoint = _NIGHTLY_CHECKPOINT_PATH
     if checkpoint.is_file():
         return checkpoint
@@ -76,13 +76,21 @@ def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
             "Download map-elites-nightly artifacts or run with --train-surrogate-if-missing."
         )
         raise FileNotFoundError(msg)
-    if not _NIGHTLY_BUFFER_PATH.is_file():
+    if not _ensure_nightly_buffer_from_baseline():
+        baseline = _NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+        if _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size == 0:
+            detail = f"buffer is empty at {_NIGHTLY_BUFFER_PATH}"
+        elif not baseline.is_file():
+            detail = f"no baseline archive at {baseline}"
+        else:
+            detail = "buffer backfill produced no rows"
         msg = (
-            f"cannot train surrogate: buffer missing at {_NIGHTLY_BUFFER_PATH}. "
-            "Download nightly artifacts (buffer_nightly.jsonl) first."
+            f"cannot train surrogate: {detail}. "
+            "Run MAP-Elites nightly first or download map-elites-nightly artifacts."
         )
         raise FileNotFoundError(msg)
     logger.info("Training nightly surrogate from %s", _NIGHTLY_BUFFER_PATH)
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
     train_nightly_surrogate()
     if not checkpoint.is_file():
         msg = f"training finished but checkpoint missing: {checkpoint}"
@@ -135,11 +143,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--train-surrogate-if-missing",
         action="store_true",
-        help="Train nightly.pkl from buffer_nightly.jsonl when checkpoint is absent.",
+        help=(
+            "Train nightly.pkl when checkpoint is absent; backfill buffer from "
+            "nightly baseline archive if buffer_nightly.jsonl is missing."
+        ),
     )
     args = parser.parse_args(argv)
 
-    ensure_nightly_surrogate_checkpoint(train_if_missing=args.train_surrogate_if_missing)
+    ensure_nightly_surrogate_checkpoint(
+        train_if_missing=args.train_surrogate_if_missing
+    )
     llm_spec = resolve_llm_spec_path(args.llm_provider)
 
     load_archive: str | Path | None = None
@@ -185,3 +198,28 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _nightly_buffer_has_rows() -> bool:
+    """True when the nightly buffer file exists and is non-empty."""
+    return _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size > 0
+
+
+def _ensure_nightly_buffer_from_baseline() -> bool:
+    """Backfill ``buffer_nightly.jsonl`` from the nightly baseline archive if needed."""
+    if _nightly_buffer_has_rows():
+        return True
+    baseline = resolve_nightly_resume_archive()
+    if baseline is None:
+        return False
+    from worldspace.surrogate.backfill import backfill_buffer_from_archive
+
+    _NIGHTLY_BUFFER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Backfilling surrogate buffer from nightly baseline: %s", baseline)
+    stats = backfill_buffer_from_archive(
+        baseline,
+        _NIGHTLY_BUFFER_PATH,
+        overwrite=True,
+    )
+    logger.info("Buffer backfill stats: %s", stats)
+    return _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size > 0

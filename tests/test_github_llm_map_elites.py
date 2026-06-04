@@ -27,6 +27,67 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertEqual(resolve_llm_spec_path("qwen"), DEFAULT_QWEN_LLM_SPEC_PATH)
         self.assertTrue(DEFAULT_QWEN_LLM_SPEC_PATH.is_file())
 
+    def test_backfill_buffer_from_baseline_when_present(self) -> None:
+        import tempfile
+
+        import scripts.run_github_llm_map_elites as mod
+        from scripts.run_github_llm_map_elites import _BASELINE_SUBDIR
+
+        baseline = _REPO_ROOT / "artifacts" / "baseline" / "map_elites_archive.jsonl"
+        if not baseline.is_file():
+            self.skipTest("no local baseline archive for backfill smoke test")
+        with tempfile.TemporaryDirectory() as tmp:
+            buffer = Path(tmp) / "buffer_nightly.jsonl"
+            orig_root = mod._NIGHTLY_ROOT
+            orig_buffer = mod._NIGHTLY_BUFFER_PATH
+            try:
+                mod._NIGHTLY_ROOT = Path(tmp) / "map_elites_nightly"
+                (mod._NIGHTLY_ROOT / _BASELINE_SUBDIR).mkdir(parents=True)
+                archive = (
+                    mod._NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+                )
+                archive.write_text(
+                    baseline.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+                mod._NIGHTLY_BUFFER_PATH = buffer
+                self.assertTrue(mod._ensure_nightly_buffer_from_baseline())
+                self.assertTrue(mod._nightly_buffer_has_rows())
+            finally:
+                mod._NIGHTLY_ROOT = orig_root
+                mod._NIGHTLY_BUFFER_PATH = orig_buffer
+
+    def test_empty_buffer_file_triggers_backfill(self) -> None:
+        import tempfile
+
+        import scripts.run_github_llm_map_elites as mod
+        from scripts.run_github_llm_map_elites import _BASELINE_SUBDIR
+
+        baseline = _REPO_ROOT / "artifacts" / "baseline" / "map_elites_archive.jsonl"
+        if not baseline.is_file():
+            self.skipTest("no local baseline archive for backfill smoke test")
+        with tempfile.TemporaryDirectory() as tmp:
+            buffer = Path(tmp) / "buffer_nightly.jsonl"
+            buffer.write_text("", encoding="utf-8")
+            orig_root = mod._NIGHTLY_ROOT
+            orig_buffer = mod._NIGHTLY_BUFFER_PATH
+            try:
+                mod._NIGHTLY_ROOT = Path(tmp) / "map_elites_nightly"
+                (mod._NIGHTLY_ROOT / _BASELINE_SUBDIR).mkdir(parents=True)
+                archive = (
+                    mod._NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+                )
+                archive.write_text(
+                    baseline.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+                mod._NIGHTLY_BUFFER_PATH = buffer
+
+                self.assertFalse(mod._nightly_buffer_has_rows())
+                self.assertTrue(mod._ensure_nightly_buffer_from_baseline())
+                self.assertTrue(mod._nightly_buffer_has_rows())
+            finally:
+                mod._NIGHTLY_ROOT = orig_root
+                mod._NIGHTLY_BUFFER_PATH = orig_buffer
+
     def test_qwen_yaml_uses_qwen_provider(self) -> None:
         from worldspace.generators.llm_config import load_llm_config
         from worldspace.illuminators.scheduler import DEFAULT_QWEN_LLM_SPEC_PATH
