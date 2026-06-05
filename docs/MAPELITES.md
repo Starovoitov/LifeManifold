@@ -595,7 +595,7 @@ tests/test_map_elites_*.py
 
 **Smoke test:** `make smoke-map-elites` — mini scheduler, no LLM, artifacts under `artifacts/map_elites_smoke/`.
 
-**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` (`workflow_dispatch`) runs `map_elites_scheduler_github_llm.yaml` — **650×50** evals like nightly, **40% LLM slots** per batch, `llm.enabled` + `nightly.pkl`. Default **no resume** (fresh archive → more LLM JSONL lines). Requires `QWEN_API_KEY`; long run (~hours with API latency).
+**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` — **120×50** evals by default (20 LLM slots/batch, fresh archive), fits ~6h GHA limit; profile **full** = 650 iter (usually needs local: `--iterations 650`). Surrogate: `nightly.pkl`. Secret: `QWEN_API_KEY`.
 
 ---
 

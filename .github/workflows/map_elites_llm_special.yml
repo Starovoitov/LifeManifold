@@ -3,8 +3,16 @@ name: MAP-Elites LLM special
 on:
   workflow_dispatch:
     inputs:
+      run_profile:
+        description: "standard ≈4–5h in GHA; full = 650 iter (32.5k evals, often >6h — use locally)"
+        required: false
+        type: choice
+        options:
+          - standard
+          - full
+        default: standard
       iterations:
-        description: "Override scheduler iterations (default 650, same as nightly)"
+        description: "Override iterations (overrides run_profile when set)"
         required: false
         default: ""
       llm_provider:
@@ -74,6 +82,8 @@ jobs:
           ARGS=()
           if [ -n "${{ github.event.inputs.iterations }}" ]; then
             ARGS+=(--iterations "${{ github.event.inputs.iterations }}")
+          elif [ "${{ github.event.inputs.run_profile }}" = "full" ]; then
+            ARGS+=(--iterations 650)
           fi
           ARGS+=(--llm-provider "${{ github.event.inputs.llm_provider }}")
           if [ "${{ github.event.inputs.resume_nightly_baseline }}" != "true" ]; then

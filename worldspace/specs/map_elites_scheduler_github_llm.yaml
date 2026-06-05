@@ -1,7 +1,7 @@
 schema_version: "1.2"
-# GitHub LLM special: same scale as nightly (650 × 50) with LLM + surrogate hints.
-# Slot mix biases LLM (20 llm / 15 genetic / 15 random per batch) for more llm archive lines.
-iterations: 650
+# GitHub LLM special: nightly batch shape (50-wide, 20 LLM slots), CI-safe iteration budget.
+# 120 × 50 = 6_000 evals (~2400 LLM calls); full nightly length: --iterations 650 (local / long runner).
+iterations: 120
 batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
