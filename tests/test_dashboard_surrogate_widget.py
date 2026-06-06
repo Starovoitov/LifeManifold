@@ -26,6 +26,28 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             resolved = resolve_checkpoint_path(cfg)
             self.assertEqual(resolved, primary.resolve())
 
+    def test_resolve_checkpoint_prefers_archive_adjacent_checkpoints(self) -> None:
+        from dashboard.utils.config import resolve_surrogate_checkpoint_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "baseline" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            checkpoint = root / "checkpoints" / "nightly_v2.pkl"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_bytes(b"not-a-real-pickle")
+            config_path = root / "missing" / "nightly_v2.pkl"
+            cfg = {
+                "paths": {"surrogate_checkpoint": str(config_path)},
+                "surrogate": {"checkpoint_fallbacks": []},
+            }
+            resolved = resolve_surrogate_checkpoint_path(
+                cfg,
+                archive_path=archive,
+            )
+            self.assertEqual(resolved, checkpoint.resolve())
+
     def test_feature_importance_none_for_untrained_model(self) -> None:
         from dashboard.components.surrogate_widget import feature_importance_from_model
         from worldspace.surrogate.model import SurrogateModel

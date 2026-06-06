@@ -1,0 +1,77 @@
+"""Tests for surrogate buffer analysis helpers and CLI script."""
+
+from __future__ import annotations
+
+import io
+import json
+import tempfile
+import unittest
+import unittest.mock
+from pathlib import Path
+
+from scripts.analyze_surrogate_buffer import main as analyze_main
+from worldspace.surrogate.buffer_analysis import (
+    analyze_buffer_path,
+    format_analysis_report,
+    scan_buffer_metadata,
+)
+from worldspace.surrogate.model import TARGET_KEYS
+from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
+
+
+class TestAnalyzeSurrogateBuffer(unittest.TestCase):
+    def test_scan_buffer_metadata_counts_emitter_and_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=12, seed=3)
+            metadata = scan_buffer_metadata(buffer_path)
+            self.assertEqual(metadata.emitter_types, {"synthetic": 12})
+            self.assertEqual(metadata.metadata_sources, {"unknown": 12})
+
+    def test_analyze_buffer_path_reports_distribution_and_baselines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=200, seed=5)
+            report = analyze_buffer_path(buffer_path, fit_model=False)
+            self.assertEqual(report["sample_count"], 200)
+            self.assertIn("stability", report["targets"])
+            self.assertEqual(len(report["stability_histogram"]), 5)
+            self.assertIn("train_mean_mae", report["stability_baselines"])
+            self.assertGreater(report["stability_baselines"]["train_mean_mae"], 0.0)
+            self.assertIn("feature_correlations_stability", report)
+            split = report["holdout_split"]
+            for key in TARGET_KEYS:
+                self.assertIn(key, split["train_mean"])
+                self.assertIn(key, split["holdout_mean"])
+                self.assertIn(key, split["train_std"])
+                self.assertIn(key, split["holdout_std"])
+            text = format_analysis_report(report)
+            self.assertIn("Target stability:", text)
+            self.assertIn("Quality gate reference:", text)
+
+    def test_analyze_main_writes_json_for_buffer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            buffer_path = root / "buffer.jsonl"
+            output_path = root / "analysis.json"
+            write_synthetic_buffer(buffer_path, n_samples=80, seed=9)
+            argv = [
+                "analyze_surrogate_buffer.py",
+                "--buffer",
+                str(buffer_path),
+                "--output-json",
+                str(output_path),
+                "--quiet",
+            ]
+            with unittest.mock.patch("sys.argv", argv):
+                with unittest.mock.patch("sys.stdout", io.StringIO()) as stdout:
+                    exit_code = analyze_main()
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout.getvalue(), "")
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["mode"], "buffer")
+            self.assertEqual(payload["report"]["sample_count"], 80)
+
+
+if __name__ == "__main__":
+    unittest.main()

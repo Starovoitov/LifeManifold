@@ -28,7 +28,12 @@ from dashboard.components.metrics_dashboard import (
     render_correlation_section,
     render_distributions_section,
 )
-from dashboard.utils.config import existing_archive_paths, load_config, repo_root
+from dashboard.utils.config import (
+    DASHBOARD_ARCHIVE_SESSION_KEY,
+    existing_archive_paths,
+    load_config,
+    repo_root,
+)
 
 st.set_page_config(page_title="Metrics Dashboard", layout="wide")
 st.title("Metrics Dashboard")
@@ -51,7 +56,7 @@ selected_path = st.sidebar.selectbox(
     "Archive JSONL",
     archives,
     format_func=_archive_label,
-    key="metrics_archive_select",
+    key=DASHBOARD_ARCHIVE_SESSION_KEY,
 )
 
 bundle = get_archive_bundle(selected_path)

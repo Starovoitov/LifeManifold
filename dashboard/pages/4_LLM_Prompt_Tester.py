@@ -40,7 +40,12 @@ from dashboard.components.surrogate_widget import (
     predict_world_spec_dict,
     render_surrogate_status_banner,
 )
-from dashboard.utils.config import existing_archive_paths, load_config, repo_root
+from dashboard.utils.config import (
+    DASHBOARD_ARCHIVE_SESSION_KEY,
+    existing_archive_paths,
+    load_config,
+    repo_root,
+)
 from worldspace.illuminators.archive import GridArchive
 
 _TEMPLATE_SESSION_KEY = "llm_user_prompt_template"
@@ -57,7 +62,6 @@ st.title("LLM Prompt Tester")
 st.caption("Dry-run MAP-Elites LLM prompts with surrogate placeholders (no API call).")
 
 cfg = load_config()
-render_surrogate_status_banner(cfg)
 
 defaults = cfg.get("defaults")
 grid_resolution = int(defaults["grid_resolution"]) if isinstance(defaults, dict) else 50
@@ -85,8 +89,9 @@ if archives:
         "Archive JSONL",
         archives,
         format_func=_archive_label,
-        key="llm_prompt_archive",
+        key=DASHBOARD_ARCHIVE_SESSION_KEY,
     )
+    render_surrogate_status_banner(cfg, archive_path=selected_path)
     bundle = get_archive_bundle(selected_path)
     grid_archive = _cached_grid_archive(
         str(selected_path.resolve()),
@@ -95,6 +100,7 @@ if archives:
     )
     grid_resolution = bundle.resolution
 else:
+    render_surrogate_status_banner(cfg)
     st.warning(
         "No archive JSONL found. Few-shot and current-elite blocks use placeholders."
     )

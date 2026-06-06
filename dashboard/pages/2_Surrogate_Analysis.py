@@ -38,7 +38,12 @@ from dashboard.components.visualizations import (
     plot_calibration_by_uncertainty,
     plot_real_vs_predicted,
 )
-from dashboard.utils.config import existing_archive_paths, load_config, repo_root
+from dashboard.utils.config import (
+    DASHBOARD_ARCHIVE_SESSION_KEY,
+    existing_archive_paths,
+    load_config,
+    repo_root,
+)
 from dashboard.utils.surrogate_analysis import (
     build_prediction_frame,
     regression_metrics,
@@ -73,7 +78,6 @@ st.set_page_config(page_title="Surrogate Analysis", layout="wide")
 st.title("Surrogate Analysis")
 
 cfg = load_config()
-status = render_surrogate_status_banner(cfg)
 
 archives = existing_archive_paths(cfg)
 if not archives:
@@ -89,8 +93,10 @@ selected_path = st.sidebar.selectbox(
     "Archive JSONL",
     archives,
     format_func=_archive_label,
-    key="surrogate_archive_select",
+    key=DASHBOARD_ARCHIVE_SESSION_KEY,
 )
+
+status = render_surrogate_status_banner(cfg, archive_path=selected_path)
 
 bundle = get_archive_bundle(selected_path)
 show_large_archive_warning(bundle, cfg)
@@ -113,7 +119,7 @@ prediction_frame = _cached_prediction_frame(
     filter_state.seed,
     filter_state.emitter_type,
     max_rows,
-    str(resolve_checkpoint_path(cfg) or ""),
+    str(resolve_checkpoint_path(cfg, archive_path=selected_path) or ""),
 )
 
 if prediction_frame.empty:
@@ -151,7 +157,7 @@ else:
     )
     st.plotly_chart(calibration_fig, width="stretch")
 
-model = surrogate_model_from_handle(load_surrogate(cfg))
+model = surrogate_model_from_handle(load_surrogate(cfg, archive_path=selected_path))
 importances = feature_importance_from_model(model) if model is not None else None
 if importances:
     st.subheader("Feature importance (LightGBM)")

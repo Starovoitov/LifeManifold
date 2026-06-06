@@ -10,7 +10,11 @@ import numpy as np
 import streamlit as st
 
 from dashboard.utils.bootstrap import ensure_repo_on_path
-from dashboard.utils.config import load_config, resolve_repo_path
+from dashboard.utils.config import (
+    active_archive_path,
+    load_config,
+    resolve_surrogate_checkpoint_path,
+)
 from dashboard.utils.data_processing import world_spec_from_dict
 
 ensure_repo_on_path()
@@ -44,40 +48,26 @@ class SurrogateStatus:
     message: str
 
 
-def resolve_checkpoint_path(cfg: dict[str, Any] | None = None) -> Path | None:
-    """Resolve primary checkpoint path, then configured fallbacks."""
+def resolve_checkpoint_path(
+    cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
+) -> Path | None:
+    """Resolve checkpoint beside the active archive, then configured fallbacks."""
     config = cfg if cfg is not None else load_config()
-    paths_section = config.get("paths")
-    surrogate_section = config.get("surrogate")
-    candidates: list[str] = []
-    if isinstance(paths_section, dict):
-        primary = paths_section.get("surrogate_checkpoint")
-        if isinstance(primary, str) and primary.strip():
-            candidates.append(primary.strip())
-    if isinstance(surrogate_section, dict):
-        fallbacks = surrogate_section.get("checkpoint_fallbacks")
-        if isinstance(fallbacks, list):
-            for item in fallbacks:
-                if isinstance(item, str) and item.strip():
-                    candidates.append(item.strip())
-        legacy = surrogate_section.get("micro_checkpoint_fallback")
-        if isinstance(legacy, str) and legacy.strip():
-            candidates.append(legacy.strip())
-    seen: set[str] = set()
-    for relative in candidates:
-        if relative in seen:
-            continue
-        seen.add(relative)
-        resolved = resolve_repo_path(relative)
-        if resolved.is_file():
-            return resolved
-    return None
+    if archive_path is None:
+        archive_path = active_archive_path(config)
+    return resolve_surrogate_checkpoint_path(config, archive_path=archive_path)
 
 
-def load_surrogate(cfg: dict[str, Any] | None = None) -> SurrogateProtocol:
+def load_surrogate(
+    cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
+) -> SurrogateProtocol:
     """Load cached surrogate instance (checkpoint or stub)."""
     config = cfg if cfg is not None else load_config()
-    surrogate_cfg = _surrogate_config_from_dashboard(config)
+    surrogate_cfg = _surrogate_config_from_dashboard(config, archive_path=archive_path)
     return _cached_load_surrogate(
         str(surrogate_cfg.checkpoint or ""),
         surrogate_cfg.enabled,
@@ -87,11 +77,15 @@ def load_surrogate(cfg: dict[str, Any] | None = None) -> SurrogateProtocol:
     )
 
 
-def surrogate_status(cfg: dict[str, Any] | None = None) -> SurrogateStatus:
+def surrogate_status(
+    cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
+) -> SurrogateStatus:
     """Describe whether a real checkpoint-backed surrogate is active."""
     config = cfg if cfg is not None else load_config()
-    checkpoint = resolve_checkpoint_path(config)
-    surrogate = load_surrogate(config)
+    checkpoint = resolve_checkpoint_path(config, archive_path=archive_path)
+    surrogate = load_surrogate(config, archive_path=archive_path)
     is_stub = isinstance(surrogate, StubSurrogate)
     if is_stub:
         if checkpoint is None:
@@ -132,9 +126,11 @@ def predict_world_spec_dict(world_spec: dict[str, Any]) -> dict[str, float] | No
 
 def render_surrogate_status_banner(
     cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
 ) -> SurrogateStatus:
     """Show info/warning banner for surrogate availability."""
-    status = surrogate_status(cfg)
+    status = surrogate_status(cfg, archive_path=archive_path)
     if status.is_stub:
         st.info(status.message)
     else:
@@ -175,10 +171,14 @@ def feature_importance_from_model(model: SurrogateModel) -> dict[str, float] | N
     return {name: float(averaged[index]) for index, name in enumerate(FEATURE_NAMES)}
 
 
-def _surrogate_config_from_dashboard(cfg: dict[str, Any]) -> SurrogateConfig:
+def _surrogate_config_from_dashboard(
+    cfg: dict[str, Any],
+    *,
+    archive_path: Path | None = None,
+) -> SurrogateConfig:
     surrogate_section = cfg.get("surrogate")
     block = surrogate_section if isinstance(surrogate_section, dict) else {}
-    checkpoint = resolve_checkpoint_path(cfg)
+    checkpoint = resolve_checkpoint_path(cfg, archive_path=archive_path)
     return SurrogateConfig(
         enabled=bool(block.get("enabled", True)),
         model_type="lightgbm",

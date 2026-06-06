@@ -34,7 +34,12 @@ from dashboard.components.filters import (
     render_archive_filters,
 )
 from dashboard.components.visualizations import create_archive_heatmap
-from dashboard.utils.config import existing_archive_paths, load_config, repo_root
+from dashboard.utils.config import (
+    DASHBOARD_ARCHIVE_SESSION_KEY,
+    existing_archive_paths,
+    load_config,
+    repo_root,
+)
 
 st.set_page_config(page_title="Archive Explorer", layout="wide")
 st.title("Archive Explorer")
@@ -54,6 +59,7 @@ selected_path = st.sidebar.selectbox(
     "Archive JSONL",
     archives,
     format_func=_archive_label,
+    key=DASHBOARD_ARCHIVE_SESSION_KEY,
 )
 
 reset_explorer_session_for_archive(str(selected_path))
