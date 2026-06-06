@@ -216,12 +216,13 @@ def _heatmap_metric_names(performance: dict[str, Any]) -> list[str]:
 def _read_jsonl_polars(path: Path) -> pd.DataFrame | None:
     try:
         import polars as pl
+        from polars.exceptions import PanicException
     except ImportError:
         return None
 
     try:
         frame = pl.read_ndjson(path)
-    except Exception:
+    except (Exception, PanicException):
         return None
 
     rows: list[dict[str, Any]] = []

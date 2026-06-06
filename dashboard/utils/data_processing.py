@@ -65,7 +65,10 @@ def flatten_archive_record(record: dict[str, Any]) -> dict[str, Any]:
         row["generated_by"] = metadata.get("generated_by")
         row["emitter_type"] = metadata.get("emitter_type")
         row["timestamp"] = metadata.get("timestamp")
-        row["prompt_version"] = metadata.get("prompt_version")
+        prompt_version = metadata.get("prompt_version")
+        if prompt_version == "":
+            prompt_version = None
+        row["prompt_version"] = prompt_version
 
     return row
 

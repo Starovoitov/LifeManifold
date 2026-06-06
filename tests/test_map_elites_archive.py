@@ -250,6 +250,31 @@ class TestArchiveJsonl(unittest.TestCase):
         self.assertIn("seed", record["world_spec"])
         self.assertEqual(set(record["metrics"].keys()), set(METRIC_KEYS))
         self.assertEqual(record["metadata"]["id"], "uuid-1")
+        self.assertEqual(record["metadata"]["prompt_version"], "")
+
+    def test_prompt_version_roundtrip(self) -> None:
+        elite = _minimal_elite((1, 2), 0.5, elite_id="pv-test")
+        assert elite.metadata is not None
+        elite.metadata = new_elite_metadata(
+            generated_by="llm",
+            emitter_type="llm",
+            elite_id="pv-test",
+            timestamp="2026-01-01T00:00:00+00:00",
+            prompt_version="abc123",
+        )
+        record = elite_to_archive_record(elite)
+        self.assertEqual(record["metadata"]["prompt_version"], "abc123")
+        restored = archive_record_to_elite(record)
+        assert restored.metadata is not None
+        self.assertEqual(restored.metadata.prompt_version, "abc123")
+
+    def test_normalize_archive_record_metadata_converts_null_prompt_version(self) -> None:
+        from worldspace.illuminators.archive import normalize_archive_record_metadata
+
+        record = elite_to_archive_record(_minimal_elite((0, 0), 0.5))
+        record["metadata"]["prompt_version"] = None
+        normalized = normalize_archive_record_metadata(record)
+        self.assertEqual(normalized["metadata"]["prompt_version"], "")
 
     def test_append_archive_line_writes_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

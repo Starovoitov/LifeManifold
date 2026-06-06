@@ -46,6 +46,9 @@ __all__ = [
     "load_and_collapse_jsonl",
     "merge_archives",
     "new_elite_metadata",
+    "normalize_archive_record_metadata",
+    "prompt_version_from_json",
+    "prompt_version_for_json",
 ]
 
 
@@ -135,6 +138,38 @@ class GridArchive:
         return i * self._resolution + j
 
 
+def prompt_version_for_json(value: str | None) -> str:
+    """Serialize ``prompt_version`` as a JSON string (empty when unset).
+
+    NDJSON readers (e.g. Polars) infer column types from early rows; mixing
+    ``null`` and strings breaks schema inference for mixed LLM / non-LLM archives.
+    """
+    if value is None or value == "":
+        return ""
+    return str(value)
+
+
+def prompt_version_from_json(value: object) -> str | None:
+    """Parse ``prompt_version`` from archive JSON; ``""`` and ``null`` → unset."""
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
+def normalize_archive_record_metadata(record: dict) -> dict:
+    """Return a shallow copy with stable ``metadata.prompt_version`` JSON typing."""
+    metadata = record.get("metadata")
+    if not isinstance(metadata, dict):
+        return record
+    normalized = dict(record)
+    meta_copy = dict(metadata)
+    meta_copy["prompt_version"] = prompt_version_for_json(
+        prompt_version_from_json(meta_copy.get("prompt_version")),
+    )
+    normalized["metadata"] = meta_copy
+    return normalized
+
+
 def new_elite_metadata(
     *,
     generated_by: str,
@@ -201,7 +236,7 @@ def elite_to_archive_record(elite: ArchiveElite) -> dict:
             "generated_by": elite.metadata.generated_by,
             "emitter_type": elite.metadata.emitter_type,
             "timestamp": elite.metadata.timestamp,
-            "prompt_version": elite.metadata.prompt_version,
+            "prompt_version": prompt_version_for_json(elite.metadata.prompt_version),
         },
     }
     if elite.metrics is not None:
@@ -379,7 +414,7 @@ def _elite_metadata_from_dict(data: dict) -> EliteMetadata:
         generated_by=str(data["generated_by"]),
         emitter_type=str(data["emitter_type"]),
         timestamp=str(data["timestamp"]),
-        prompt_version=data.get("prompt_version"),
+        prompt_version=prompt_version_from_json(data.get("prompt_version")),
     )
 
 

@@ -433,10 +433,12 @@ Example record:
     "generated_by": "genetic",
     "emitter_type": "genetic",
     "timestamp": "2026-05-21T12:00:00+00:00",
-    "prompt_version": null
+    "prompt_version": ""
   }
 }
 ```
+
+``prompt_version`` is always a JSON **string**: empty ``""`` for non-LLM emitters, prompt hash for LLM rows. Do not write ``null`` (breaks NDJSON schema inference in dashboard Polars reads).
 
 | Field | Required | Purpose |
 | --- | --- | --- |
