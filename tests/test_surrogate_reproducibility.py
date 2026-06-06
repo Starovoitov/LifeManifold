@@ -151,7 +151,7 @@ class TestSurrogateReproducibilityLlmOff(unittest.TestCase):
             )
             self.assertEqual(snap_off, snap_on)
             self.assertGreater(len(snap_off), 0)
-            self.assertTrue(buffer_off.exists())
+            self.assertFalse(buffer_off.exists())
             self.assertTrue(buffer_on.exists())
 
     def test_surrogate_on_off_same_seed_repeatable(self) -> None:
@@ -341,6 +341,82 @@ class TestAcquisitionReproducibility(unittest.TestCase):
                 0,
                 "shadow may log policy skip recommendations without skipping eval",
             )
+
+    def test_shadow_archive_identical_to_off_with_v2_checkpoint(self) -> None:
+        import os
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            buffer_path = root / "train_buffer.jsonl"
+            from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
+
+            write_synthetic_buffer(buffer_path, n_samples=150, seed=99)
+            checkpoint_path = root / "micro_v2.pkl"
+            summary_path = root / "micro_v2.summary.json"
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+            train = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/train_surrogate.py",
+                    "--buffer-path",
+                    str(buffer_path),
+                    "--checkpoint-path",
+                    str(checkpoint_path),
+                    "--summary-path",
+                    str(summary_path),
+                    "--micro",
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(train.returncode, 0, msg=train.stderr)
+            scheduler_off = root / "scheduler_off.yaml"
+            scheduler_shadow = root / "scheduler_shadow.yaml"
+            _write_mini_scheduler(
+                scheduler_off,
+                surrogate_enabled=True,
+                buffer_path=root / "buffer_off.jsonl",
+                checkpoint_path=checkpoint_path,
+                acquisition_mode="off",
+            )
+            _write_mini_scheduler(
+                scheduler_shadow,
+                surrogate_enabled=True,
+                buffer_path=root / "buffer_shadow.jsonl",
+                checkpoint_path=checkpoint_path,
+                acquisition_mode="shadow",
+            )
+            result_off = _run_illuminator(scheduler_off, output_dir=root / "run_off")
+            result_shadow = _run_illuminator(
+                scheduler_shadow, output_dir=root / "run_shadow"
+            )
+            config = load_scheduler(scheduler_off)
+            resolution = config.grid_resolution
+            snap_off = _semantic_archive_snapshot(
+                result_off.archive_jsonl_path, resolution=resolution
+            )
+            snap_shadow = _semantic_archive_snapshot(
+                result_shadow.archive_jsonl_path, resolution=resolution
+            )
+            self.assertEqual(snap_off, snap_shadow)
+            shadow_buffer = root / "buffer_shadow.jsonl"
+            self.assertTrue(shadow_buffer.is_file())
+            buffer_lines = [
+                line
+                for line in shadow_buffer.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(buffer_lines), result_shadow.evaluations)
+            for line in buffer_lines:
+                row = json.loads(line)
+                self.assertEqual(row["feature_schema_version"], "2.0")
+                self.assertEqual(len(row["features"]), 21)
 
 
 if __name__ == "__main__":

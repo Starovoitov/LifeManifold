@@ -13,6 +13,7 @@ from worldspace.illuminators.scheduler import (
 )
 from worldspace.surrogate.buffer import count_buffer_rows
 from worldspace.surrogate.checkpoint_io import CHECKPOINT_LOAD_ERRORS
+from worldspace.surrogate.checkpoint_paths import resolve_runtime_checkpoint_path
 from worldspace.surrogate.training_runtime import TrainResult, train_from_buffer
 from worldspace.surrogate.types import SurrogateProtocol
 
@@ -174,7 +175,4 @@ def maybe_retrain_after_iteration(
 
 
 def _resolve_checkpoint_path(config: SchedulerConfig) -> Path | None:
-    checkpoint = config.surrogate_checkpoint
-    if not checkpoint:
-        return None
-    return Path(checkpoint).expanduser()
+    return resolve_runtime_checkpoint_path(config.surrogate_checkpoint)

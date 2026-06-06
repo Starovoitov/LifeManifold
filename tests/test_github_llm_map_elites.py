@@ -136,6 +136,81 @@ class TestGithubLlmMapElites(unittest.TestCase):
         cfg = load_llm_config(DEFAULT_QWEN_LLM_SPEC_PATH)
         self.assertEqual(cfg.active_provider, "qwen")
 
+    def test_resolve_surrogate_quality_gate_from_env(self) -> None:
+        import os
+        from unittest import mock
+
+        from scripts.run_github_llm_map_elites import resolve_surrogate_quality_gate
+
+        with mock.patch.dict(os.environ, {"SURROGATE_REQUIRE_QUALITY_GATE": "true"}):
+            self.assertTrue(resolve_surrogate_quality_gate(cli_flag=None))
+        with mock.patch.dict(os.environ, {"SURROGATE_REQUIRE_QUALITY_GATE": "0"}):
+            self.assertFalse(resolve_surrogate_quality_gate(cli_flag=None))
+
+    def test_resolve_effective_checkpoint_stubs_when_gate_fails(self) -> None:
+        import json
+        import tempfile
+
+        from scripts.run_github_llm_map_elites import (
+            resolve_effective_surrogate_checkpoint,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "nightly_v2.pkl"
+            checkpoint.write_bytes(b"placeholder")
+            summary = checkpoint.with_name("nightly_v2.summary.json")
+            summary.write_text(
+                json.dumps(
+                    {
+                        "quality_passed": False,
+                        "feature_schema_version": "2.0",
+                        "feature_dim": 21,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            effective = resolve_effective_surrogate_checkpoint(
+                checkpoint,
+                override=None,
+                require_quality_gate=True,
+                allow_ungated=False,
+            )
+            self.assertIsNone(effective)
+
+    def test_resolve_effective_checkpoint_allows_override_when_gate_passes(
+        self,
+    ) -> None:
+        import json
+        import tempfile
+
+        from scripts.run_github_llm_map_elites import (
+            resolve_effective_surrogate_checkpoint,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            default_ckpt = Path(tmpdir) / "default.pkl"
+            default_ckpt.write_bytes(b"default")
+            override = Path(tmpdir) / "override.pkl"
+            override.write_bytes(b"override")
+            summary = override.with_name("override.summary.json")
+            summary.write_text(
+                json.dumps(
+                    {
+                        "quality_passed": True,
+                        "feature_schema_version": "2.0",
+                        "feature_dim": 21,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            effective = resolve_effective_surrogate_checkpoint(
+                default_ckpt,
+                override=override,
+                require_quality_gate=True,
+                allow_ungated=False,
+            )
+            self.assertEqual(effective, override)
+
 
 if __name__ == "__main__":
     unittest.main()

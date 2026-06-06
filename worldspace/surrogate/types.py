@@ -27,6 +27,7 @@ class SurrogateConfig:
     stub_mean: float
     stub_uncertainty: float
     calibration: str | None = None
+    require_quality_gate: bool = False
 
 
 @dataclass(frozen=True)

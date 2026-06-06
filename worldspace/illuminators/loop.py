@@ -183,7 +183,7 @@ def run_iteration(
             early_extinction_step=config.early_extinction_step,
             enforce_min_steps=True,
         )
-        if surrogate_buffer is not None:
+        if config.surrogate_enabled and surrogate_buffer is not None:
             from worldspace.surrogate.buffer import append_eval_to_buffer
 
             append_eval_to_buffer(

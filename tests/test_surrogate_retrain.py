@@ -16,6 +16,7 @@ from worldspace.illuminators.loop import run_scheduler
 from worldspace.illuminators.scheduler import SchedulerConfig
 from worldspace.surrogate.acquisition_config import RetrainConfig
 from worldspace.surrogate.buffer import count_buffer_rows
+from worldspace.surrogate.checkpoint_paths import STUB_CHECKPOINT_SENTINEL
 from worldspace.surrogate.retrain import (
     RetrainState,
     is_retrain_iteration,
@@ -136,6 +137,32 @@ class TestMaybeRetrainAfterIteration(unittest.TestCase):
             surrogate=StubSurrogate(mean=0.5, uncertainty=0.85),
         )
         self.assertEqual(outcome.status, "skipped_not_facade")
+
+    def test_skips_retrain_for_stub_checkpoint_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            buffer_path.write_text("{}\n" * 600, encoding="utf-8")
+            config = replace(
+                _MINI_CONFIG,
+                surrogate_checkpoint=STUB_CHECKPOINT_SENTINEL,
+                surrogate_buffer_path=str(buffer_path),
+                retrain=RetrainConfig(
+                    enabled=True,
+                    every_iterations=1,
+                    min_new_buffer_rows=0,
+                ),
+            )
+            facade = build_surrogate_facade(
+                _mock_model(),
+                uncertainty_fallback=0.5,
+            )
+            outcome = maybe_retrain_after_iteration(
+                config,
+                iteration_index=1,
+                state=RetrainState(),
+                surrogate=facade,
+            )
+            self.assertEqual(outcome.status, "skipped_no_checkpoint")
 
     def test_reload_pickle_error_returns_reload_failed(self) -> None:
         config = replace(

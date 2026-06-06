@@ -23,7 +23,7 @@ llm:
 surrogate:
   enabled: true
   model_type: lightgbm
-  checkpoint: artifacts/surrogate/checkpoints/micro.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
   buffer_path: artifacts/surrogate/buffer.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0

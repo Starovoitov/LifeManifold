@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pickle
 import tempfile
 import unittest
@@ -19,8 +20,10 @@ from worldspace.illuminators.scheduler import (
     resolve_surrogate_stub,
 )
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
-from worldspace.surrogate import get_surrogate
+from worldspace.surrogate import StubSurrogate, get_surrogate
 from worldspace.surrogate.buffer import SurrogateBuffer
+from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
+from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
 
@@ -111,10 +114,10 @@ class TestGetSurrogateCheckpoint(unittest.TestCase):
 
 
 class TestLoopSurrogateBuffer(unittest.TestCase):
-    def test_run_iteration_appends_one_row_per_eval(self) -> None:
+    def test_run_iteration_appends_one_row_per_eval_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             buffer_path = Path(tmpdir) / "buffer.jsonl"
-            config = _scheduler_config(batch_size=2)
+            config = _scheduler_config(batch_size=2, surrogate_enabled=True)
             archive = GridArchive(5)
             rng = np.random.default_rng(0)
             buffer = SurrogateBuffer(path=buffer_path, flush_every=32)
@@ -132,6 +135,52 @@ class TestLoopSurrogateBuffer(unittest.TestCase):
             buffer.flush()
             lines = buffer_path.read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(lines), 2)
+            for line in lines:
+                row = json.loads(line)
+                self.assertEqual(row["feature_schema_version"], FEATURE_SCHEMA_VERSION)
+                self.assertEqual(len(row["features"]), FEATURE_DIM)
+                self.assertIn("world_spec", row)
+
+    def test_run_iteration_skips_buffer_when_surrogate_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            config = _scheduler_config(batch_size=2, surrogate_enabled=False)
+            archive = GridArchive(5)
+            rng = np.random.default_rng(0)
+            buffer = SurrogateBuffer(path=buffer_path, flush_every=32)
+            run_iteration(
+                config,
+                archive,
+                rng,
+                RunCounters(),
+                StubCandidateEmitter(),
+                iteration_index=1,
+                grid_size=8,
+                steps=200,
+                surrogate_buffer=buffer,
+            )
+            buffer.flush()
+            self.assertFalse(buffer_path.is_file())
+
+
+class TestGetSurrogateQualityGate(unittest.TestCase):
+    def test_require_quality_gate_stubs_without_passing_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "model.pkl"
+            model = SurrogateModel()
+            model.set_component_defaults(0.45)
+            with checkpoint.open("wb") as fh:
+                pickle.dump(model, fh)
+            config = SurrogateConfig(
+                enabled=True,
+                model_type="lightgbm",
+                checkpoint=str(checkpoint),
+                stub_mean=0.45,
+                stub_uncertainty=0.85,
+                require_quality_gate=True,
+            )
+            surrogate = get_surrogate(config)
+            self.assertIsInstance(surrogate, StubSurrogate)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,8 @@ class MapElitesIlluminator:
         load_archive_path: str | Path | None = None,
         emitter: CandidateEmitter | None = None,
         llm_spec_path: str | Path | None = None,
+        require_surrogate_quality_gate: bool = False,
+        surrogate_checkpoint_override: str | Path | None = None,
     ) -> MapElitesRunResult:
         """Run MAP-Elites for ``iterations × batch_size`` candidate slots."""
         config = load_scheduler(
@@ -60,6 +62,11 @@ class MapElitesIlluminator:
         )
         if grid_resolution is not None:
             config = replace(config, grid_resolution=grid_resolution)
+        if surrogate_checkpoint_override is not None:
+            config = replace(
+                config,
+                surrogate_checkpoint=str(surrogate_checkpoint_override),
+            )
         effective_steps = normalize_illuminator_steps(steps, min_steps=config.min_steps)
         out_dir = Path(output_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -78,11 +85,18 @@ class MapElitesIlluminator:
             surrogate_archive_path_for_output,
         )
 
-        surrogate = get_surrogate(surrogate_config_from_scheduler(config))
-        surrogate_buffer = SurrogateBuffer(
-            config.surrogate_buffer_path,
-            flush_every=32,
+        surrogate = get_surrogate(
+            surrogate_config_from_scheduler(
+                config,
+                require_quality_gate=require_surrogate_quality_gate,
+            )
         )
+        surrogate_buffer = None
+        if config.surrogate_enabled:
+            surrogate_buffer = SurrogateBuffer(
+                config.surrogate_buffer_path,
+                flush_every=32,
+            )
         retrain_state = None
         if config.retrain.enabled:
             from worldspace.surrogate.buffer import count_buffer_rows
@@ -125,7 +139,8 @@ class MapElitesIlluminator:
             )
         finally:
             surrogate_archive.close()
-        surrogate_buffer.flush()
+        if surrogate_buffer is not None:
+            surrogate_buffer.flush()
         expected_slots = config.iterations * config.batch_size
         run_evaluations = counters.candidates_evaluated - start_evaluated
         if run_evaluations > expected_slots:

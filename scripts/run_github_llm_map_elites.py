@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from worldspace.scripts.run_map_elites_nightly import (
     _NIGHTLY_CHECKPOINT_PATH,
     train_nightly_surrogate,
 )
+from worldspace.surrogate.checkpoint_quality import checkpoint_quality_allows_hints
 
 _NIGHTLY_ROOT = _REPO_ROOT / "artifacts" / "map_elites_nightly"
 _BASELINE_SUBDIR = "baseline"
@@ -37,12 +39,16 @@ _DEFAULT_GRID_RESOLUTION = 50
 _DEFAULT_GRID_SIZE = 50
 _DEFAULT_STEPS = 200
 _DEFAULT_SEED = 0
+_QUALITY_GATE_ENV = "SURROGATE_REQUIRE_QUALITY_GATE"
+from worldspace.surrogate.checkpoint_paths import STUB_CHECKPOINT_SENTINEL
 
 __all__ = [
     "main",
+    "resolve_effective_surrogate_checkpoint",
     "resolve_llm_spec_path",
     "resolve_nightly_grid_resolution",
     "resolve_nightly_resume_archive",
+    "resolve_surrogate_quality_gate",
 ]
 
 
@@ -90,6 +96,35 @@ def resolve_nightly_grid_resolution(archive_path: Path | str) -> int | None:
         return int(raw)
     except (TypeError, ValueError):
         return None
+
+
+def resolve_surrogate_quality_gate(*, cli_flag: bool | None = None) -> bool:
+    """Resolve whether runtime LLM hints require a gated checkpoint summary."""
+    if cli_flag is not None:
+        return cli_flag
+    raw = os.environ.get(_QUALITY_GATE_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def resolve_effective_surrogate_checkpoint(
+    checkpoint: Path,
+    *,
+    override: Path | None,
+    require_quality_gate: bool,
+    allow_ungated: bool,
+) -> Path | None:
+    """Return checkpoint path for runtime hints, or ``None`` to force stub values."""
+    candidate = override or checkpoint
+    if not candidate.is_file():
+        return None
+    if require_quality_gate and not allow_ungated:
+        if not checkpoint_quality_allows_hints(candidate):
+            logger.warning(
+                "Surrogate checkpoint failed quality gate; LLM hints will use stub: %s",
+                candidate,
+            )
+            return None
+    return candidate
 
 
 def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
@@ -180,10 +215,54 @@ def main(argv: list[str] | None = None) -> None:
             "nightly baseline archive if buffer_nightly.jsonl is missing."
         ),
     )
+    parser.add_argument(
+        "--surrogate-checkpoint",
+        type=str,
+        default="",
+        help=(
+            "Override surrogate checkpoint path. When quality gate is required, "
+            "the override must pass nightly_v2.summary.json checks."
+        ),
+    )
+    parser.add_argument(
+        "--require-surrogate-quality-gate",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Require quality_passed in checkpoint summary for LLM hints. "
+            f"Default: env {_QUALITY_GATE_ENV} or false."
+        ),
+    )
+    parser.add_argument(
+        "--allow-ungated-checkpoint",
+        action="store_true",
+        help="Use checkpoint for LLM hints even when quality gate fails (local only).",
+    )
     args = parser.parse_args(argv)
 
-    ensure_nightly_surrogate_checkpoint(
+    checkpoint = ensure_nightly_surrogate_checkpoint(
         train_if_missing=args.train_surrogate_if_missing
+    )
+    require_quality_gate = resolve_surrogate_quality_gate(
+        cli_flag=args.require_surrogate_quality_gate,
+    )
+    if args.allow_ungated_checkpoint:
+        require_quality_gate = False
+    override = (
+        Path(args.surrogate_checkpoint.strip())
+        if args.surrogate_checkpoint.strip()
+        else None
+    )
+    effective_checkpoint = resolve_effective_surrogate_checkpoint(
+        checkpoint,
+        override=override,
+        require_quality_gate=require_quality_gate,
+        allow_ungated=args.allow_ungated_checkpoint,
+    )
+    checkpoint_override = (
+        STUB_CHECKPOINT_SENTINEL
+        if effective_checkpoint is None
+        else str(effective_checkpoint)
     )
     llm_spec = resolve_llm_spec_path(args.llm_provider)
 
@@ -211,6 +290,8 @@ def main(argv: list[str] | None = None) -> None:
         iterations=args.iterations,
         load_archive_path=load_archive,
         llm_spec_path=llm_spec,
+        require_surrogate_quality_gate=require_quality_gate,
+        surrogate_checkpoint_override=checkpoint_override,
     )
     elapsed = time.perf_counter() - started
 

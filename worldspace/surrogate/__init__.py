@@ -10,6 +10,8 @@ from worldspace.surrogate.checkpoint_io import (
     CHECKPOINT_LOAD_ERRORS,
     load_surrogate_checkpoint,
 )
+from worldspace.surrogate.checkpoint_paths import resolve_runtime_checkpoint_path
+from worldspace.surrogate.checkpoint_quality import checkpoint_quality_allows_hints
 from worldspace.surrogate.model import (
     EXPECTED_FEATURE_DIM,
     checkpoint_feature_dim,
@@ -73,6 +75,12 @@ def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
             exc,
         )
         return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
+    if config.require_quality_gate and not checkpoint_quality_allows_hints(checkpoint):
+        logger.warning(
+            "Surrogate checkpoint failed quality gate (%s); using stub",
+            checkpoint,
+        )
+        return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
     return build_surrogate_facade(
         model,
         uncertainty_fallback=config.stub_uncertainty,
@@ -94,6 +102,4 @@ def __getattr__(name: str) -> object:
 
 
 def _checkpoint_path(value: str | None) -> Path | None:
-    if not value:
-        return None
-    return Path(value).expanduser()
+    return resolve_runtime_checkpoint_path(value)

@@ -226,7 +226,11 @@ def resolve_emitter_kind(
     return slot_emitter
 
 
-def surrogate_config_from_scheduler(config: SchedulerConfig) -> SurrogateConfig:
+def surrogate_config_from_scheduler(
+    config: SchedulerConfig,
+    *,
+    require_quality_gate: bool = False,
+) -> SurrogateConfig:
     """Build runtime surrogate settings from scheduler YAML fields."""
     from worldspace.surrogate.types import ModelType
 
@@ -242,6 +246,7 @@ def surrogate_config_from_scheduler(config: SchedulerConfig) -> SurrogateConfig:
         stub_mean=config.surrogate_stub_mean,
         stub_uncertainty=config.surrogate_stub_uncertainty,
         calibration=config.surrogate_calibration,
+        require_quality_gate=require_quality_gate,
     )
 
 
