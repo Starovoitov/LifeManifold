@@ -8,6 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
+from worldspace.specs.world_param_bounds import (
+    NOISE_MAX,
+    PREDATION_MAX,
+    RESOURCE_REGEN_MAX,
+)
 from worldspace.surrogate.evaluation import (
     QUALITY_MAE_FITNESS_MAX,
     QUALITY_MAE_STABILITY_MAX,
@@ -15,12 +22,37 @@ from worldspace.surrogate.evaluation import (
     evaluate_holdout,
     quality_thresholds_met,
 )
+from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.model import SurrogateModel
-from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
+from worldspace.surrogate.synthetic_buffer import (
+    _targets_from_features,
+    _v1_scaled_predation,
+    _v1_scaled_regen,
+    write_synthetic_buffer,
+)
 from worldspace.surrogate.training import holdout_split, load_buffer
 
 
 class TestSurrogateHoldoutQuality(unittest.TestCase):
+    def test_synthetic_target_formulas_use_v1_float_magnitudes(self) -> None:
+        self.assertAlmostEqual(_v1_scaled_regen(RESOURCE_REGEN_MAX), 0.15)
+        self.assertAlmostEqual(_v1_scaled_predation(PREDATION_MAX), 0.25)
+
+        features = np.zeros(FEATURE_DIM, dtype=float)
+        features[18] = NOISE_MAX
+        features[19] = RESOURCE_REGEN_MAX
+        features[20] = PREDATION_MAX
+        targets = _targets_from_features(features)
+
+        self.assertAlmostEqual(targets["stability"], 0.10 * NOISE_MAX)
+        self.assertAlmostEqual(targets["diversity"], 0.20 * 0.15 + 0.15 * 0.25)
+        self.assertAlmostEqual(
+            targets["oscillation_score"], 0.40 * NOISE_MAX + 0.20 * 0.25
+        )
+        self.assertAlmostEqual(
+            targets["final_density"], 0.40 * 0.15 + 0.30 * (1.0 - 0.25)
+        )
+
     def test_holdout_evaluate_without_sklearn_feature_name_warnings(self) -> None:
         import warnings
 

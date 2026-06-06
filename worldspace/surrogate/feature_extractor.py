@@ -5,17 +5,17 @@ from __future__ import annotations
 import numpy as np
 
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.genome_features import encode_world_spec_features
 
-FEATURE_SCHEMA_VERSION = "1.0"
+FEATURE_SCHEMA_VERSION = "2.0"
 FEATURE_NAMES: tuple[str, ...] = (
-    "birth_density",
-    "survival_density",
-    "noise",
-    "resource_regen",
-    "predation",
-    "grid_size",
-    "steps",
-    "seed",
+    tuple(f"birth_{index}" for index in range(9))
+    + tuple(f"survival_{index}" for index in range(9))
+    + (
+        "noise",
+        "resource_regen",
+        "predation",
+    )
 )
 
 __all__ = [
@@ -28,27 +28,7 @@ __all__ = [
 def extract(spec: WorldSpec) -> np.ndarray:
     """Return deterministic numeric features from a canonicalized ``WorldSpec``."""
     _require_canonical_seed(spec)
-    birth_density = _rule_density(spec.birth)
-    survival_density = _rule_density(spec.survival)
-    return np.array(
-        [
-            birth_density,
-            survival_density,
-            float(spec.noise),
-            float(spec.resource_regen),
-            float(spec.predation),
-            float(spec.grid_size),
-            float(spec.steps),
-            float(spec.seed),
-        ],
-        dtype=float,
-    )
-
-
-def _rule_density(rule: list[int]) -> float:
-    if not rule:
-        return 0.0
-    return float(sum(rule) / (8.0 * len(rule)))
+    return encode_world_spec_features(spec)
 
 
 def _require_canonical_seed(spec: WorldSpec) -> None:

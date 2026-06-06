@@ -10,6 +10,16 @@ import numpy as np
 from worldspace.illuminators.evaluation import extinction_probability
 from worldspace.surrogate.buffer import buffer_record
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
+from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.specs.world_param_bounds import (
+    NOISE_MAX,
+    PREDATION_MAX,
+    RESOURCE_REGEN_MAX,
+)
+
+# v1 synthetic caps; coefficients below assume these effective magnitudes.
+_SYNTH_REGEN_MAX = 0.15
+_SYNTH_PREDATION_MAX = 0.25
 
 __all__ = ["write_synthetic_buffer"]
 
@@ -45,46 +55,66 @@ def write_synthetic_buffer(
 
 
 def _random_features(rng: np.random.Generator) -> np.ndarray:
+    birth_bits = rng.integers(0, 2, size=9, dtype=np.int64)
+    survival_bits = rng.integers(0, 2, size=9, dtype=np.int64)
+    noise = float(rng.uniform(0.0, NOISE_MAX))
+    resource_regen = float(rng.uniform(0.0, RESOURCE_REGEN_MAX))
+    predation = float(rng.uniform(0.0, PREDATION_MAX))
     return np.array(
         [
-            float(rng.uniform(0.05, 0.95)),
-            float(rng.uniform(0.05, 0.95)),
-            float(rng.uniform(0.0, 0.2)),
-            float(rng.uniform(0.0, 0.15)),
-            float(rng.uniform(0.0, 0.25)),
-            float(rng.integers(8, 64)),
-            float(rng.integers(200, 400)),
-            float(rng.integers(0, 2**31)),
+            *[float(value) for value in birth_bits],
+            *[float(value) for value in survival_bits],
+            noise,
+            resource_regen,
+            predation,
         ],
         dtype=float,
     )
 
 
 def _targets_from_features(features: np.ndarray) -> dict[str, float]:
-    (
-        birth_density,
-        survival_density,
-        noise,
-        regen,
-        predation,
-        grid_size,
-        steps,
-        _seed,
-    ) = features.tolist()
+    if features.shape != (FEATURE_DIM,):
+        msg = f"expected feature vector shape ({FEATURE_DIM},), got {features.shape!r}"
+        raise ValueError(msg)
+    birth = features[0:9]
+    survival = features[9:18]
+    noise = float(features[18])
+    resource_regen = float(features[19])
+    predation = float(features[20])
+    birth_density = float(np.mean(birth))
+    survival_density = float(np.mean(survival))
+    regen = _v1_scaled_regen(resource_regen)
+    pred = _v1_scaled_predation(predation)
     stability = float(
-        np.clip(0.35 * birth_density + 0.25 * survival_density + 0.1 * noise, 0, 1)
+        np.clip(
+            0.35 * birth_density + 0.25 * survival_density + 0.10 * noise,
+            0.0,
+            1.0,
+        )
     )
     diversity = float(
-        np.clip(0.30 * survival_density + 0.20 * regen + 0.15 * predation, 0, 1)
+        np.clip(
+            0.30 * survival_density + 0.20 * regen + 0.15 * pred,
+            0.0,
+            1.0,
+        )
     )
-    oscillation_score = float(np.clip(0.40 * noise + 0.20 * predation, 0, 1))
+    oscillation_score = float(np.clip(0.40 * noise + 0.20 * pred, 0.0, 1.0))
     topology_interface_index = float(
-        np.clip(0.25 * birth_density + 0.35 * grid_size / 64.0, 0, 1)
+        np.clip(
+            0.20 * birth[3] + 0.25 * birth[5] + 0.15 * survival[2] + 0.10 * regen,
+            0.0,
+            1.0,
+        )
     )
     topology_window_heterogeneity = float(
-        np.clip(0.30 * survival_density + 0.10 * steps / 400.0, 0, 1)
+        np.clip(
+            0.25 * survival[4] + 0.20 * survival[7] + 0.15 * birth[1] + 0.10 * pred,
+            0.0,
+            1.0,
+        )
     )
-    final_density = float(np.clip(0.40 * regen + 0.30 * (1.0 - predation), 0, 1))
+    final_density = float(np.clip(0.40 * regen + 0.30 * (1.0 - pred), 0.0, 1.0))
     early_extinction_prob = extinction_probability(final_density)
     return {
         "stability": stability,
@@ -95,3 +125,13 @@ def _targets_from_features(features: np.ndarray) -> dict[str, float]:
         "final_density": final_density,
         "early_extinction_prob": early_extinction_prob,
     }
+
+
+def _v1_scaled_regen(resource_regen: float) -> float:
+    """Map full-range regen features to v1 synthetic magnitude for target formulas."""
+    return float(resource_regen * (_SYNTH_REGEN_MAX / RESOURCE_REGEN_MAX))
+
+
+def _v1_scaled_predation(predation: float) -> float:
+    """Map full-range predation features to v1 synthetic magnitude for target formulas."""
+    return float(predation * (_SYNTH_PREDATION_MAX / PREDATION_MAX))

@@ -268,7 +268,9 @@ class TestArchiveJsonl(unittest.TestCase):
         assert restored.metadata is not None
         self.assertEqual(restored.metadata.prompt_version, "abc123")
 
-    def test_normalize_archive_record_metadata_converts_null_prompt_version(self) -> None:
+    def test_normalize_archive_record_metadata_converts_null_prompt_version(
+        self,
+    ) -> None:
         from worldspace.illuminators.archive import normalize_archive_record_metadata
 
         record = elite_to_archive_record(_minimal_elite((0, 0), 0.5))

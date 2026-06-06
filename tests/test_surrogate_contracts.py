@@ -7,7 +7,12 @@ from pathlib import Path
 
 from worldspace.illuminators.evaluation import apply_canonical_seed, canonical_seed
 from worldspace.specs.spec import WorldSpec
-from worldspace.surrogate.feature_extractor import extract as extract_features
+from worldspace.surrogate.feature_extractor import (
+    FEATURE_NAMES,
+    FEATURE_SCHEMA_VERSION,
+    extract as extract_features,
+)
+from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
 from worldspace.surrogate import StubSurrogate, SurrogateFacade, get_surrogate
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
@@ -132,6 +137,43 @@ class SurrogateContractsTests(unittest.TestCase):
         first = extract_features(spec)
         second = extract_features(spec)
         self.assertEqual(first.tolist(), second.tolist())
+
+    def test_feature_extractor_v2_shape_and_schema(self) -> None:
+        spec = self._sample_spec()
+        apply_canonical_seed(spec)
+        vector = extract_features(spec)
+        self.assertEqual(FEATURE_SCHEMA_VERSION, "2.0")
+        self.assertEqual(len(FEATURE_NAMES), FEATURE_DIM)
+        self.assertEqual(vector.shape, (FEATURE_DIM,))
+
+    def test_feature_extractor_v2_breaks_v1_density_aliasing(self) -> None:
+        left = WorldSpec(
+            birth=[2, 6],
+            survival=[1, 7],
+            noise=0.1,
+            resource_regen=0.2,
+            predation=0.05,
+            cell_types=["life", "food"],
+            grid_size=30,
+            steps=220,
+            seed=0,
+        )
+        right = WorldSpec(
+            birth=[1, 7],
+            survival=[2, 6],
+            noise=0.1,
+            resource_regen=0.2,
+            predation=0.05,
+            cell_types=["life", "food"],
+            grid_size=30,
+            steps=220,
+            seed=0,
+        )
+        apply_canonical_seed(left)
+        apply_canonical_seed(right)
+        left_vector = extract_features(left)
+        right_vector = extract_features(right)
+        self.assertNotEqual(left_vector.tolist(), right_vector.tolist())
 
     def test_apply_canonical_seed_is_idempotent(self) -> None:
         spec = self._sample_spec()
