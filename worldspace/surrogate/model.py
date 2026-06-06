@@ -31,10 +31,15 @@ TARGET_KEYS: tuple[str, ...] = (
 )
 
 __all__ = [
+    "EXPECTED_FEATURE_DIM",
     "TARGET_KEYS",
     "SurrogateModel",
+    "checkpoint_feature_dim",
+    "checkpoint_matches_extractor",
     "consistency_mae_on_rows",
 ]
+
+EXPECTED_FEATURE_DIM = len(FEATURE_NAMES)
 
 
 @dataclass
@@ -245,6 +250,42 @@ def consistency_mae_on_rows(
         )
         errors[row_index] = abs(pred_fitness - actual_fitness)
     return float(np.mean(errors))
+
+
+def checkpoint_feature_dim(model: SurrogateModel) -> int | None:
+    """Return trained input width for LightGBM checkpoints.
+
+    Default-only models (no fitted LightGBM ensemble) return ``None``.
+    """
+    if not model._uses_lightgbm:
+        return None
+    dims: set[int] = set()
+    for key in TARGET_KEYS:
+        estimators = model._ensemble.get(key)
+        if not estimators:
+            continue
+        for estimator in estimators:
+            n_features = getattr(estimator, "n_features_in_", None)
+            if n_features is None:
+                booster = getattr(estimator, "booster_", None)
+                if booster is not None:
+                    n_features = booster.num_feature()
+            if n_features is not None:
+                dims.add(int(n_features))
+    if not dims:
+        return None
+    if len(dims) > 1:
+        msg = f"Inconsistent checkpoint feature dimensions: {sorted(dims)}"
+        raise ValueError(msg)
+    return next(iter(dims))
+
+
+def checkpoint_matches_extractor(model: SurrogateModel) -> bool:
+    """Return whether a checkpoint was trained for the current feature extractor."""
+    dim = checkpoint_feature_dim(model)
+    if dim is None:
+        return True
+    return dim == EXPECTED_FEATURE_DIM
 
 
 def _lightgbm_feature_matrix(feature_matrix: np.ndarray) -> Any:

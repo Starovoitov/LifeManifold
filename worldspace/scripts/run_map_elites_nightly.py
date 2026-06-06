@@ -32,10 +32,10 @@ _BASELINE_SUBDIR = "baseline"
 _SURROGATE_SUBDIR = "surrogate"
 _NIGHTLY_BUFFER_PATH = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_nightly.jsonl"
 _NIGHTLY_CHECKPOINT_PATH = (
-    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly.pkl"
+    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v2.pkl"
 )
 _NIGHTLY_TRAINING_SUMMARY_PATH = (
-    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly.summary.json"
+    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v2.summary.json"
 )
 _TRAIN_SCRIPT = _REPO_ROOT / "scripts" / "train_surrogate.py"
 _DEFAULT_GRID_SIZE = 50
@@ -138,6 +138,24 @@ def train_nightly_surrogate(
     return summary
 
 
+def _migrate_nightly_buffer_from_baseline(baseline_archive: Path) -> None:
+    """Rebuild the nightly surrogate buffer as schema 2.0 rows from baseline archive."""
+    from worldspace.surrogate.backfill import backfill_buffer_from_archive
+
+    _NIGHTLY_BUFFER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Migrating nightly surrogate buffer from baseline archive: %s -> %s",
+        baseline_archive,
+        _NIGHTLY_BUFFER_PATH,
+    )
+    stats = backfill_buffer_from_archive(
+        baseline_archive,
+        _NIGHTLY_BUFFER_PATH,
+        overwrite=True,
+    )
+    logger.info("Nightly buffer migration stats: %s", stats)
+
+
 def _write_pipeline_summary(
     path: Path,
     *,
@@ -220,7 +238,11 @@ def run_nightly_pipeline(
 
     training_summary = _NIGHTLY_TRAINING_SUMMARY_PATH
     if not skip_training:
-        logger.info("Nightly step 2/3: train surrogate from %s", _NIGHTLY_BUFFER_PATH)
+        logger.info(
+            "Nightly step 2/3: migrate buffer + train surrogate -> %s",
+            _NIGHTLY_CHECKPOINT_PATH,
+        )
+        _migrate_nightly_buffer_from_baseline(Path(baseline.archive_jsonl_path))
         training_summary = train_nightly_surrogate()
     else:
         logger.info("Skipping surrogate training (--skip-training)")
@@ -309,7 +331,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--skip-training",
         action="store_true",
-        help="Pipeline only: skip train step (requires existing nightly.pkl).",
+        help="Pipeline only: skip train step (requires existing nightly_v2.pkl).",
     )
     args = parser.parse_args(argv)
 

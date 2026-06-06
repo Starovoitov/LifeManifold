@@ -89,7 +89,7 @@ jobs:
           if [ "${{ github.event.inputs.resume_nightly_baseline }}" != "true" ]; then
             ARGS+=(--no-resume-nightly)
           fi
-          # Build nightly.pkl from buffer or baseline archive when the surrogate artifact is absent.
+          # Build nightly_v2.pkl from buffer or baseline archive when the surrogate artifact is absent.
           ARGS+=(--train-surrogate-if-missing)
           uv run python scripts/run_github_llm_map_elites.py "${ARGS[@]}"
 

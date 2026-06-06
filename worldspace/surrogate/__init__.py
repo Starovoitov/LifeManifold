@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
+from worldspace.surrogate.checkpoint_io import (
+    CHECKPOINT_LOAD_ERRORS,
+    load_surrogate_checkpoint,
+)
+from worldspace.surrogate.model import (
+    EXPECTED_FEATURE_DIM,
+    checkpoint_feature_dim,
+    checkpoint_matches_extractor,
+)
 from worldspace.surrogate.types import (
     SurrogateConfig,
     SurrogatePrediction,
@@ -14,6 +23,8 @@ from worldspace.surrogate.types import (
 
 if TYPE_CHECKING:
     from worldspace.surrogate.surrogate import StubSurrogate, SurrogateFacade
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "StubSurrogate",
@@ -34,7 +45,34 @@ def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
     checkpoint = _checkpoint_path(config.checkpoint)
     if checkpoint is None or not checkpoint.is_file():
         return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
-    model = load_surrogate_checkpoint(checkpoint)
+    try:
+        model = load_surrogate_checkpoint(checkpoint)
+    except CHECKPOINT_LOAD_ERRORS as exc:
+        logger.warning(
+            "Surrogate checkpoint load failed (%s): %s; using stub",
+            checkpoint,
+            exc,
+        )
+        return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
+    try:
+        if not checkpoint_matches_extractor(model):
+            trained_dim = checkpoint_feature_dim(model)
+            logger.warning(
+                "Surrogate checkpoint feature_dim=%s, expected %s (%s); using stub",
+                trained_dim,
+                EXPECTED_FEATURE_DIM,
+                checkpoint,
+            )
+            return StubSurrogate(
+                mean=config.stub_mean, uncertainty=config.stub_uncertainty
+            )
+    except ValueError as exc:
+        logger.warning(
+            "Surrogate checkpoint validation failed (%s): %s; using stub",
+            checkpoint,
+            exc,
+        )
+        return StubSurrogate(mean=config.stub_mean, uncertainty=config.stub_uncertainty)
     return build_surrogate_facade(
         model,
         uncertainty_fallback=config.stub_uncertainty,

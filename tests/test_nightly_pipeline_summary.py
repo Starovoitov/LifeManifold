@@ -59,7 +59,7 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             ),
         )
         with tempfile.TemporaryDirectory() as tmp:
-            training_path = Path(tmp) / "nightly.summary.json"
+            training_path = Path(tmp) / "nightly_v2.summary.json"
             training_path.write_text(
                 json.dumps({"quality_passed": True, "sample_count": 2500}),
                 encoding="utf-8",
@@ -70,7 +70,7 @@ class TestNightlyPipelineSummary(unittest.TestCase):
                 baseline=baseline,
                 surrogate=surrogate,
                 training_summary_path=training_path,
-                checkpoint_path=Path(tmp) / "nightly.pkl",
+                checkpoint_path=Path(tmp) / "nightly_v2.pkl",
             )
             payload = json.loads(out.read_text(encoding="utf-8"))
             self.assertFalse(payload["baseline"]["surrogate_enabled"])

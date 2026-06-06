@@ -48,8 +48,8 @@ jobs:
         with:
           name: map-elites-nightly-surrogate
           path: |
-            artifacts/surrogate/checkpoints/nightly.pkl
-            artifacts/surrogate/checkpoints/nightly.summary.json
+            artifacts/surrogate/checkpoints/nightly_v2.pkl
+            artifacts/surrogate/checkpoints/nightly_v2.summary.json
             artifacts/surrogate/buffer_nightly.jsonl
           retention-days: 30
           if-no-files-found: warn

@@ -15,7 +15,12 @@ from worldspace.surrogate.calibration import (
 from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
 from worldspace.surrogate.feature_extractor import extract as extract_features
-from worldspace.surrogate.model import SurrogateModel
+from worldspace.surrogate.model import (
+    EXPECTED_FEATURE_DIM,
+    SurrogateModel,
+    checkpoint_feature_dim,
+    checkpoint_matches_extractor,
+)
 from worldspace.surrogate.types import SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
 
@@ -108,7 +113,15 @@ class SurrogateFacade:
     def reload(self, checkpoint_path: str | Path) -> None:
         """Load a new checkpoint and clear the prediction LRU cache."""
         path = Path(checkpoint_path).expanduser()
-        self.model = load_surrogate_checkpoint(path)
+        model = load_surrogate_checkpoint(path)
+        if not checkpoint_matches_extractor(model):
+            trained_dim = checkpoint_feature_dim(model)
+            msg = (
+                f"Checkpoint feature_dim={trained_dim}, expected "
+                f"{EXPECTED_FEATURE_DIM}: {path}"
+            )
+            raise ValueError(msg)
+        self.model = model
         self._cache.clear()
         self._cache_hits = 0
 

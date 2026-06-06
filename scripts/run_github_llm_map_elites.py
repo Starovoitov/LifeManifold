@@ -93,7 +93,7 @@ def resolve_nightly_grid_resolution(archive_path: Path | str) -> int | None:
 
 
 def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
-    """Require ``nightly.pkl``; train (and backfill buffer) when missing if allowed."""
+    """Require ``nightly_v2.pkl``; train (and backfill buffer) when missing if allowed."""
     checkpoint = _NIGHTLY_CHECKPOINT_PATH
     if checkpoint.is_file():
         return checkpoint
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> None:
         "--train-surrogate-if-missing",
         action="store_true",
         help=(
-            "Train nightly.pkl when checkpoint is absent; backfill buffer from "
+            "Train nightly_v2.pkl when checkpoint is absent; backfill buffer from "
             "nightly baseline archive if buffer_nightly.jsonl is missing."
         ),
     )

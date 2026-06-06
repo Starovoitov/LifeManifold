@@ -18,7 +18,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         config = load_scheduler(DEFAULT_GITHUB_LLM_SCHEDULER_PATH)
         self.assertTrue(config.llm_enabled)
         self.assertTrue(config.surrogate_enabled)
-        self.assertIn("nightly.pkl", config.surrogate_checkpoint or "")
+        self.assertIn("nightly_v2.pkl", config.surrogate_checkpoint or "")
         self.assertEqual(config.iterations, 120)
         self.assertEqual(config.batch_size, 50)
         self.assertEqual(config.batch_emitters.count("llm"), 20)
