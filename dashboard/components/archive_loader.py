@@ -134,11 +134,15 @@ def build_pivots(
         if metric not in collapsed.columns:
             pivots[metric] = grid
             continue
-        subset = collapsed[["bin_x", "bin_y", metric]].dropna(subset=[metric])
-        for _, record in subset.iterrows():
-            i = int(record["bin_x"])
-            j = int(record["bin_y"])
-            value = float(record[metric])
+        metric_values = collapsed[metric]
+        subset = collapsed.loc[metric_values.notna(), ["bin_x", "bin_y", metric]]
+        bin_x = subset["bin_x"].to_numpy(dtype=np.int64, copy=False)
+        bin_y = subset["bin_y"].to_numpy(dtype=np.int64, copy=False)
+        values = subset[metric].to_numpy(dtype=np.float64, copy=False)
+        for idx in range(len(subset)):
+            i = int(bin_x[idx])
+            j = int(bin_y[idx])
+            value = float(values[idx])
             if 0 <= i < resolution and 0 <= j < resolution:
                 grid[i, j] = value
         pivots[metric] = grid
