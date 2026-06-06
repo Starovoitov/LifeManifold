@@ -120,6 +120,7 @@ def backfill_buffer_from_archive(
                     targets=targets,
                     emitter_type=emitter_type,
                     feature_schema_version=FEATURE_SCHEMA_VERSION,
+                    world_spec=spec.to_json_dict(),
                     metadata={
                         "source": "archive_backfill",
                         "archive_path": str(archive.resolve()),
@@ -182,6 +183,7 @@ def backfill_buffer_from_collapsed_archive(
                         targets=targets,
                         emitter_type=str(emitter_type),
                         feature_schema_version=FEATURE_SCHEMA_VERSION,
+                        world_spec=spec.to_json_dict(),
                         metadata={
                             "source": "archive_backfill_collapsed",
                             "archive_path": str(archive.resolve()),

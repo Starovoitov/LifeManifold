@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from worldspace.surrogate.buffer import buffer_record
+from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES
 from worldspace.surrogate.model import (
     TARGET_KEYS,
@@ -18,8 +19,24 @@ from worldspace.surrogate.model import (
 from worldspace.surrogate.training_runtime import train_from_buffer
 
 
+def _sample_world_spec_dict() -> dict:
+    spec = WorldSpec(
+        birth=[1],
+        survival=[2],
+        noise=0.1,
+        resource_regen=0.2,
+        predation=0.05,
+        cell_types=list(CANONICAL_CELL_TYPES),
+        grid_size=30,
+        steps=220,
+        seed=0,
+    )
+    return world_spec_dict_for_buffer(spec)
+
+
 def _write_synthetic_buffer(path: Path, rows: int = 120) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    world_spec = _sample_world_spec_dict()
     with path.open("w", encoding="utf-8") as handle:
         for index in range(rows):
             features = np.linspace(0.1, 0.9, len(FEATURE_NAMES)) + index * 0.001
@@ -28,6 +45,7 @@ def _write_synthetic_buffer(path: Path, rows: int = 120) -> None:
                 features=features,
                 targets=targets,
                 emitter_type="random",
+                world_spec=world_spec,
             )
             handle.write(__import__("json").dumps(record) + "\n")
 

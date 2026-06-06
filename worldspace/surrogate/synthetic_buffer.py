@@ -8,7 +8,8 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.evaluation import extinction_probability
-from worldspace.surrogate.buffer import buffer_record
+from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
 from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.specs.world_param_bounds import (
@@ -41,12 +42,14 @@ def write_synthetic_buffer(
     for _ in range(n_samples):
         features = _random_features(rng)
         targets = _targets_from_features(features)
+        world_spec = world_spec_dict_for_buffer(_world_spec_from_features(features))
         rows.append(
             buffer_record(
                 features=features,
                 targets=targets,
                 emitter_type="synthetic",
                 feature_schema_version=FEATURE_SCHEMA_VERSION,
+                world_spec=world_spec,
             )
         )
     with target.open("w", encoding="utf-8") as fh:
@@ -135,3 +138,24 @@ def _v1_scaled_regen(resource_regen: float) -> float:
 def _v1_scaled_predation(predation: float) -> float:
     """Map full-range predation features to v1 synthetic magnitude for target formulas."""
     return float(predation * (_SYNTH_PREDATION_MAX / PREDATION_MAX))
+
+
+def _world_spec_from_features(features: np.ndarray) -> WorldSpec:
+    """Rebuild a ``WorldSpec`` from one genome-aligned feature vector."""
+    birth = [index for index, value in enumerate(features[0:9]) if value >= 0.5]
+    survival = [index for index, value in enumerate(features[9:18]) if value >= 0.5]
+    if not birth:
+        birth = [0]
+    if not survival:
+        survival = [0]
+    return WorldSpec(
+        birth=birth,
+        survival=survival,
+        noise=float(features[18]),
+        resource_regen=float(features[19]),
+        predation=float(features[20]),
+        cell_types=list(CANONICAL_CELL_TYPES),
+        grid_size=30,
+        steps=220,
+        seed=0,
+    )

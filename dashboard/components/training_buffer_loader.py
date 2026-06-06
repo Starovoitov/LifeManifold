@@ -20,12 +20,14 @@ from worldspace.surrogate.model import TARGET_KEYS
 __all__ = [
     "BufferBundle",
     "apply_buffer_filters",
+    "buffer_schema_summary",
     "buffer_summary_counts",
     "export_subset_jsonl",
     "flatten_buffer_record",
     "get_buffer_bundle",
     "load_buffer_bundle",
     "read_buffer_jsonl",
+    "schema_mix_warnings",
     "show_large_buffer_warning",
     "slice_for_display",
     "try_flatten_buffer_record",
@@ -125,6 +127,7 @@ def try_flatten_buffer_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "feature_schema_version": str(record.get("feature_schema_version", "")),
         "emitter_type": emitter_type,
         "feature_dim": len(features),
+        "has_world_spec": _record_has_world_spec(record),
     }
     for key in TARGET_KEYS:
         if key not in targets:
@@ -137,7 +140,7 @@ def try_flatten_buffer_record(record: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def buffer_summary_counts(frame: pd.DataFrame) -> dict[str, pd.Series]:
-    """Value counts for ``emitter_type`` and ``feature_schema_version``."""
+    """Value counts for emitter, schema, and feature dimension columns."""
     counts: dict[str, pd.Series] = {}
     if frame.empty:
         return counts
@@ -147,7 +150,59 @@ def buffer_summary_counts(frame: pd.DataFrame) -> dict[str, pd.Series]:
         counts["feature_schema_version"] = frame[
             "feature_schema_version"
         ].value_counts()
+    if "feature_dim" in frame.columns:
+        counts["feature_dim"] = frame["feature_dim"].value_counts()
     return counts
+
+
+def buffer_schema_summary(frame: pd.DataFrame) -> dict[str, Any]:
+    """Summarize schema version mix, feature dimensions, and world_spec coverage."""
+    if frame.empty:
+        return {
+            "schema_versions": [],
+            "feature_dims": [],
+            "mixed_schema": False,
+            "mixed_feature_dim": False,
+            "rows_missing_world_spec": 0,
+        }
+    schema_versions = sorted(
+        frame["feature_schema_version"].dropna().astype(str).unique().tolist()
+    )
+    feature_dims = sorted(
+        int(value) for value in frame["feature_dim"].dropna().unique()
+    )
+    rows_missing_world_spec = 0
+    if "has_world_spec" in frame.columns:
+        rows_missing_world_spec = int((~frame["has_world_spec"].fillna(False)).sum())
+    return {
+        "schema_versions": schema_versions,
+        "feature_dims": feature_dims,
+        "mixed_schema": len(schema_versions) > 1,
+        "mixed_feature_dim": len(feature_dims) > 1,
+        "rows_missing_world_spec": rows_missing_world_spec,
+    }
+
+
+def schema_mix_warnings(frame: pd.DataFrame) -> list[str]:
+    """Return human-readable warnings for mixed v1/v2 buffer rows."""
+    summary = buffer_schema_summary(frame)
+    warnings: list[str] = []
+    if summary["mixed_schema"]:
+        warnings.append(
+            "Mixed feature_schema_version values: "
+            + ", ".join(summary["schema_versions"])
+            + ". Train on one schema only."
+        )
+    if summary["mixed_feature_dim"]:
+        dim_text = ", ".join(str(value) for value in summary["feature_dims"])
+        warnings.append(
+            f"Mixed feature_dim values: {dim_text}. "
+            "This usually indicates v1/v2 rows in the same buffer."
+        )
+    missing = int(summary["rows_missing_world_spec"])
+    if missing:
+        warnings.append(f"{missing} valid rows are missing world_spec.")
+    return warnings
 
 
 def apply_buffer_filters(
@@ -304,3 +359,8 @@ def _performance_section(cfg: dict[str, Any]) -> dict[str, Any]:
 def _performance_digest(cfg: dict[str, Any]) -> str:
     performance = _performance_section(cfg)
     return json.dumps(performance, sort_keys=True, separators=(",", ":"))
+
+
+def _record_has_world_spec(record: dict[str, Any]) -> bool:
+    world_spec = record.get("world_spec")
+    return isinstance(world_spec, dict) and bool(world_spec)

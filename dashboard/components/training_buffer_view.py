@@ -11,8 +11,10 @@ import streamlit as st
 from dashboard.components.training_buffer_loader import (
     TARGET_COLUMN_PREFIX,
     BufferBundle,
+    buffer_schema_summary,
     buffer_summary_counts,
     export_subset_jsonl,
+    schema_mix_warnings,
     slice_for_display,
 )
 from dashboard.utils.bootstrap import ensure_repo_on_path
@@ -35,6 +37,7 @@ _DISPLAY_COLUMNS = [
     "emitter_type",
     "feature_schema_version",
     "feature_dim",
+    "has_world_spec",
     *[f"{TARGET_COLUMN_PREFIX}{key}" for key in TARGET_KEYS],
 ]
 
@@ -66,7 +69,16 @@ def render_buffer_stats(bundle: BufferBundle) -> None:
         st.info("No valid buffer records to summarize.")
         return
 
-    left, right = st.columns(2)
+    summary = buffer_schema_summary(bundle.records)
+    for message in schema_mix_warnings(bundle.records):
+        st.warning(message)
+    if summary["rows_missing_world_spec"]:
+        st.caption(
+            f"{summary['rows_missing_world_spec']} rows missing world_spec "
+            "(re-featurize unavailable for those rows)."
+        )
+
+    left, middle, right = st.columns(3)
     with left:
         st.markdown("**By emitter_type**")
         emitter = counts.get("emitter_type")
@@ -74,11 +86,18 @@ def render_buffer_stats(bundle: BufferBundle) -> None:
             st.dataframe(emitter.rename("count").to_frame(), width="stretch")
         else:
             st.caption("_no data_")
-    with right:
+    with middle:
         st.markdown("**By feature_schema_version**")
         schema = counts.get("feature_schema_version")
         if schema is not None and not schema.empty:
             st.dataframe(schema.rename("count").to_frame(), width="stretch")
+        else:
+            st.caption("_no data_")
+    with right:
+        st.markdown("**By feature_dim**")
+        feature_dim = counts.get("feature_dim")
+        if feature_dim is not None and not feature_dim.empty:
+            st.dataframe(feature_dim.rename("count").to_frame(), width="stretch")
         else:
             st.caption("_no data_")
 

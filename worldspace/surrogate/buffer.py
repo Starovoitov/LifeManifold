@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from worldspace.illuminators.evaluation import extinction_probability
+from worldspace.specs.spec import WorldSpec
 
 if TYPE_CHECKING:
     from worldspace.illuminators.evaluation import EvalResult
@@ -22,6 +23,7 @@ __all__ = [
     "buffer_record",
     "count_buffer_rows",
     "targets_from_eval_result",
+    "world_spec_dict_for_buffer",
 ]
 
 
@@ -59,6 +61,14 @@ def targets_from_eval_result(result: EvalResult) -> dict[str, float]:
     }
 
 
+def world_spec_dict_for_buffer(spec: WorldSpec) -> dict[str, Any]:
+    """Return a canonicalized ``WorldSpec`` dict for buffer JSONL rows."""
+    from worldspace.illuminators.evaluation import apply_canonical_seed
+
+    apply_canonical_seed(spec)
+    return spec.to_json_dict()
+
+
 def append_eval_to_buffer(
     buffer: SurrogateBuffer,
     result: EvalResult,
@@ -66,11 +76,13 @@ def append_eval_to_buffer(
     emitter_type: str,
 ) -> None:
     """Append one evaluated candidate to the training buffer."""
+    world_spec = world_spec_dict_for_buffer(result.world_spec)
     features = extract(result.world_spec)
     buffer.append(
         features=features,
         targets=targets_from_eval_result(result),
         emitter_type=emitter_type,
+        world_spec=world_spec,
     )
 
 
@@ -81,18 +93,24 @@ def buffer_record(
     emitter_type: str,
     feature_schema_version: str = FEATURE_SCHEMA_VERSION,
     metadata: dict[str, Any] | None = None,
+    world_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create one validated JSON-serializable training record."""
     _validate_targets(targets)
     if not emitter_type:
         raise ValueError("emitter_type must be a non-empty string")
-    return {
-        "feature_schema_version": str(feature_schema_version),
+    schema_version = str(feature_schema_version)
+    _validate_world_spec_for_schema(schema_version, world_spec)
+    record: dict[str, Any] = {
+        "feature_schema_version": schema_version,
         "emitter_type": emitter_type,
         "features": [float(v) for v in np.asarray(features, dtype=float).tolist()],
         "targets": {k: float(targets[k]) for k in TARGET_KEYS},
         "metadata": dict(metadata or {}),
     }
+    if world_spec is not None:
+        record["world_spec"] = dict(world_spec)
+    return record
 
 
 @dataclass
@@ -112,6 +130,7 @@ class SurrogateBuffer:
         emitter_type: str,
         feature_schema_version: str = FEATURE_SCHEMA_VERSION,
         metadata: dict[str, Any] | None = None,
+        world_spec: dict[str, Any] | None = None,
     ) -> None:
         """Queue one record and flush in batches."""
         record = buffer_record(
@@ -120,6 +139,7 @@ class SurrogateBuffer:
             emitter_type=emitter_type,
             feature_schema_version=feature_schema_version,
             metadata=metadata,
+            world_spec=world_spec,
         )
         self._pending.append(record)
         if len(self._pending) >= self.flush_every:
@@ -146,3 +166,14 @@ def _validate_targets(targets: dict[str, float]) -> None:
     missing = [key for key in TARGET_KEYS if key not in targets]
     if missing:
         raise ValueError(f"Missing required target keys: {missing}")
+
+
+def _validate_world_spec_for_schema(
+    feature_schema_version: str,
+    world_spec: dict[str, Any] | None,
+) -> None:
+    if feature_schema_version != "2.0":
+        return
+    if not isinstance(world_spec, dict) or not world_spec:
+        msg = "feature_schema_version 2.0 requires a non-empty world_spec dict"
+        raise ValueError(msg)
