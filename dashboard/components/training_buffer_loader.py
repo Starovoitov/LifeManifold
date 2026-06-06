@@ -184,20 +184,20 @@ def buffer_schema_summary(frame: pd.DataFrame) -> dict[str, Any]:
 
 
 def schema_mix_warnings(frame: pd.DataFrame) -> list[str]:
-    """Return human-readable warnings for mixed v1/v2 buffer rows."""
+    """Return human-readable warnings for mixed or legacy buffer rows."""
     summary = buffer_schema_summary(frame)
     warnings: list[str] = []
     if summary["mixed_schema"]:
         warnings.append(
             "Mixed feature_schema_version values: "
             + ", ".join(summary["schema_versions"])
-            + ". Train on one schema only."
+            + ". Training requires schema 2.0 only."
         )
     if summary["mixed_feature_dim"]:
         dim_text = ", ".join(str(value) for value in summary["feature_dims"])
         warnings.append(
             f"Mixed feature_dim values: {dim_text}. "
-            "This usually indicates v1/v2 rows in the same buffer."
+            "Training requires schema 2.0 rows only; migrate or replace the buffer."
         )
     missing = int(summary["rows_missing_world_spec"])
     if missing:

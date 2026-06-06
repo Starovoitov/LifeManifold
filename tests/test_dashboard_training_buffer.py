@@ -12,7 +12,6 @@ import pandas as pd
 
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
-from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
 from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.model import TARGET_KEYS
 
@@ -32,37 +31,6 @@ def _sample_world_spec_dict() -> dict:
     return world_spec_dict_for_buffer(spec)
 
 
-def _v2_buffer_record(
-    *,
-    features: np.ndarray | None = None,
-    emitter_type: str = "random",
-) -> dict:
-    if features is None:
-        features = np.zeros(FEATURE_DIM, dtype=float)
-    return buffer_record(
-        features=features,
-        targets=_sample_targets(),
-        emitter_type=emitter_type,
-        feature_schema_version=FEATURE_SCHEMA_VERSION,
-        world_spec=_sample_world_spec_dict(),
-    )
-
-
-def _v1_buffer_record(
-    *,
-    features: np.ndarray | None = None,
-    emitter_type: str = "random",
-) -> dict:
-    if features is None:
-        features = np.array([1.0, 2.0, 3.0])
-    return buffer_record(
-        features=features,
-        targets=_sample_targets(),
-        emitter_type=emitter_type,
-        feature_schema_version="1.0",
-    )
-
-
 def _sample_targets() -> dict[str, float]:
     return {
         "stability": 0.1,
@@ -75,6 +43,30 @@ def _sample_targets() -> dict[str, float]:
     }
 
 
+def _buffer_record(
+    *,
+    features: np.ndarray | None = None,
+    emitter_type: str = "random",
+) -> dict:
+    if features is None:
+        features = np.zeros(FEATURE_DIM, dtype=float)
+    return buffer_record(
+        features=features,
+        targets=_sample_targets(),
+        emitter_type=emitter_type,
+        world_spec=_sample_world_spec_dict(),
+    )
+
+
+def _legacy_invalid_record(*, emitter_type: str = "random") -> dict:
+    return {
+        "feature_schema_version": "1.0",
+        "emitter_type": emitter_type,
+        "features": [1.0, 2.0],
+        "targets": _sample_targets(),
+    }
+
+
 def _write_buffer(path: Path, rows: list[dict]) -> None:
     lines = [json.dumps(row, sort_keys=True) for row in rows]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -84,19 +76,18 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
     def test_flatten_buffer_record_has_all_target_columns(self) -> None:
         from dashboard.components.training_buffer_loader import flatten_buffer_record
 
-        record = _v1_buffer_record()
-        row = flatten_buffer_record(record)
+        row = flatten_buffer_record(_buffer_record())
         for key in TARGET_KEYS:
             self.assertIn(f"target_{key}", row)
-        self.assertFalse(row["has_world_spec"])
+        self.assertTrue(row["has_world_spec"])
+        self.assertEqual(row["feature_schema_version"], "2.0")
 
-    def test_flatten_v2_record_reports_world_spec(self) -> None:
+    def test_flatten_legacy_record_for_display_only(self) -> None:
         from dashboard.components.training_buffer_loader import flatten_buffer_record
 
-        row = flatten_buffer_record(_v2_buffer_record())
-        self.assertTrue(row["has_world_spec"])
-        self.assertEqual(row["feature_dim"], FEATURE_DIM)
-        self.assertEqual(row["feature_schema_version"], "2.0")
+        row = flatten_buffer_record(_legacy_invalid_record())
+        self.assertFalse(row["has_world_spec"])
+        self.assertEqual(row["feature_schema_version"], "1.0")
 
     def test_load_buffer_counts_emitter_and_schema(self) -> None:
         from dashboard.components.training_buffer_loader import (
@@ -106,14 +97,14 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         from dashboard.utils.config import load_config
 
         rows = [
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
             ),
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([2.0] * FEATURE_DIM),
                 emitter_type="genetic",
             ),
-            _v1_buffer_record(features=np.array([5.0, 6.0]), emitter_type="random"),
+            _legacy_invalid_record(emitter_type="random"),
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "buffer.jsonl"
@@ -134,7 +125,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         self.assertEqual(int(dim_counts.loc[FEATURE_DIM]), 2)
         self.assertEqual(int(dim_counts.loc[2]), 1)
 
-    def test_schema_mix_warnings_detect_v1_v2_mix(self) -> None:
+    def test_schema_mix_warnings_detect_legacy_rows(self) -> None:
         from dashboard.components.training_buffer_loader import (
             buffer_schema_summary,
             read_buffer_jsonl,
@@ -142,10 +133,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         )
         from dashboard.utils.config import load_config
 
-        rows = [
-            _v2_buffer_record(),
-            _v1_buffer_record(features=np.array([1.0, 2.0])),
-        ]
+        rows = [_buffer_record(), _legacy_invalid_record()]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "buffer.jsonl"
             _write_buffer(path, rows)
@@ -161,7 +149,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         from dashboard.components.training_buffer_loader import read_buffer_jsonl
         from dashboard.utils.config import load_config
 
-        valid = _v2_buffer_record(
+        valid = _buffer_record(
             features=np.array([1.0] * FEATURE_DIM), emitter_type="llm"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -197,10 +185,10 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         from dashboard.utils.config import load_config
 
         rows = [
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
             ),
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([2.0] * FEATURE_DIM),
                 emitter_type="genetic",
             ),
@@ -226,10 +214,10 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         from dashboard.utils.config import load_config
 
         rows = [
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
             ),
-            _v2_buffer_record(
+            _buffer_record(
                 features=np.array([2.0] * FEATURE_DIM), emitter_type="genetic"
             ),
         ]
@@ -262,7 +250,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         )
         from dashboard.utils.config import load_config
 
-        rows = [_v2_buffer_record()]
+        rows = [_buffer_record()]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "buffer.jsonl"
             _write_buffer(path, rows)

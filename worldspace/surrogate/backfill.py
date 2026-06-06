@@ -16,7 +16,7 @@ from worldspace.illuminators.evaluation import (
     extinction_probability,
 )
 from worldspace.surrogate.buffer import buffer_record
-from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION, extract
+from worldspace.surrogate.feature_extractor import extract
 from worldspace.surrogate.model import TARGET_KEYS
 
 __all__ = [
@@ -119,7 +119,6 @@ def backfill_buffer_from_archive(
                     features=features,
                     targets=targets,
                     emitter_type=emitter_type,
-                    feature_schema_version=FEATURE_SCHEMA_VERSION,
                     world_spec=spec.to_json_dict(),
                     metadata={
                         "source": "archive_backfill",
@@ -182,7 +181,6 @@ def backfill_buffer_from_collapsed_archive(
                         features=features,
                         targets=targets,
                         emitter_type=str(emitter_type),
-                        feature_schema_version=FEATURE_SCHEMA_VERSION,
                         world_spec=spec.to_json_dict(),
                         metadata={
                             "source": "archive_backfill_collapsed",

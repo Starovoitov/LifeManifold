@@ -26,7 +26,11 @@ from worldspace.surrogate.reporting import (
     load_calibration_for_report,
     merge_acquisition_into_summary,
 )
-from worldspace.surrogate.training import holdout_split, load_buffer
+from worldspace.surrogate.training import (
+    BUFFER_SCHEMA_VERSION,
+    holdout_split,
+    load_buffer,
+)
 
 ModelType = Literal["lightgbm", "mlp"]
 
@@ -247,6 +251,7 @@ def _save_summary(
         "train_count": train_count,
         "holdout_count": holdout_count,
         "feature_dim": feature_dim,
+        "feature_schema_version": BUFFER_SCHEMA_VERSION,
         "target_keys": list(TARGET_KEYS),
         "holdout_metrics": holdout_metrics,
         "quality_passed": quality_thresholds_met(holdout_metrics),

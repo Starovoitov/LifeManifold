@@ -67,26 +67,25 @@ class SurrogateBufferTests(unittest.TestCase):
                 world_spec=_sample_world_spec_dict(),
             )
 
-    def test_buffer_record_v2_requires_world_spec(self) -> None:
+    def test_buffer_record_requires_world_spec(self) -> None:
         with self.assertRaises(ValueError):
             buffer_record(
                 features=_sample_features(),
                 targets=_sample_targets(),
                 emitter_type="random",
-                feature_schema_version="2.0",
+                world_spec={},
             )
 
-    def test_buffer_record_v2_roundtrip_world_spec_and_features(self) -> None:
+    def test_buffer_record_roundtrip_world_spec_and_features(self) -> None:
         spec = _sample_world_spec()
         features = extract(spec)
         record = buffer_record(
             features=features,
             targets=_sample_targets(),
             emitter_type="random",
-            feature_schema_version=FEATURE_SCHEMA_VERSION,
             world_spec=world_spec_dict_for_buffer(spec),
         )
-        self.assertEqual(record["feature_schema_version"], "2.0")
+        self.assertEqual(record["feature_schema_version"], FEATURE_SCHEMA_VERSION)
         self.assertEqual(len(record["features"]), FEATURE_DIM)
         restored = WorldSpec.from_json_dict(record["world_spec"])
         apply_canonical_seed(restored)
@@ -135,7 +134,7 @@ class SurrogateBufferTests(unittest.TestCase):
             buf = SurrogateBuffer(path=path, flush_every=1)
             append_eval_to_buffer(buf, result, emitter_type="genetic")
             row = json.loads(path.read_text(encoding="utf-8").strip())
-            self.assertEqual(row["feature_schema_version"], "2.0")
+            self.assertEqual(row["feature_schema_version"], FEATURE_SCHEMA_VERSION)
             self.assertIn("world_spec", row)
             self.assertEqual(len(row["features"]), FEATURE_DIM)
             for key in TARGET_KEYS:

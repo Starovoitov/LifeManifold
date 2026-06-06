@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites github-llm-map-elites github-llm-map-elites-full surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline calibrate-surrogate
+.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites github-llm-map-elites github-llm-map-elites-full surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline migrate-surrogate-buffer calibrate-surrogate
 
 install:
 	$(UV) venv
@@ -48,6 +48,9 @@ surrogate-artifacts-quick:
 # Backfill buffer from artifacts/map_elites_nightly, train latest.pkl, baseline manifest
 surrogate-acquisition-baseline:
 	$(UV) run python scripts/record_surrogate_acquisition_baseline.py --all-archive-lines --allow-quality-fail
+
+migrate-surrogate-buffer:
+	@echo "Example: uv run python scripts/migrate_surrogate_buffer.py --archive PATH --output artifacts/surrogate/buffer.jsonl --overwrite"
 
 calibrate-surrogate:
 	$(UV) run python scripts/calibrate_surrogate_uncertainty.py --allow-high-ece

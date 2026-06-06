@@ -33,7 +33,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--buffer-path",
         default="artifacts/surrogate/buffer.jsonl",
-        help="Path to append-only JSONL surrogate buffer",
+        help=(
+            "Path to schema 2.0 JSONL surrogate buffer "
+            "(run scripts/migrate_surrogate_buffer.py after archive changes)"
+        ),
     )
     parser.add_argument(
         "--checkpoint-path",

@@ -10,7 +10,6 @@ import numpy as np
 from worldspace.illuminators.evaluation import extinction_probability
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
-from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
 from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.specs.world_param_bounds import (
     NOISE_MAX,
@@ -48,7 +47,6 @@ def write_synthetic_buffer(
                 features=features,
                 targets=targets,
                 emitter_type="synthetic",
-                feature_schema_version=FEATURE_SCHEMA_VERSION,
                 world_spec=world_spec,
             )
         )

@@ -91,26 +91,25 @@ def buffer_record(
     features: np.ndarray,
     targets: dict[str, float],
     emitter_type: str,
-    feature_schema_version: str = FEATURE_SCHEMA_VERSION,
+    world_spec: dict[str, Any],
     metadata: dict[str, Any] | None = None,
-    world_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create one validated JSON-serializable training record."""
+    """Create one validated schema 2.0 JSON-serializable training record."""
     _validate_targets(targets)
     if not emitter_type:
         raise ValueError("emitter_type must be a non-empty string")
-    schema_version = str(feature_schema_version)
-    _validate_world_spec_for_schema(schema_version, world_spec)
-    record: dict[str, Any] = {
-        "feature_schema_version": schema_version,
+    if not isinstance(world_spec, dict) or not world_spec:
+        raise ValueError("world_spec must be a non-empty dict")
+    return {
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "emitter_type": emitter_type,
-        "features": [float(v) for v in np.asarray(features, dtype=float).tolist()],
-        "targets": {k: float(targets[k]) for k in TARGET_KEYS},
+        "features": [
+            float(value) for value in np.asarray(features, dtype=float).tolist()
+        ],
+        "targets": {key: float(targets[key]) for key in TARGET_KEYS},
+        "world_spec": dict(world_spec),
         "metadata": dict(metadata or {}),
     }
-    if world_spec is not None:
-        record["world_spec"] = dict(world_spec)
-    return record
 
 
 @dataclass
@@ -128,18 +127,16 @@ class SurrogateBuffer:
         features: np.ndarray,
         targets: dict[str, float],
         emitter_type: str,
-        feature_schema_version: str = FEATURE_SCHEMA_VERSION,
+        world_spec: dict[str, Any],
         metadata: dict[str, Any] | None = None,
-        world_spec: dict[str, Any] | None = None,
     ) -> None:
         """Queue one record and flush in batches."""
         record = buffer_record(
             features=features,
             targets=targets,
             emitter_type=emitter_type,
-            feature_schema_version=feature_schema_version,
-            metadata=metadata,
             world_spec=world_spec,
+            metadata=metadata,
         )
         self._pending.append(record)
         if len(self._pending) >= self.flush_every:
@@ -166,14 +163,3 @@ def _validate_targets(targets: dict[str, float]) -> None:
     missing = [key for key in TARGET_KEYS if key not in targets]
     if missing:
         raise ValueError(f"Missing required target keys: {missing}")
-
-
-def _validate_world_spec_for_schema(
-    feature_schema_version: str,
-    world_spec: dict[str, Any] | None,
-) -> None:
-    if feature_schema_version != "2.0":
-        return
-    if not isinstance(world_spec, dict) or not world_spec:
-        msg = "feature_schema_version 2.0 requires a non-empty world_spec dict"
-        raise ValueError(msg)
