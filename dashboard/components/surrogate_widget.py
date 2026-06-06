@@ -45,20 +45,29 @@ class SurrogateStatus:
 
 
 def resolve_checkpoint_path(cfg: dict[str, Any] | None = None) -> Path | None:
-    """Resolve primary checkpoint path, then micro fallback from config."""
+    """Resolve primary checkpoint path, then configured fallbacks."""
     config = cfg if cfg is not None else load_config()
     paths_section = config.get("paths")
     surrogate_section = config.get("surrogate")
     candidates: list[str] = []
     if isinstance(paths_section, dict):
         primary = paths_section.get("surrogate_checkpoint")
-        if isinstance(primary, str):
-            candidates.append(primary)
+        if isinstance(primary, str) and primary.strip():
+            candidates.append(primary.strip())
     if isinstance(surrogate_section, dict):
-        fallback = surrogate_section.get("micro_checkpoint_fallback")
-        if isinstance(fallback, str):
-            candidates.append(fallback)
+        fallbacks = surrogate_section.get("checkpoint_fallbacks")
+        if isinstance(fallbacks, list):
+            for item in fallbacks:
+                if isinstance(item, str) and item.strip():
+                    candidates.append(item.strip())
+        legacy = surrogate_section.get("micro_checkpoint_fallback")
+        if isinstance(legacy, str) and legacy.strip():
+            candidates.append(legacy.strip())
+    seen: set[str] = set()
     for relative in candidates:
+        if relative in seen:
+            continue
+        seen.add(relative)
         resolved = resolve_repo_path(relative)
         if resolved.is_file():
             return resolved

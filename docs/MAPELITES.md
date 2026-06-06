@@ -479,13 +479,13 @@ Root `nightly_pipeline_summary.json` (two-phase `make nightly-map-elites`) aggre
 
 ### 10.4 Surrogate buffer (side output)
 
-Each evaluation → one line in `surrogate.buffer_path` (see [`SURROGATE_MODEL.md`](SURROGATE_MODEL.md)):
+Each evaluation (when `surrogate.enabled: true`) → one line in `surrogate.buffer_path` (see [`SURROGATE_MODEL.md`](SURROGATE_MODEL.md)):
 
 ```json
 {
-  "feature_schema_version": "1.0",
+  "feature_schema_version": "2.0",
   "emitter_type": "genetic",
-  "features": [0.1, 0.0, "..."],
+  "features": [0, 1, 0, "..."],
   "targets": {
     "stability": 0.71,
     "diversity": 0.42,
@@ -495,9 +495,22 @@ Each evaluation → one line in `surrogate.buffer_path` (see [`SURROGATE_MODEL.m
     "final_density": 0.18,
     "early_extinction_prob": 0.82
   },
+  "world_spec": {
+    "birth": [1, 3],
+    "survival": [2, 3],
+    "noise": 0.02,
+    "resource_regen": 0.05,
+    "predation": 0.1,
+    "cell_types": ["life", "food"],
+    "grid_size": 50,
+    "steps": 200,
+    "seed": 12345678
+  },
   "metadata": {}
 }
 ```
+
+(`features` length 21; `world_spec` required for train/migrate.)
 
 The surrogate does **not** replace archive `fitness`; it only adds LLM prompt hints when `surrogate.enabled: true`.
 
@@ -550,7 +563,7 @@ sequenceDiagram
 ```mermaid
 flowchart LR
   P1["Phase 1: nightly.yaml\nsurrogate off\nbuffer_nightly.jsonl"]
-  TR["train_surrogate.py\n→ nightly.pkl"]
+  TR["train_surrogate.py\n→ nightly_v2.pkl"]
   SUR["Step 3: nightly_surrogate.yaml\nresume archive\nsurrogate on"]
   P1 --> TR --> SUR
 ```
@@ -597,7 +610,7 @@ tests/test_map_elites_*.py
 
 **Smoke test:** `make smoke-map-elites` — mini scheduler, no LLM, artifacts under `artifacts/map_elites_smoke/`.
 
-**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` — **120×50** evals by default (20 LLM slots/batch, fresh archive), fits ~6h GHA limit; profile **full** = 650 iter (usually needs local: `--iterations 650`). Surrogate: `nightly.pkl`. Secret: `QWEN_API_KEY`.
+**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` — **120×50** evals by default (20 LLM slots/batch, fresh archive), fits ~6h GHA limit; profile **full** = 650 iter (usually needs local: `--iterations 650`). Surrogate: `nightly_v2.pkl` (LLM hints stub unless `quality_passed` in summary; env `SURROGATE_REQUIRE_QUALITY_GATE=true`). Secret: `QWEN_API_KEY`.
 
 ---
 

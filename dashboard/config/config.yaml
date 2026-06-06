@@ -8,7 +8,7 @@ paths:
 
   surrogate_buffer: artifacts/surrogate/buffer.jsonl
   surrogate_archive: artifacts/surrogate/surrogate_archive.jsonl
-  surrogate_checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  surrogate_checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
   prompts_dir: prompts
 
 defaults:
@@ -20,6 +20,9 @@ surrogate:
   enabled: true
   stub_mean: 0.5
   stub_uncertainty: 0.85
+  checkpoint_fallbacks:
+    - artifacts/surrogate/checkpoints/latest.pkl
+    - artifacts/surrogate/checkpoints/micro.pkl
   micro_checkpoint_fallback: artifacts/surrogate/checkpoints/micro.pkl
 
 performance:

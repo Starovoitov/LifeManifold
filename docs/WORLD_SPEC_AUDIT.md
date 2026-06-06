@@ -136,8 +136,8 @@ Flattened dashboard rows copy `world_spec` dict and expose top-level `seed` for 
 
 ### 3.8 Surrogate (`worldspace/surrogate/`)
 
-`feature_extractor.extract` uses: `birth`, `survival`, `noise`, `resource_regen`, `predation`, `grid_size`, `steps`, `seed` (must match `canonical_seed`).  
-Does **not** use `cell_types` or `neighborhood`.  
+`feature_extractor.extract` (v2, schema `"2.0"`) uses genome-aligned bitmasks for `birth` and `survival` (9 each), plus `noise`, `resource_regen`, `predation`. Does **not** include `grid_size`, `steps`, or `seed`. Does **not** use `cell_types` or `neighborhood`.  
+Must run after `apply_canonical_seed` (same as before).  
 Cache key = hash of `to_canonical_dict()` (same as surrogate identity, not raw `seed` before canonicalization).
 
 ### 3.9 Dashboard (`dashboard/`)

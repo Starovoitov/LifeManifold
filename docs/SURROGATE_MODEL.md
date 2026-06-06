@@ -1,12 +1,12 @@
 # Surrogate model (LifeManifold + MAP-Elites)
 
-This document explains **what the surrogate is for**, how it fits into the illuminator loop, and **every stage** with explicit inputs and outputs. It describes the **MVP (v1.5)** implementation in `worldspace/surrogate/`.
+This document explains **what the surrogate is for**, how it fits into the illuminator loop, and **every stage** with explicit inputs and outputs. It describes the **v2** implementation in `worldspace/surrogate/` (feature schema `"2.0"`, 21 genome-aligned dimensions).
+
+Operational runbook: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
 Related material:
 
 - MAP-Elites core: `docs/MAPELITES.md`, `docs/ARCHITECTURE.md`, `docs/WORLDSPACE.md`, `docs/FORMULAS.md` (§6 fitness)
-
----
 
 ## 1. Goal and role
 
@@ -69,14 +69,14 @@ flowchart TB
     CHILD --> EVAL --> ARCH
   end
 
-  subgraph log [Per candidate - always]
+  subgraph log [When surrogate.enabled]
     BUF[append_eval_to_buffer]
     EVAL --> BUF
   end
 
   subgraph offline [Outside run]
     TR[train_surrogate.py]
-    CKPT[checkpoint.pkl]
+    CKPT[nightly_v2.pkl]
     BUF --> TR --> CKPT
     CKPT -.-> FAC
   end
@@ -89,7 +89,7 @@ flowchart TB
 
 1. Emitter produces a candidate `WorldSpec` (LLM or other).
 2. `evaluate_candidate` runs the **real** simulation → archive fitness.
-3. `append_eval_to_buffer` logs features and targets from that **real** result.
+3. When `surrogate.enabled: true`, `append_eval_to_buffer` logs features and targets from that **real** result.
 4. For **LLM slots only**, step 0 also ran `predict` on the **parent** spec to fill the prompt (before the LLM call).
 
 ---
@@ -104,7 +104,7 @@ flowchart TB
 |--------------|---------|
 | `surrogate.enabled` | If `false`, prompt uses stubs only; `get_surrogate` returns `StubSurrogate`. |
 | `surrogate.model_type` | `lightgbm` or `mlp` (training script; runtime loads pickled `SurrogateModel`). |
-| `surrogate.checkpoint` | Path to `SurrogateModel` pickle (e.g. `artifacts/surrogate/checkpoints/latest.pkl`). |
+| `surrogate.checkpoint` | Path to `SurrogateModel` pickle (e.g. `artifacts/surrogate/checkpoints/nightly_v2.pkl`). |
 | `surrogate.buffer_path` | Append-only JSONL for training (e.g. `artifacts/surrogate/buffer.jsonl`). |
 | `surrogate.stub_mean` | Default prompt fitness hint when surrogate off or model missing (typical `0.5`). |
 | `surrogate.stub_uncertainty` | Default prompt uncertainty hint (typical `0.85`–`1.0`). |
@@ -119,8 +119,12 @@ flowchart TB
 | Condition | Output |
 |-----------|--------|
 | `enabled == false` | `StubSurrogate(stub_mean, stub_uncertainty)` |
-| `enabled == true`, checkpoint missing | Same stub |
-| `enabled == true`, valid `.pkl` | `SurrogateFacade` via `build_surrogate_facade(model, uncertainty_fallback=stub_uncertainty)` |
+| `enabled == true`, checkpoint missing or stub sentinel | Same stub |
+| `enabled == true`, checkpoint dim ≠ 21 or corrupt ensemble | Log warning → stub |
+| `enabled == true`, `require_quality_gate` and summary fails | Log warning → stub |
+| `enabled == true`, valid v2 `.pkl` | `SurrogateFacade` via `build_surrogate_facade(model, uncertainty_fallback=stub_uncertainty)` |
+
+GitHub LLM runs set `require_quality_gate` via `SURROGATE_REQUIRE_QUALITY_GATE` (see `scripts/run_github_llm_map_elites.py`).
 
 ---
 
@@ -152,26 +156,25 @@ Canonical seed is applied inside `evaluate_candidate` and again inside `Surrogat
 
 ### Stage 3 — Feature extraction
 
-**Where:** `worldspace/surrogate/feature_extractor.py` → `extract(spec)`.
+**Where:** `worldspace/surrogate/feature_extractor.py` → `extract(spec)` (delegates to `genome_features.encode_world_spec_features`).
 
 | Input | Output |
 |-------|--------|
-| Canonicalized `WorldSpec` | `np.ndarray` shape `(8,)`, dtype `float` |
+| Canonicalized `WorldSpec` | `np.ndarray` shape `(21,)`, dtype `float` |
 
-**Feature vector (schema version `"1.0"`):**
+**Feature vector (schema version `"2.0"`):**
 
 | Index | Feature |
 |-------|---------|
-| 0 | `birth_density` — normalized sum of birth rule integers |
-| 1 | `survival_density` — normalized sum of survival rule integers |
-| 2 | `noise` |
-| 3 | `resource_regen` |
-| 4 | `predation` |
-| 5 | `grid_size` |
-| 6 | `steps` |
-| 7 | `seed` (canonical hash seed) |
+| 0–8 | `birth_0` … `birth_8` — rule bitmask (0/1 per neighbor count) |
+| 9–17 | `survival_0` … `survival_8` — rule bitmask |
+| 18 | `noise` |
+| 19 | `resource_regen` |
+| 20 | `predation` |
 
-No randomness in this module (determinism requirement).
+**Not included in core v2:** `grid_size`, `steps`, `seed` (zero variance in nightly/github_llm schedulers or redundant with genome after canonical seed).
+
+No randomness in this module (determinism requirement). Legacy v1 density features (`birth_density`, 8-dim checkpoints) are rejected at load time.
 
 ---
 
@@ -181,7 +184,7 @@ No randomness in this module (determinism requirement).
 
 | Input | Output |
 |-------|--------|
-| Feature vector `(8,)` | `dict` with **seven** component targets (multi-task regression) |
+| Feature vector `(21,)` | `dict` with **seven** component targets (multi-task regression) |
 
 **Mandatory component keys (`TARGET_KEYS`):**
 
@@ -316,19 +319,22 @@ Surrogate predictions are **never** written into the archive.
 |-------|--------|
 | `EvalResult`, `emitter_type` from slot metadata | One queued JSONL record |
 
-**Record schema (one line per evaluation):**
+**Record schema (one line per evaluation when `surrogate.enabled: true`):**
 
 | Field | Type | Source |
 |-------|------|--------|
-| `feature_schema_version` | string | `"1.0"` |
+| `feature_schema_version` | string | `"2.0"` |
 | `emitter_type` | string | e.g. `random`, `genetic`, `llm`, `llm_fallback` |
-| `features` | list[float] | `extract(eval_result.world_spec)` |
+| `features` | list[float] | 21 floats from `extract(eval_result.world_spec)` |
 | `targets` | object | `targets_from_eval_result(eval_result)` — seven Strategy A keys from **real** metrics |
+| `world_spec` | object | canonical `WorldSpec` dict (required for re-featurize / migrate) |
 | `metadata` | object | optional |
 
 **Flush policy:** `SurrogateBuffer` flushes every 32 records and at end of each scheduler iteration / run (`flush_every=32`).
 
-Written for **every** evaluation (insert accept or reject).
+Written for every evaluation in surrogate-enabled runs (insert accept or reject). Baseline nightly phase (`surrogate.enabled: false`) does not append.
+
+**Load guard:** `load_buffer()` accepts only schema `"2.0"`, dim 21, with `world_spec`. Migrate legacy archives via `scripts/migrate_surrogate_buffer.py`.
 
 ---
 
@@ -338,10 +344,11 @@ Written for **every** evaluation (insert accept or reject).
 
 | Input | Output |
 |-------|--------|
-| Buffer JSONL path (>= 2000 rows for production) | `feature_matrix` `(N, 8)`, `targets` dict of `(N,)` arrays |
+| Buffer JSONL path (>= 2000 rows for production; strict v2 schema) | `feature_matrix` `(N, 21)`, `targets` dict of `(N,)` arrays |
 | 80/20 hold-out split (`random_state=42`) | Train fit + hold-out metrics |
-| `--model-type lightgbm` | Eight deterministic LightGBM models per Strategy A target |
-| `--checkpoint-path` | Pickle file loaded by `get_surrogate` on next run |
+| `--model-type lightgbm` | LightGBM ensemble per Strategy A target |
+| `--checkpoint-path` | Pickle loaded by `get_surrogate` (production: `nightly_v2.pkl`) |
+| `--summary-path` | JSON with `feature_schema_version`, `feature_dim`, `quality_passed`, `holdout_metrics` |
 | `--micro` | >= 100 rows; writes checkpoint without failing on quality gate |
 
 **Hold-out quality (MVP DoD, full training only):**
@@ -352,7 +359,7 @@ Written for **every** evaluation (insert accept or reject).
 | `MAE(fitness)` | < 0.085 |
 | `MAE(stability)` | < 0.06 |
 
-Metrics are stored in `latest.summary.json` under `holdout_metrics`.
+Summary is written beside the checkpoint (e.g. `nightly_v2.summary.json`). See [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md) for go/no-go policy.
 
 **Uncertainty after training:** `predict_uncertainty` returns the standard deviation of fitness computed from each ensemble member’s component prediction.
 
@@ -364,13 +371,17 @@ Training is **outside** the illuminator loop; no online weight updates during MA
 
 ```text
 worldspace/surrogate/
-├── __init__.py          # get_surrogate(), checkpoint load
-├── types.py             # SurrogateConfig, SurrogatePrediction, SurrogateProtocol
-├── feature_extractor.py # extract(spec) → (8,) vector
-├── model.py             # SurrogateModel, TARGET_KEYS, fit / predict_components
-├── utils.py             # compute_fitness_from_prediction → evaluation.compute_fitness
-├── surrogate.py         # StubSurrogate, SurrogateFacade, LRU cache, build_surrogate_facade
-└── buffer.py            # SurrogateBuffer, targets_from_eval_result, append_eval_to_buffer
+├── __init__.py            # get_surrogate(), dim + quality guards
+├── types.py               # SurrogateConfig, SurrogatePrediction, SurrogateProtocol
+├── genome_features.py     # encode_world_spec_features → (21,)
+├── feature_extractor.py   # extract(spec), FEATURE_SCHEMA_VERSION "2.0"
+├── checkpoint_quality.py  # quality_passed gate for LLM hints
+├── checkpoint_paths.py    # stub sentinel, resolve_runtime_checkpoint_path
+├── model.py               # SurrogateModel, TARGET_KEYS, fit / predict_components
+├── training.py            # load_buffer strict v2
+├── utils.py               # compute_fitness_from_prediction
+├── surrogate.py           # StubSurrogate, SurrogateFacade, LRU cache
+└── buffer.py              # SurrogateBuffer, append_eval_to_buffer
 
 worldspace/illuminators/
 ├── scheduler.py         # surrogate_config_from_scheduler, resolve_surrogate_stub
@@ -401,8 +412,8 @@ worldspace/illuminators/
 
 | Scenario | Expected behavior |
 |----------|-------------------|
-| `llm.enabled: false` | No LLM calls; surrogate only affects buffer file if run proceeds |
-| `surrogate.enabled: false` | Prompt stubs; buffer still grows if illuminator runs |
+| `llm.enabled: false` | No LLM calls; buffer grows only when `surrogate.enabled: true` |
+| `surrogate.enabled: false` | Prompt stubs; buffer does **not** append |
 | Same `WorldSpec`, same deps | `predict()` bit-identical on same platform |
 | Archive + archive JSONL with `llm.enabled: false` | Must match with `surrogate` on/off (tests compare fitness, measures, `world_spec`, and JSONL after stripping runtime `metadata.id` / `metadata.timestamp`; buffer path excluded) |
 
@@ -417,7 +428,7 @@ Requirements: fixed `random_state=42` for training; no RNG in feature extractor;
 ```yaml
 surrogate:
   enabled: true
-  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
 ```
 
 **Train from collected buffer:**
@@ -425,8 +436,18 @@ surrogate:
 ```bash
 python scripts/train_surrogate.py \
   --model-type lightgbm \
-  --buffer-path artifacts/surrogate/buffer.jsonl \
-  --checkpoint-path artifacts/surrogate/checkpoints/latest.pkl
+  --buffer-path artifacts/surrogate/buffer_nightly.jsonl \
+  --checkpoint-path artifacts/surrogate/checkpoints/nightly_v2.pkl \
+  --summary-path artifacts/surrogate/checkpoints/nightly_v2.summary.json
+```
+
+**Migrate buffer from archive (v2 backfill):**
+
+```bash
+python scripts/migrate_surrogate_buffer.py \
+  --archive artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl \
+  --output artifacts/surrogate/buffer_nightly.jsonl \
+  --overwrite
 ```
 
 **Disable surrogate (stub prompts only):**
