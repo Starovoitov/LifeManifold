@@ -83,6 +83,7 @@ def append_eval_to_buffer(
         targets=targets_from_eval_result(result),
         emitter_type=emitter_type,
         world_spec=world_spec,
+        metadata={"source": "live_eval"},
     )
 
 

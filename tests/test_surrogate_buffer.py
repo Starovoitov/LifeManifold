@@ -139,6 +139,7 @@ class SurrogateBufferTests(unittest.TestCase):
             self.assertEqual(len(row["features"]), FEATURE_DIM)
             for key in TARGET_KEYS:
                 self.assertIn(key, row["targets"])
+            self.assertEqual(row["metadata"]["source"], "live_eval")
 
 
 if __name__ == "__main__":

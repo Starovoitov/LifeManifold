@@ -1,4 +1,4 @@
-"""Run MAP-Elites nightly: baseline collect → train surrogate → surrogate-enabled run."""
+"""Run MAP-Elites nightly: baseline → backfill buffer → surrogate run → train."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ _DEFAULT_SEED = 0
 
 __all__ = [
     "NightlyPipelineResult",
+    "ensure_nightly_buffer_backfill",
     "main",
     "run_map_elites_nightly",
     "run_nightly_pipeline",
@@ -138,22 +139,60 @@ def train_nightly_surrogate(
     return summary
 
 
-def _migrate_nightly_buffer_from_baseline(baseline_archive: Path) -> None:
-    """Rebuild the nightly surrogate buffer as schema 2.0 rows from baseline archive."""
-    from worldspace.surrogate.backfill import backfill_buffer_from_archive
-
-    _NIGHTLY_BUFFER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(
-        "Migrating nightly surrogate buffer from baseline archive: %s -> %s",
-        baseline_archive,
-        _NIGHTLY_BUFFER_PATH,
+def ensure_nightly_buffer_backfill(
+    baseline_archive: Path,
+    *,
+    buffer_path: Path | None = None,
+    overwrite: bool = False,
+) -> dict[str, int] | None:
+    """Backfill nightly buffer from baseline archive without destroying live_eval rows."""
+    from worldspace.surrogate.backfill import (
+        backfill_buffer_from_archive,
+        buffer_has_archive_backfill_rows,
+        buffer_has_live_eval_rows,
     )
+
+    target_buffer = buffer_path or _NIGHTLY_BUFFER_PATH
+    target_buffer.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Ensuring nightly surrogate buffer from baseline archive: %s -> %s (overwrite=%s)",
+        baseline_archive,
+        target_buffer,
+        overwrite,
+    )
+
+    if overwrite:
+        stats = backfill_buffer_from_archive(
+            baseline_archive,
+            target_buffer,
+            overwrite=True,
+        )
+        logger.info("Nightly buffer backfill stats: %s", stats)
+        return stats
+
+    if buffer_has_live_eval_rows(target_buffer):
+        if buffer_has_archive_backfill_rows(target_buffer):
+            logger.info(
+                "Buffer already has live_eval and archive_backfill rows; skipping backfill"
+            )
+            return None
+        stats = backfill_buffer_from_archive(
+            baseline_archive,
+            target_buffer,
+            overwrite=False,
+        )
+        logger.info(
+            "Nightly buffer backfill stats (append, preserving live_eval): %s", stats
+        )
+        return stats
+
     stats = backfill_buffer_from_archive(
         baseline_archive,
-        _NIGHTLY_BUFFER_PATH,
+        target_buffer,
         overwrite=True,
     )
-    logger.info("Nightly buffer migration stats: %s", stats)
+    logger.info("Nightly buffer backfill stats (rebuild): %s", stats)
+    return stats
 
 
 def _write_pipeline_summary(
@@ -219,13 +258,14 @@ def run_nightly_pipeline(
     steps: int = _DEFAULT_STEPS,
     iterations: int | None = None,
     skip_training: bool = False,
+    overwrite_buffer: bool = False,
 ) -> NightlyPipelineResult:
-    """Baseline MAP-Elites → train surrogate → second run with surrogate enabled."""
+    """Baseline MAP-Elites → backfill buffer → surrogate run → train surrogate."""
     root = Path(output_dir or _DEFAULT_OUTPUT_DIR)
     baseline_dir = root / _BASELINE_SUBDIR
     surrogate_dir = root / _SURROGATE_SUBDIR
 
-    logger.info("Nightly step 1/3: baseline (surrogate disabled)")
+    logger.info("Nightly step 1/4: baseline (surrogate disabled)")
     baseline = run_map_elites_nightly(
         scheduler_path=DEFAULT_NIGHTLY_SCHEDULER_PATH,
         output_dir=baseline_dir,
@@ -236,18 +276,13 @@ def run_nightly_pipeline(
         iterations=iterations,
     )
 
-    training_summary = _NIGHTLY_TRAINING_SUMMARY_PATH
-    if not skip_training:
-        logger.info(
-            "Nightly step 2/3: migrate buffer + train surrogate -> %s",
-            _NIGHTLY_CHECKPOINT_PATH,
-        )
-        _migrate_nightly_buffer_from_baseline(Path(baseline.archive_jsonl_path))
-        training_summary = train_nightly_surrogate()
-    else:
-        logger.info("Skipping surrogate training (--skip-training)")
+    logger.info("Nightly step 2/4: backfill surrogate buffer from baseline archive")
+    ensure_nightly_buffer_backfill(
+        Path(baseline.archive_jsonl_path),
+        overwrite=overwrite_buffer,
+    )
 
-    logger.info("Nightly step 3/3: surrogate-enabled run (resume baseline archive)")
+    logger.info("Nightly step 3/4: surrogate-enabled run (resume baseline archive)")
     surrogate = run_map_elites_nightly(
         scheduler_path=DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
         output_dir=surrogate_dir,
@@ -258,6 +293,16 @@ def run_nightly_pipeline(
         iterations=iterations,
         load_archive_path=baseline.archive_jsonl_path,
     )
+
+    training_summary = _NIGHTLY_TRAINING_SUMMARY_PATH
+    if not skip_training:
+        logger.info(
+            "Nightly step 4/4: train surrogate on full buffer -> %s",
+            _NIGHTLY_CHECKPOINT_PATH,
+        )
+        training_summary = train_nightly_surrogate()
+    else:
+        logger.info("Skipping surrogate training (--skip-training)")
 
     pipeline_summary = root / "nightly_pipeline_summary.json"
     _write_pipeline_summary(
@@ -282,9 +327,9 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(
         description=(
-            "Default: two-phase nightly pipeline (baseline → train surrogate → "
-            "surrogate-enabled). Each phase uses 650 iterations (steps=200) unless "
-            "overridden. Use --single-run for one phase only."
+            "Default: nightly pipeline (baseline → backfill buffer → surrogate run → "
+            "train). Each phase uses 650 iterations (steps=200) unless overridden. "
+            "Use --single-run for one phase only."
         ),
     )
     parser.add_argument(
@@ -333,6 +378,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Pipeline only: skip train step (requires existing nightly_v2.pkl).",
     )
+    parser.add_argument(
+        "--overwrite-buffer",
+        action="store_true",
+        help="Rebuild nightly surrogate buffer from baseline archive (drops existing rows).",
+    )
     args = parser.parse_args(argv)
 
     if args.single_run:
@@ -357,6 +407,7 @@ def main(argv: list[str] | None = None) -> None:
         steps=args.steps,
         iterations=args.iterations,
         skip_training=args.skip_training,
+        overwrite_buffer=args.overwrite_buffer,
     )
 
 

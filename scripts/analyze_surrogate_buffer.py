@@ -13,7 +13,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from worldspace.surrogate.backfill import backfill_buffer_from_collapsed_archive
-from worldspace.surrogate.buffer_analysis import analyze_buffer_path, format_analysis_report
+from worldspace.surrogate.buffer_analysis import (
+    analyze_buffer_path,
+    format_analysis_report,
+)
 
 _DEFAULT_OUTPUT = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_analysis.json"
 
@@ -85,7 +88,9 @@ def parse_args() -> argparse.Namespace:
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    )
 
 
 def _collapsed_buffer_from_archive(
@@ -110,7 +115,9 @@ def main() -> int:
 
     if args.compare_archive is not None:
         if args.compare_buffer is None:
-            print("--compare-buffer is required with --compare-archive", file=sys.stderr)
+            print(
+                "--compare-buffer is required with --compare-archive", file=sys.stderr
+            )
             return 2
         line_report = analyze_buffer_path(
             args.compare_buffer,

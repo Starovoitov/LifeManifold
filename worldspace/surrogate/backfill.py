@@ -22,9 +22,35 @@ from worldspace.surrogate.model import TARGET_KEYS
 __all__ = [
     "backfill_buffer_from_archive",
     "backfill_buffer_from_collapsed_archive",
+    "buffer_has_archive_backfill_rows",
+    "buffer_has_live_eval_rows",
     "targets_from_archive_elite",
     "targets_from_archive_record",
 ]
+
+
+def buffer_has_live_eval_rows(buffer_path: Path | str) -> bool:
+    """Return True when the buffer JSONL contains at least one ``live_eval`` row."""
+    return _buffer_has_metadata_source(buffer_path, "live_eval")
+
+
+def buffer_has_archive_backfill_rows(buffer_path: Path | str) -> bool:
+    """Return True when the buffer JSONL contains at least one backfill row."""
+    target = Path(buffer_path)
+    if not target.is_file() or target.stat().st_size == 0:
+        return False
+    backfill_sources = {"archive_backfill", "archive_backfill_collapsed"}
+    with target.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            row = json.loads(stripped)
+            metadata = row.get("metadata") or {}
+            if metadata.get("source") in backfill_sources:
+                return True
+    return False
+
 
 
 def targets_from_archive_elite(elite: ArchiveElite) -> dict[str, float]:
@@ -87,11 +113,12 @@ def backfill_buffer_from_archive(
     if overwrite and buffer.is_file():
         buffer.unlink()
 
+    out_mode = "a" if (not overwrite and buffer.is_file()) else "w"
     written = 0
     skipped = 0
     with (
         archive.open(encoding="utf-8") as src,
-        buffer.open("w", encoding="utf-8") as out,
+        buffer.open(out_mode, encoding="utf-8") as out,
     ):
         for line_no, line in enumerate(src, start=1):
             stripped = line.strip()
@@ -206,3 +233,19 @@ def _validate_targets_dict(targets: dict[str, float]) -> None:
     if missing:
         msg = f"Missing required target keys: {missing}"
         raise ValueError(msg)
+
+
+def _buffer_has_metadata_source(buffer_path: Path | str, source: str) -> bool:
+    target = Path(buffer_path)
+    if not target.is_file() or target.stat().st_size == 0:
+        return False
+    with target.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            row = json.loads(stripped)
+            metadata = row.get("metadata") or {}
+            if metadata.get("source") == source:
+                return True
+    return False

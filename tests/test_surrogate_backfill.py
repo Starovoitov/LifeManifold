@@ -5,13 +5,26 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
+from worldspace.illuminators.archive import elite_to_archive_record
 from worldspace.illuminators.evaluation import apply_canonical_seed
-from worldspace.specs.spec import WorldSpec
-from worldspace.surrogate.backfill import backfill_buffer_from_archive
+from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+from tests.test_map_elites_archive import (
+    _example_metrics,
+    _minimal_elite,
+    _write_jsonl,
+)
+from worldspace.surrogate.backfill import (
+    backfill_buffer_from_archive,
+    buffer_has_archive_backfill_rows,
+    buffer_has_live_eval_rows,
+)
+from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
+from worldspace.surrogate.model import TARGET_KEYS
 from worldspace.surrogate.feature_extractor import extract
 from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.training import load_buffer
@@ -47,6 +60,57 @@ class TestSurrogateBackfill(unittest.TestCase):
                 extract(restored),
                 np.asarray(first_line["features"], dtype=float),
             )
+
+    def test_backfill_append_preserves_existing_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive = Path(tmpdir) / "archive.jsonl"
+            _write_jsonl(
+                archive,
+                [
+                    elite_to_archive_record(
+                        replace(
+                            _minimal_elite((0, 0), 0.7, elite_id="elite-a"),
+                            metrics=_example_metrics(),
+                        )
+                    ),
+                    elite_to_archive_record(
+                        replace(
+                            _minimal_elite((1, 1), 0.8, elite_id="elite-b"),
+                            metrics=_example_metrics(density_mean=0.4),
+                        )
+                    ),
+                ],
+            )
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            spec = WorldSpec(
+                birth=[3],
+                survival=[2, 3],
+                noise=0.1,
+                resource_regen=0.2,
+                predation=0.05,
+                cell_types=list(CANONICAL_CELL_TYPES),
+                grid_size=30,
+                steps=220,
+                seed=0,
+            )
+            apply_canonical_seed(spec)
+            live_row = buffer_record(
+                features=np.zeros(FEATURE_DIM, dtype=float),
+                targets={key: 0.5 for key in TARGET_KEYS},
+                emitter_type="genetic",
+                world_spec=world_spec_dict_for_buffer(spec),
+                metadata={"source": "live_eval"},
+            )
+            buffer_path.write_text(
+                json.dumps(live_row, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            stats = backfill_buffer_from_archive(archive, buffer_path, overwrite=False)
+            lines = buffer_path.read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(lines), 1 + stats["buffer_rows_written"])
+            self.assertTrue(buffer_has_live_eval_rows(buffer_path))
+            self.assertTrue(buffer_has_archive_backfill_rows(buffer_path))
+            self.assertEqual(json.loads(lines[0])["metadata"]["source"], "live_eval")
 
 
 if __name__ == "__main__":

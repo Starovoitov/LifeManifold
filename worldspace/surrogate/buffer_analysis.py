@@ -85,7 +85,9 @@ def summarize_target_array(values: np.ndarray) -> dict[str, float | int]:
     }
 
 
-def _histogram(values: np.ndarray, bins: tuple[tuple[float, float], ...]) -> list[dict[str, float | int]]:
+def _histogram(
+    values: np.ndarray, bins: tuple[tuple[float, float], ...]
+) -> list[dict[str, float | int]]:
     arr = np.asarray(values, dtype=float)
     n = int(arr.shape[0])
     rows: list[dict[str, float | int]] = []
@@ -115,10 +117,7 @@ def _top_feature_correlations(
         if np.isfinite(corr):
             rows.append((abs(corr), corr, name))
     rows.sort(reverse=True)
-    return [
-        {"feature": name, "corr": corr}
-        for _, corr, name in rows[:top_n]
-    ]
+    return [{"feature": name, "corr": corr} for _, corr, name in rows[:top_n]]
 
 
 def _emitter_breakdown(path: Path) -> list[dict[str, float | int | str]]:
@@ -174,7 +173,10 @@ def _stability_mae_bands(
 ) -> list[dict[str, float | int | str]]:
     hold = np.asarray(y_hold["stability"], dtype=float)
     preds = np.asarray(
-        [model.predict_components(x_hold[index])["stability"] for index in range(len(x_hold))],
+        [
+            model.predict_components(x_hold[index])["stability"]
+            for index in range(len(x_hold))
+        ],
         dtype=float,
     )
     rows: list[dict[str, float | int | str]] = []
@@ -206,7 +208,10 @@ def _per_target_holdout(
     for key in TARGET_KEYS:
         true = np.asarray(y_hold[key], dtype=float)
         preds = np.asarray(
-            [model.predict_components(x_hold[index])[key] for index in range(len(x_hold))],
+            [
+                model.predict_components(x_hold[index])[key]
+                for index in range(len(x_hold))
+            ],
             dtype=float,
         )
         ss_res = float(np.sum((preds - true) ** 2))
@@ -236,9 +241,7 @@ def analyze_buffer_path(
     metadata = scan_buffer_metadata(buffer_path)
     sample_count = int(feature_matrix.shape[0])
 
-    target_stats = {
-        key: summarize_target_array(targets[key]) for key in TARGET_KEYS
-    }
+    target_stats = {key: summarize_target_array(targets[key]) for key in TARGET_KEYS}
     stability_histogram = _histogram(targets["stability"], STABILITY_HISTOGRAM_BINS)
 
     x_train, y_train, x_hold, y_hold = holdout_split(
@@ -252,18 +255,10 @@ def analyze_buffer_path(
         "holdout_count": int(x_hold.shape[0]),
         "random_state": random_state,
         "test_fraction": test_fraction,
-        "train_mean": {
-            key: float(y_train[key].mean()) for key in TARGET_KEYS
-        },
-        "holdout_mean": {
-            key: float(y_hold[key].mean()) for key in TARGET_KEYS
-        },
-        "train_std": {
-            key: float(y_train[key].std()) for key in TARGET_KEYS
-        },
-        "holdout_std": {
-            key: float(y_hold[key].std()) for key in TARGET_KEYS
-        },
+        "train_mean": {key: float(y_train[key].mean()) for key in TARGET_KEYS},
+        "holdout_mean": {key: float(y_hold[key].mean()) for key in TARGET_KEYS},
+        "train_std": {key: float(y_train[key].std()) for key in TARGET_KEYS},
+        "holdout_std": {key: float(y_hold[key].std()) for key in TARGET_KEYS},
     }
 
     stability_baselines = _stability_baselines(y_train, y_hold)
