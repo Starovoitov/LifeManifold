@@ -12,8 +12,10 @@ import numpy as np
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
 from worldspace.surrogate.calibration import UncertaintyCalibrator
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES
-from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
+from worldspace.surrogate.evaluation import fitness_from_target_row
+from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS, SurrogateModel
 from worldspace.surrogate.reporting import (
+    consistency_mae,
     evaluate_acquisition_replay,
     estimate_false_skip_rate,
     merge_acquisition_into_summary,
@@ -83,6 +85,76 @@ class TestSurrogateReporting(unittest.TestCase):
             grid_resolution=2,
         )
         self.assertEqual(metrics.policy_skip_count, 0)
+
+    def test_consistency_mae_uses_composed_labels_without_fitness_head(self) -> None:
+        components = {
+            "stability": 0.7,
+            "diversity": 0.6,
+            "oscillation_score": 0.5,
+            "topology_interface_index": 0.4,
+            "topology_window_heterogeneity": 0.3,
+            "final_density": 0.6,
+            "early_extinction_prob": 0.05,
+        }
+        composed = fitness_from_target_row(components)
+        stored_label = 0.99
+        self.assertNotAlmostEqual(composed, stored_label, places=3)
+
+        feature_matrix = np.tile(0.5, (1, len(FEATURE_NAMES))).reshape(1, -1)
+        targets = {key: np.array([components[key]], dtype=float) for key in TARGET_KEYS}
+        targets[FITNESS_TARGET_KEY] = np.array([stored_label], dtype=float)
+
+        model = SurrogateModel()
+        model._component_means = dict(components)
+        model._has_fitness_head = False
+
+        self.assertAlmostEqual(
+            consistency_mae(model, feature_matrix, targets), 0.0, places=5
+        )
+
+    def test_consistency_mae_nan_label_rows_use_composed_with_fitness_head(
+        self,
+    ) -> None:
+        components = {
+            "stability": 0.7,
+            "diversity": 0.6,
+            "oscillation_score": 0.5,
+            "topology_interface_index": 0.4,
+            "topology_window_heterogeneity": 0.3,
+            "final_density": 0.6,
+            "early_extinction_prob": 0.05,
+        }
+        stored_label = 0.82
+        feature_matrix = np.tile(0.5, (2, len(FEATURE_NAMES)))
+        targets = {
+            key: np.array([components[key], components[key]], dtype=float)
+            for key in TARGET_KEYS
+        }
+        targets[FITNESS_TARGET_KEY] = np.array([stored_label, np.nan], dtype=float)
+
+        model = SurrogateModel()
+        model._component_means = dict(components)
+        model._has_fitness_head = True
+        model.predict_fitness = lambda _features: 0.1  # type: ignore[method-assign]
+
+        mae = consistency_mae(model, feature_matrix, targets)
+        expected = (abs(0.1 - stored_label) + 0.0) / 2.0
+        self.assertAlmostEqual(mae, expected, places=5)
+
+    def test_consistency_mae_uses_stored_labels_with_fitness_head(self) -> None:
+        stored_label = 0.82
+        feature_matrix = np.tile(0.5, (1, len(FEATURE_NAMES))).reshape(1, -1)
+        targets = {key: np.array([0.4], dtype=float) for key in TARGET_KEYS}
+        targets[FITNESS_TARGET_KEY] = np.array([stored_label], dtype=float)
+
+        model = SurrogateModel()
+        model._component_means = {key: 0.4 for key in TARGET_KEYS}
+        model._has_fitness_head = True
+        model.predict_fitness = lambda _features: stored_label  # type: ignore[method-assign]
+
+        self.assertAlmostEqual(
+            consistency_mae(model, feature_matrix, targets), 0.0, places=5
+        )
 
     def test_merge_acquisition_into_summary_preserves_existing_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -361,6 +361,7 @@ def _mock_model(*, predict_value: float = 0.1):
     }
     model.predict_components.return_value = components
     model.predict_uncertainty.return_value = 0.2
+    model.predict_fitness.return_value = None
     return model
 
 

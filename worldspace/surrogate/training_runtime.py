@@ -16,7 +16,10 @@ from worldspace.surrogate.evaluation import (
     quality_thresholds_met,
 )
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
+import numpy as np
+
 from worldspace.surrogate.model import (
+    FITNESS_TARGET_KEY,
     TARGET_KEYS,
     SurrogateModel,
     consistency_mae_on_rows,
@@ -172,6 +175,11 @@ def train_from_buffer(
                 error_message="Hold-out quality thresholds were not met",
             )
         save_surrogate_checkpoint(model, checkpoint_path)
+        fitness_rows_with_label: int | None = None
+        if FITNESS_TARGET_KEY in targets:
+            fitness_rows_with_label = int(
+                np.isfinite(targets[FITNESS_TARGET_KEY]).sum()
+            )
         _save_summary(
             resolved_summary,
             model_type=model_type,
@@ -183,6 +191,7 @@ def train_from_buffer(
             micro=micro,
             consistency_mae_before=consistency_before,
             consistency_mae_after=consistency_after,
+            fitness_rows_with_label=fitness_rows_with_label,
         )
         if acquisition_report:
             policy = acquisition_policy or AcquisitionConfig(mode="filter")
@@ -244,6 +253,7 @@ def _save_summary(
     micro: bool,
     consistency_mae_before: float | None = None,
     consistency_mae_after: float | None = None,
+    fitness_rows_with_label: int | None = None,
 ) -> None:
     payload: dict[str, object] = {
         "model_type": model_type,
@@ -261,6 +271,8 @@ def _save_summary(
         payload["consistency_mae_train_before"] = consistency_mae_before
     if consistency_mae_after is not None:
         payload["consistency_mae_train_after"] = consistency_mae_after
+    if fitness_rows_with_label is not None:
+        payload["fitness_rows_with_label"] = fitness_rows_with_label
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

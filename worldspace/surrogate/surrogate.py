@@ -22,7 +22,7 @@ from worldspace.surrogate.model import (
     checkpoint_matches_extractor,
 )
 from worldspace.surrogate.types import SurrogatePrediction
-from worldspace.surrogate.utils import compute_fitness_from_prediction
+from worldspace.surrogate.utils import resolve_surrogate_fitness
 
 __all__ = [
     "StubSurrogate",
@@ -100,7 +100,7 @@ class SurrogateFacade:
         resolved = SurrogatePrediction(
             components=prediction.components,
             measures=prediction.measures,
-            fitness=compute_fitness_from_prediction(prediction),
+            fitness=resolve_surrogate_fitness(self.model, features, prediction),
             uncertainty=prediction.uncertainty,
         )
         self._cache_set(key, resolved)

@@ -17,7 +17,7 @@ from worldspace.illuminators.evaluation import (
 )
 from worldspace.surrogate.buffer import buffer_record
 from worldspace.surrogate.feature_extractor import extract
-from worldspace.surrogate.model import TARGET_KEYS
+from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS
 
 __all__ = [
     "backfill_buffer_from_archive",
@@ -52,7 +52,6 @@ def buffer_has_archive_backfill_rows(buffer_path: Path | str) -> bool:
     return False
 
 
-
 def targets_from_archive_elite(elite: ArchiveElite) -> dict[str, float]:
     """Build Strategy A targets from a collapsed in-memory archive elite."""
     if elite.measures is None or elite.metrics is None:
@@ -68,6 +67,7 @@ def targets_from_archive_elite(elite: ArchiveElite) -> dict[str, float]:
         "topology_window_heterogeneity": float(metrics.topology_window_heterogeneity),
         "final_density": final_density,
         "early_extinction_prob": extinction_probability(final_density),
+        FITNESS_TARGET_KEY: float(elite.fitness),
     }
 
 
@@ -89,6 +89,7 @@ def targets_from_archive_record(record: dict) -> dict[str, float]:
         ),
         "final_density": final_density,
         "early_extinction_prob": extinction_probability(final_density),
+        FITNESS_TARGET_KEY: float(record["fitness"]),
     }
 
 

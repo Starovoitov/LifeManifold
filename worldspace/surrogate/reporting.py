@@ -20,9 +20,12 @@ from worldspace.surrogate.calibration import (
     load_uncertainty_calibration,
 )
 from worldspace.surrogate.evaluation import fitness_from_target_row
-from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
+from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS, SurrogateModel
 from worldspace.surrogate.types import SurrogatePrediction
-from worldspace.surrogate.utils import compute_fitness_from_prediction
+from worldspace.surrogate.utils import (
+    compute_fitness_from_prediction,
+    resolve_surrogate_fitness,
+)
 
 FALSE_SKIP_FITNESS_MARGIN = 0.01
 
@@ -88,10 +91,16 @@ def evaluate_acquisition_replay(
     for row_index in range(n_rows):
         row_features = feature_matrix[row_index]
         prediction = _predict_row(model, row_features, calibrator=calibrator)
-        actual_fitness = fitness_from_target_row(
-            {key: float(targets[key][row_index]) for key in TARGET_KEYS}
+        actual_fitness = _illuminator_fitness_for_row(targets, row_index)
+        abs_errors.append(
+            _aligned_fitness_error(
+                model,
+                row_features,
+                prediction,
+                targets,
+                row_index,
+            )
         )
-        abs_errors.append(abs(prediction.fitness - actual_fitness))
         pred_uncertainties.append(prediction.uncertainty)
         i = row_index % grid_resolution
         j = (row_index // grid_resolution) % grid_resolution
@@ -181,11 +190,15 @@ def consistency_mae(
         return float("nan")
     errors = np.empty(n_rows, dtype=float)
     for row_index in range(n_rows):
-        prediction = _predict_row(model, feature_matrix[row_index])
-        actual_fitness = fitness_from_target_row(
-            {key: float(targets[key][row_index]) for key in TARGET_KEYS}
+        row_features = feature_matrix[row_index]
+        prediction = _predict_row(model, row_features)
+        errors[row_index] = _aligned_fitness_error(
+            model,
+            row_features,
+            prediction,
+            targets,
+            row_index,
         )
-        errors[row_index] = abs(prediction.fitness - actual_fitness)
     return float(np.mean(errors))
 
 
@@ -245,8 +258,65 @@ def _predict_row(
     return SurrogatePrediction(
         components=prediction.components,
         measures=prediction.measures,
-        fitness=compute_fitness_from_prediction(prediction),
+        fitness=resolve_surrogate_fitness(model, features, prediction),
         uncertainty=prediction.uncertainty,
+    )
+
+
+def _target_row_dict(
+    targets: dict[str, np.ndarray], row_index: int
+) -> dict[str, float]:
+    row = {key: float(targets[key][row_index]) for key in TARGET_KEYS}
+    if FITNESS_TARGET_KEY in targets:
+        row[FITNESS_TARGET_KEY] = float(targets[FITNESS_TARGET_KEY][row_index])
+    return row
+
+
+def _row_has_direct_fitness_label(
+    model: SurrogateModel,
+    targets: dict[str, np.ndarray],
+    row_index: int,
+) -> bool:
+    """True when a row has a finite stored label for the direct fitness head."""
+    return (
+        model._has_fitness_head
+        and FITNESS_TARGET_KEY in targets
+        and np.isfinite(float(targets[FITNESS_TARGET_KEY][row_index]))
+    )
+
+
+def _aligned_fitness_error(
+    model: SurrogateModel,
+    features: np.ndarray,
+    prediction: SurrogatePrediction,
+    targets: dict[str, np.ndarray],
+    row_index: int,
+) -> float:
+    """Absolute error with matching fitness definitions for predicted vs actual."""
+    direct = model.predict_fitness(features)
+    if (
+        _row_has_direct_fitness_label(model, targets, row_index)
+        and direct is not None
+    ):
+        predicted = direct
+        actual = float(targets[FITNESS_TARGET_KEY][row_index])
+    else:
+        predicted = compute_fitness_from_prediction(prediction)
+        actual = fitness_from_target_row(
+            _target_row_dict(targets, row_index),
+            prefer_stored=False,
+        )
+    return abs(predicted - actual)
+
+
+def _illuminator_fitness_for_row(
+    targets: dict[str, np.ndarray],
+    row_index: int,
+) -> float:
+    """Ground-truth illuminator fitness (stored when finite, else composed)."""
+    return fitness_from_target_row(
+        _target_row_dict(targets, row_index),
+        prefer_stored=True,
     )
 
 

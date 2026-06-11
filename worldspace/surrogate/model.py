@@ -29,9 +29,13 @@ TARGET_KEYS: tuple[str, ...] = (
     "final_density",
     "early_extinction_prob",
 )
+FITNESS_TARGET_KEY = "fitness"
+MIN_FITNESS_HEAD_SAMPLES = 10
 
 __all__ = [
     "EXPECTED_FEATURE_DIM",
+    "FITNESS_TARGET_KEY",
+    "MIN_FITNESS_HEAD_SAMPLES",
     "TARGET_KEYS",
     "SurrogateModel",
     "checkpoint_feature_dim",
@@ -51,7 +55,26 @@ class SurrogateModel:
     ensemble_size: int = DEFAULT_ENSEMBLE_SIZE
     _component_means: dict[str, float] = field(default_factory=dict)
     _ensemble: dict[str, list[Any]] = field(default_factory=dict)
+    _fitness_ensemble: list[Any] = field(default_factory=list)
     _uses_lightgbm: bool = False
+    _has_fitness_head: bool = False
+
+    def __setstate__(self, state: object) -> None:
+        """Restore pickle state and backfill fields from pre-fitness-head checkpoints."""
+        if not isinstance(state, dict):
+            msg = f"unexpected SurrogateModel pickle state: {type(state)!r}"
+            raise TypeError(msg)
+        self.__dict__.update(state)
+        self.ensure_legacy_checkpoint_fields()
+
+    def ensure_legacy_checkpoint_fields(self) -> None:
+        """Initialize fitness-head fields missing from older pickled checkpoints."""
+        if "_fitness_ensemble" not in self.__dict__:
+            self.__dict__["_fitness_ensemble"] = []
+        if "_has_fitness_head" not in self.__dict__:
+            self.__dict__["_has_fitness_head"] = False
+        elif self.__dict__["_has_fitness_head"] and not self.__dict__["_fitness_ensemble"]:
+            self.__dict__["_has_fitness_head"] = False
 
     def fit(
         self,
@@ -63,10 +86,15 @@ class SurrogateModel:
             key: float(np.mean(_as_float_array(targets, key))) for key in TARGET_KEYS
         }
         self._ensemble = {}
+        self._fitness_ensemble = []
         self._uses_lightgbm = False
+        self._has_fitness_head = False
         if self.model_type != "lightgbm" or find_spec("lightgbm") is None:
             return
         self._fit_lightgbm_ensemble(feature_matrix, targets)
+        fitness = targets.get(FITNESS_TARGET_KEY)
+        if fitness is not None:
+            self._fit_fitness_ensemble(feature_matrix, fitness)
 
     def apply_consistency_refinement(
         self,
@@ -115,7 +143,20 @@ class SurrogateModel:
         """Set all target means to one deterministic value."""
         self._component_means = {key: float(value) for key in TARGET_KEYS}
         self._ensemble = {}
+        self._fitness_ensemble = []
         self._uses_lightgbm = False
+        self._has_fitness_head = False
+
+    def predict_fitness(self, features: np.ndarray) -> float | None:
+        """Predict illuminator fitness directly when the fitness head is trained."""
+        if not self._has_fitness_head:
+            return None
+        vector = np.asarray(features, dtype=float).reshape(-1)
+        row = _lightgbm_feature_row(vector)
+        values = [
+            float(estimator.predict(row)[0]) for estimator in self._fitness_ensemble
+        ]
+        return float(np.mean(values))
 
     def predict_components(self, features: np.ndarray) -> dict[str, float]:
         """Predict all Strategy A target components from extracted features."""
@@ -190,6 +231,36 @@ class SurrogateModel:
                 estimators.append(regressor)
             self._ensemble[key] = estimators
         self._uses_lightgbm = True
+
+    def _fit_fitness_ensemble(
+        self,
+        feature_matrix: np.ndarray,
+        fitness: np.ndarray,
+    ) -> None:
+        import lightgbm as lgb
+
+        labels = np.asarray(fitness, dtype=float).reshape(-1)
+        mask = np.isfinite(labels)
+        if int(mask.sum()) < MIN_FITNESS_HEAD_SAMPLES:
+            return
+        x_train = _lightgbm_feature_matrix(feature_matrix[mask])
+        y_train = labels[mask]
+        base_params = {
+            **lightgbm_deterministic_params(),
+            "n_estimators": 64,
+            "num_leaves": 31,
+            "learning_rate": 0.05,
+            "verbosity": -1,
+        }
+        estimators: list[Any] = []
+        for member_index in range(self.ensemble_size):
+            member_params = dict(base_params)
+            member_params["random_state"] = member_random_state(member_index)
+            regressor = lgb.LGBMRegressor(**member_params)
+            regressor.fit(x_train, y_train)
+            estimators.append(regressor)
+        self._fitness_ensemble = estimators
+        self._has_fitness_head = True
 
     def _refit_lightgbm_components(
         self,

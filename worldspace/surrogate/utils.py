@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from worldspace.illuminators.evaluation import compute_fitness
 from worldspace.metrics import WorldMetrics
 from worldspace.surrogate.types import SurrogatePrediction
 
-__all__ = ["compute_fitness_from_prediction"]
+if TYPE_CHECKING:
+    from worldspace.surrogate.model import SurrogateModel
+
+__all__ = ["compute_fitness_from_prediction", "resolve_surrogate_fitness"]
 
 
 def compute_fitness_from_prediction(pred: SurrogatePrediction) -> float:
@@ -42,3 +47,15 @@ def compute_fitness_from_prediction(pred: SurrogatePrediction) -> float:
 
 def _is_early_extinct(components: dict[str, float]) -> bool:
     return float(components["early_extinction_prob"]) >= 0.5
+
+
+def resolve_surrogate_fitness(
+    model: SurrogateModel,
+    features,
+    prediction: SurrogatePrediction,
+) -> float:
+    """Use direct fitness head when trained, otherwise compose from components."""
+    direct = model.predict_fitness(features)
+    if direct is not None:
+        return float(direct)
+    return compute_fitness_from_prediction(prediction)

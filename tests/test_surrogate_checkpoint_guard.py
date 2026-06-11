@@ -40,6 +40,22 @@ def _sample_spec() -> WorldSpec:
     )
 
 
+def _write_pre_fitness_head_checkpoint(path: Path) -> None:
+    """Pickle a v2-shaped checkpoint serialized before fitness-head fields existed."""
+    model = SurrogateModel()
+    model._component_means = {key: 0.45 for key in TARGET_KEYS}
+    model._uses_lightgbm = False
+    state = {
+        key: value
+        for key, value in model.__dict__.items()
+        if key not in {"_fitness_ensemble", "_has_fitness_head"}
+    }
+    legacy = SurrogateModel.__new__(SurrogateModel)
+    legacy.__dict__.update(state)
+    with path.open("wb") as fh:
+        pickle.dump(legacy, fh)
+
+
 def _write_legacy_v1_checkpoint(path: Path) -> None:
     """Pickle a LightGBM checkpoint trained on 8 features (legacy nightly.pkl shape)."""
     import lightgbm as lgb
@@ -88,6 +104,40 @@ def _write_v2_checkpoint(path: Path) -> None:
             raise unittest.SkipTest("lightgbm backend unavailable")
         with path.open("wb") as fh:
             pickle.dump(model, fh)
+
+
+class TestSurrogateLegacyCheckpointFields(unittest.TestCase):
+    def test_load_backfills_missing_fitness_head_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "legacy_no_fitness_head.pkl"
+            _write_pre_fitness_head_checkpoint(checkpoint)
+            model = load_surrogate_checkpoint(checkpoint)
+        self.assertIn("_fitness_ensemble", model.__dict__)
+        self.assertIn("_has_fitness_head", model.__dict__)
+        self.assertFalse(model._has_fitness_head)
+        self.assertEqual(model._fitness_ensemble, [])
+        self.assertIsNone(model.predict_fitness(np.zeros(EXPECTED_FEATURE_DIM)))
+
+    def test_load_clears_inconsistent_fitness_head_flag(self) -> None:
+        legacy = SurrogateModel.__new__(SurrogateModel)
+        legacy.__dict__.update(
+            {
+                "model_type": "lightgbm",
+                "random_state": 42,
+                "ensemble_size": 8,
+                "_component_means": {key: 0.5 for key in TARGET_KEYS},
+                "_ensemble": {},
+                "_uses_lightgbm": False,
+                "_has_fitness_head": True,
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "legacy_bad_head.pkl"
+            with checkpoint.open("wb") as fh:
+                pickle.dump(legacy, fh)
+            model = load_surrogate_checkpoint(checkpoint)
+        self.assertFalse(model._has_fitness_head)
+        self.assertEqual(model._fitness_ensemble, [])
 
 
 @unittest.skipIf(find_spec("lightgbm") is None, "lightgbm not installed")

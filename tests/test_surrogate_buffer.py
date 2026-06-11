@@ -123,6 +123,7 @@ class SurrogateBufferTests(unittest.TestCase):
         result = Mock()
         result.world_spec = spec
         result.measures = {"stability": 0.4, "diversity": 0.5}
+        result.fitness = 0.42
         result.metrics = Mock(
             density_mean=0.6,
             oscillation_score=0.2,
@@ -140,6 +141,7 @@ class SurrogateBufferTests(unittest.TestCase):
             for key in TARGET_KEYS:
                 self.assertIn(key, row["targets"])
             self.assertEqual(row["metadata"]["source"], "live_eval")
+            self.assertAlmostEqual(row["targets"]["fitness"], 0.42)
 
 
 if __name__ == "__main__":

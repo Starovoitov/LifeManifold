@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
-from worldspace.surrogate.model import TARGET_KEYS
+from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "BUFFER_FEATURE_DIM",
@@ -30,6 +33,8 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
         raise FileNotFoundError(msg)
     features: list[list[float]] = []
     target_rows: dict[str, list[float]] = {key: [] for key in TARGET_KEYS}
+    fitness_rows: list[float] = []
+    rows_without_fitness = 0
     with path.open("r", encoding="utf-8") as fh:
         for line_no, raw in enumerate(fh, start=1):
             line = raw.strip()
@@ -46,13 +51,27 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
             features.append([float(value) for value in row_features])
             for key in TARGET_KEYS:
                 target_rows[key].append(float(row_targets[key]))
+            if FITNESS_TARGET_KEY in row_targets:
+                fitness_rows.append(float(row_targets[FITNESS_TARGET_KEY]))
+            else:
+                fitness_rows.append(float("nan"))
+                rows_without_fitness += 1
     if not features:
         msg = f"No training samples found in {path}"
         raise ValueError(msg)
+    if rows_without_fitness:
+        logger.warning(
+            "Buffer %s: %d/%d rows missing optional target %r",
+            path,
+            rows_without_fitness,
+            len(features),
+            FITNESS_TARGET_KEY,
+        )
     feature_matrix = np.asarray(features, dtype=float)
     targets = {
         key: np.asarray(values, dtype=float) for key, values in target_rows.items()
     }
+    targets[FITNESS_TARGET_KEY] = np.asarray(fitness_rows, dtype=float)
     return feature_matrix, targets
 
 
@@ -63,6 +82,7 @@ def scan_buffer_rows(path: Path) -> dict[str, Any]:
         raise FileNotFoundError(msg)
     valid_rows = 0
     invalid_rows = 0
+    rows_with_fitness = 0
     feature_dims: dict[int, int] = {}
     schema_versions: dict[str, int] = {}
     with path.open("r", encoding="utf-8") as fh:
@@ -81,6 +101,9 @@ def scan_buffer_rows(path: Path) -> dict[str, Any]:
                 invalid_rows += 1
                 continue
             valid_rows += 1
+            row_targets = row.get("targets")
+            if isinstance(row_targets, dict) and FITNESS_TARGET_KEY in row_targets:
+                rows_with_fitness += 1
             schema = str(row["feature_schema_version"])
             schema_versions[schema] = schema_versions.get(schema, 0) + 1
             dim = len(row["features"])
@@ -89,6 +112,7 @@ def scan_buffer_rows(path: Path) -> dict[str, Any]:
         "path": str(path.resolve()),
         "valid_rows": valid_rows,
         "invalid_rows": invalid_rows,
+        "rows_with_fitness": rows_with_fitness,
         "feature_schema_version": BUFFER_SCHEMA_VERSION,
         "feature_dim": BUFFER_FEATURE_DIM,
         "schema_versions": schema_versions,
@@ -115,8 +139,11 @@ def holdout_split(
     test_size = min(test_size, n_rows - 1)
     test_indices = np.sort(indices[:test_size])
     train_indices = np.sort(indices[test_size:])
-    train_targets = {key: targets[key][train_indices] for key in TARGET_KEYS}
-    test_targets = {key: targets[key][test_indices] for key in TARGET_KEYS}
+    target_keys = list(TARGET_KEYS)
+    if FITNESS_TARGET_KEY in targets:
+        target_keys.append(FITNESS_TARGET_KEY)
+    train_targets = {key: targets[key][train_indices] for key in target_keys}
+    test_targets = {key: targets[key][test_indices] for key in target_keys}
     return (
         feature_matrix[train_indices],
         train_targets,

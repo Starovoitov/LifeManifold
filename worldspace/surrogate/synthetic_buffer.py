@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.evaluation import extinction_probability
+from worldspace.surrogate.evaluation import fitness_from_target_row
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
 from worldspace.surrogate.genome_features import FEATURE_DIM
@@ -117,7 +118,7 @@ def _targets_from_features(features: np.ndarray) -> dict[str, float]:
     )
     final_density = float(np.clip(0.40 * regen + 0.30 * (1.0 - pred), 0.0, 1.0))
     early_extinction_prob = extinction_probability(final_density)
-    return {
+    components = {
         "stability": stability,
         "diversity": diversity,
         "oscillation_score": oscillation_score,
@@ -126,6 +127,8 @@ def _targets_from_features(features: np.ndarray) -> dict[str, float]:
         "final_density": final_density,
         "early_extinction_prob": early_extinction_prob,
     }
+    components["fitness"] = fitness_from_target_row(components)
+    return components
 
 
 def _v1_scaled_regen(resource_regen: float) -> float:

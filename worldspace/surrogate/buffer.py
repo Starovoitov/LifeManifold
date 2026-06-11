@@ -15,7 +15,7 @@ from worldspace.specs.spec import WorldSpec
 if TYPE_CHECKING:
     from worldspace.illuminators.evaluation import EvalResult
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION, extract
-from worldspace.surrogate.model import TARGET_KEYS
+from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS
 
 __all__ = [
     "SurrogateBuffer",
@@ -58,6 +58,7 @@ def targets_from_eval_result(result: EvalResult) -> dict[str, float]:
         "topology_window_heterogeneity": float(metrics.topology_window_heterogeneity),
         "final_density": final_density,
         "early_extinction_prob": extinction_probability(final_density),
+        FITNESS_TARGET_KEY: float(result.fitness),
     }
 
 
@@ -107,7 +108,7 @@ def buffer_record(
         "features": [
             float(value) for value in np.asarray(features, dtype=float).tolist()
         ],
-        "targets": {key: float(targets[key]) for key in TARGET_KEYS},
+        "targets": _serialize_targets(targets),
         "world_spec": dict(world_spec),
         "metadata": dict(metadata or {}),
     }
@@ -158,6 +159,13 @@ class SurrogateBuffer:
     def stats(self) -> dict[str, int]:
         """Return current in-memory and persisted record counts."""
         return {"pending": len(self._pending), "written": self._written}
+
+
+def _serialize_targets(targets: dict[str, float]) -> dict[str, float]:
+    serialized = {key: float(targets[key]) for key in TARGET_KEYS}
+    if FITNESS_TARGET_KEY in targets:
+        serialized[FITNESS_TARGET_KEY] = float(targets[FITNESS_TARGET_KEY])
+    return serialized
 
 
 def _validate_targets(targets: dict[str, float]) -> None:

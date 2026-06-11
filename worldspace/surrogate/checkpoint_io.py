@@ -31,6 +31,7 @@ def load_surrogate_checkpoint(path: Path) -> SurrogateModel:
     if not isinstance(loaded, SurrogateModel):
         msg = f"Checkpoint must contain SurrogateModel, got {type(loaded)!r}"
         raise TypeError(msg)
+    loaded.ensure_legacy_checkpoint_fields()
     return loaded
 
 
