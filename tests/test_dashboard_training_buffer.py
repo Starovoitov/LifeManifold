@@ -12,7 +12,7 @@ import pandas as pd
 
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 from worldspace.surrogate.model import TARGET_KEYS
 
 
@@ -49,7 +49,7 @@ def _buffer_record(
     emitter_type: str = "random",
 ) -> dict:
     if features is None:
-        features = np.zeros(FEATURE_DIM, dtype=float)
+        features = np.zeros(FEATURE_DIM_V21, dtype=float)
     return buffer_record(
         features=features,
         targets=_sample_targets(),
@@ -80,7 +80,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         for key in TARGET_KEYS:
             self.assertIn(f"target_{key}", row)
         self.assertTrue(row["has_world_spec"])
-        self.assertEqual(row["feature_schema_version"], "2.0")
+        self.assertEqual(row["feature_schema_version"], "2.1")
 
     def test_flatten_legacy_record_for_display_only(self) -> None:
         from dashboard.components.training_buffer_loader import flatten_buffer_record
@@ -98,10 +98,10 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
 
         rows = [
             _buffer_record(
-                features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
+                features=np.array([1.0] * FEATURE_DIM_V21), emitter_type="random"
             ),
             _buffer_record(
-                features=np.array([2.0] * FEATURE_DIM),
+                features=np.array([2.0] * FEATURE_DIM_V21),
                 emitter_type="genetic",
             ),
             _legacy_invalid_record(emitter_type="random"),
@@ -120,9 +120,9 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         dim_counts = counts["feature_dim"]
         self.assertEqual(int(emitter_counts.loc["random"]), 2)
         self.assertEqual(int(emitter_counts.loc["genetic"]), 1)
-        self.assertEqual(int(schema_counts.loc["2.0"]), 2)
+        self.assertEqual(int(schema_counts.loc["2.1"]), 2)
         self.assertEqual(int(schema_counts.loc["1.0"]), 1)
-        self.assertEqual(int(dim_counts.loc[FEATURE_DIM]), 2)
+        self.assertEqual(int(dim_counts.loc[FEATURE_DIM_V21]), 2)
         self.assertEqual(int(dim_counts.loc[2]), 1)
 
     def test_schema_mix_warnings_detect_legacy_rows(self) -> None:
@@ -150,7 +150,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         from dashboard.utils.config import load_config
 
         valid = _buffer_record(
-            features=np.array([1.0] * FEATURE_DIM), emitter_type="llm"
+            features=np.array([1.0] * FEATURE_DIM_V21), emitter_type="llm"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "buffer.jsonl"
@@ -186,10 +186,10 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
 
         rows = [
             _buffer_record(
-                features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
+                features=np.array([1.0] * FEATURE_DIM_V21), emitter_type="random"
             ),
             _buffer_record(
-                features=np.array([2.0] * FEATURE_DIM),
+                features=np.array([2.0] * FEATURE_DIM_V21),
                 emitter_type="genetic",
             ),
         ]
@@ -215,10 +215,10 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
 
         rows = [
             _buffer_record(
-                features=np.array([1.0] * FEATURE_DIM), emitter_type="random"
+                features=np.array([1.0] * FEATURE_DIM_V21), emitter_type="random"
             ),
             _buffer_record(
-                features=np.array([2.0] * FEATURE_DIM), emitter_type="genetic"
+                features=np.array([2.0] * FEATURE_DIM_V21), emitter_type="genetic"
             ),
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -236,7 +236,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         filtered, filtered_raw = apply_buffer_filters(
             bundle,
             emitter_types=["genetic"],
-            schema_versions=["2.0"],
+            schema_versions=["2.1"],
         )
         self.assertEqual(len(filtered), 1)
         self.assertEqual(len(filtered_raw), 1)
@@ -266,7 +266,7 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         filtered, filtered_raw = apply_buffer_filters(
             bundle,
             emitter_types=[],
-            schema_versions=["2.0"],
+            schema_versions=["2.1"],
         )
         self.assertTrue(filtered.empty)
         self.assertEqual(filtered_raw, [])

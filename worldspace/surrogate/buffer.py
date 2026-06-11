@@ -96,7 +96,7 @@ def buffer_record(
     world_spec: dict[str, Any],
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create one validated schema 2.0 JSON-serializable training record."""
+    """Create one validated schema JSON-serializable training record."""
     _validate_targets(targets)
     if not emitter_type:
         raise ValueError("emitter_type must be a non-empty string")

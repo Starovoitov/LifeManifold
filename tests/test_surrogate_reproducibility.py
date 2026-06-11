@@ -24,6 +24,7 @@ from worldspace.illuminators.scheduler import (
 )
 from worldspace.surrogate import get_surrogate
 from worldspace.surrogate.buffer import SurrogateBuffer
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 
 _MINI_SEED = 42
 _MINI_GRID_SIZE = 8
@@ -415,8 +416,8 @@ class TestAcquisitionReproducibility(unittest.TestCase):
             self.assertEqual(len(buffer_lines), result_shadow.evaluations)
             for line in buffer_lines:
                 row = json.loads(line)
-                self.assertEqual(row["feature_schema_version"], "2.0")
-                self.assertEqual(len(row["features"]), 21)
+                self.assertEqual(row["feature_schema_version"], "2.1")
+                self.assertEqual(len(row["features"]), FEATURE_DIM_V21)
 
 
 if __name__ == "__main__":

@@ -163,8 +163,8 @@ class TestGithubLlmMapElites(unittest.TestCase):
                 json.dumps(
                     {
                         "quality_passed": False,
-                        "feature_schema_version": "2.0",
-                        "feature_dim": 21,
+                        "feature_schema_version": "2.1",
+                        "feature_dim": 24,
                     }
                 ),
                 encoding="utf-8",
@@ -197,8 +197,8 @@ class TestGithubLlmMapElites(unittest.TestCase):
                 json.dumps(
                     {
                         "quality_passed": True,
-                        "feature_schema_version": "2.0",
-                        "feature_dim": 21,
+                        "feature_schema_version": "2.1",
+                        "feature_dim": 24,
                     }
                 ),
                 encoding="utf-8",

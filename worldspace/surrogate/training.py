@@ -9,7 +9,12 @@ from typing import Any
 
 import numpy as np
 
-from worldspace.surrogate.feature_extractor import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
+from worldspace.surrogate.feature_extractor import (
+    FEATURE_NAMES,
+    FEATURE_SCHEMA_VERSION,
+    SUPPORTED_FEATURE_SCHEMA_VERSIONS,
+    feature_dim_for_schema,
+)
 from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS
 
 logger = logging.getLogger(__name__)
@@ -17,6 +22,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BUFFER_FEATURE_DIM",
     "BUFFER_SCHEMA_VERSION",
+    "detect_buffer_schema_version",
     "holdout_split",
     "load_buffer",
     "scan_buffer_rows",
@@ -26,11 +32,45 @@ BUFFER_SCHEMA_VERSION = FEATURE_SCHEMA_VERSION
 BUFFER_FEATURE_DIM = len(FEATURE_NAMES)
 
 
+def detect_buffer_schema_version(path: Path) -> str:
+    """Return the single schema version used by all non-empty rows in a buffer."""
+    versions: set[str] = set()
+    with path.open("r", encoding="utf-8") as fh:
+        for line_no, raw in enumerate(fh, start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                msg = f"Invalid row format at {path}:{line_no}: expected JSON object"
+                raise ValueError(msg)
+            schema = row.get("feature_schema_version")
+            if schema not in SUPPORTED_FEATURE_SCHEMA_VERSIONS:
+                msg = (
+                    f"Unsupported feature_schema_version at {path}:{line_no}: "
+                    f"got {schema!r}"
+                )
+                raise ValueError(msg)
+            versions.add(str(schema))
+    if not versions:
+        msg = f"No training samples found in {path}"
+        raise ValueError(msg)
+    if len(versions) > 1:
+        msg = (
+            f"Mixed feature_schema_version values in {path}: "
+            f"{sorted(versions)}; migrate or split before training"
+        )
+        raise ValueError(msg)
+    return next(iter(versions))
+
+
 def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Load a schema 2.0 training matrix and per-target arrays from JSONL buffer."""
+    """Load a schema 2.0/2.1 training matrix and per-target arrays from JSONL buffer."""
     if not path.is_file():
         msg = f"Buffer JSONL not found: {path}"
         raise FileNotFoundError(msg)
+    schema_version = detect_buffer_schema_version(path)
+    expected_dim = feature_dim_for_schema(schema_version)
     features: list[list[float]] = []
     target_rows: dict[str, list[float]] = {key: [] for key in TARGET_KEYS}
     fitness_rows: list[float] = []
@@ -45,7 +85,13 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
             except json.JSONDecodeError as exc:
                 msg = f"Invalid JSON at {path}:{line_no}: {exc}"
                 raise ValueError(msg) from exc
-            _validate_buffer_row(row, path=path, line_no=line_no)
+            _validate_buffer_row(
+                row,
+                path=path,
+                line_no=line_no,
+                schema_version=schema_version,
+                expected_dim=expected_dim,
+            )
             row_features = row["features"]
             row_targets = row["targets"]
             features.append([float(value) for value in row_features])
@@ -96,7 +142,15 @@ def scan_buffer_rows(path: Path) -> dict[str, Any]:
                 invalid_rows += 1
                 continue
             try:
-                _validate_buffer_row(row, path=path, line_no=line_no)
+                schema = str(row.get("feature_schema_version"))
+                expected_dim = feature_dim_for_schema(schema)
+                _validate_buffer_row(
+                    row,
+                    path=path,
+                    line_no=line_no,
+                    schema_version=schema,
+                    expected_dim=expected_dim,
+                )
             except ValueError:
                 invalid_rows += 1
                 continue
@@ -104,7 +158,6 @@ def scan_buffer_rows(path: Path) -> dict[str, Any]:
             row_targets = row.get("targets")
             if isinstance(row_targets, dict) and FITNESS_TARGET_KEY in row_targets:
                 rows_with_fitness += 1
-            schema = str(row["feature_schema_version"])
             schema_versions[schema] = schema_versions.get(schema, 0) + 1
             dim = len(row["features"])
             feature_dims[dim] = feature_dims.get(dim, 0) + 1
@@ -152,25 +205,38 @@ def holdout_split(
     )
 
 
-def _validate_buffer_row(row: object, *, path: Path, line_no: int) -> None:
+def _validate_buffer_row(
+    row: object,
+    *,
+    path: Path,
+    line_no: int,
+    schema_version: str,
+    expected_dim: int,
+) -> None:
     if not isinstance(row, dict):
         msg = f"Invalid row format at {path}:{line_no}: expected JSON object"
         raise ValueError(msg)
     schema = row.get("feature_schema_version")
-    if schema != BUFFER_SCHEMA_VERSION:
+    if schema != schema_version:
+        msg = (
+            f"Inconsistent feature_schema_version at {path}:{line_no}: "
+            f"expected {schema_version!r}, got {schema!r}"
+        )
+        raise ValueError(msg)
+    if schema not in SUPPORTED_FEATURE_SCHEMA_VERSIONS:
         msg = (
             f"Unsupported feature_schema_version at {path}:{line_no}: "
-            f"expected {BUFFER_SCHEMA_VERSION!r}, got {schema!r}"
+            f"got {schema!r}"
         )
         raise ValueError(msg)
     row_features = row.get("features")
     if not isinstance(row_features, list) or not row_features:
         msg = f"Invalid features at {path}:{line_no}"
         raise ValueError(msg)
-    if len(row_features) != BUFFER_FEATURE_DIM:
+    if len(row_features) != expected_dim:
         msg = (
             f"Invalid feature dimension at {path}:{line_no}: "
-            f"expected {BUFFER_FEATURE_DIM}, got {len(row_features)}"
+            f"expected {expected_dim}, got {len(row_features)}"
         )
         raise ValueError(msg)
     row_targets = row.get("targets")

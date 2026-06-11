@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.feature_extractor import (
+    FEATURE_SCHEMA_VERSION,
+    feature_dim_for_schema,
+)
 
 __all__ = [
     "checkpoint_quality_allows_hints",
@@ -46,6 +48,6 @@ def checkpoint_quality_allows_hints(checkpoint_path: Path | str) -> bool:
     if summary.get("feature_schema_version") != FEATURE_SCHEMA_VERSION:
         return False
     feature_dim = summary.get("feature_dim")
-    if feature_dim != FEATURE_DIM:
+    if feature_dim != feature_dim_for_schema(FEATURE_SCHEMA_VERSION):
         return False
     return True

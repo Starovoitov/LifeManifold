@@ -26,7 +26,7 @@ from worldspace.surrogate.backfill import (
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
 from worldspace.surrogate.model import TARGET_KEYS
 from worldspace.surrogate.feature_extractor import extract
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 from worldspace.surrogate.training import load_buffer
 
 
@@ -46,13 +46,13 @@ class TestSurrogateBackfill(unittest.TestCase):
             self.assertGreater(stats["buffer_rows_written"], 0)
             features, targets = load_buffer(buffer_path)
             self.assertEqual(features.shape[0], stats["buffer_rows_written"])
-            self.assertEqual(features.shape[1], FEATURE_DIM)
+            self.assertEqual(features.shape[1], FEATURE_DIM_V21)
             self.assertEqual(features.shape[0], len(targets["stability"]))
             first_line = json.loads(
                 buffer_path.read_text(encoding="utf-8").splitlines()[0]
             )
             self.assertEqual(first_line["metadata"]["source"], "archive_backfill")
-            self.assertEqual(first_line["feature_schema_version"], "2.0")
+            self.assertEqual(first_line["feature_schema_version"], "2.1")
             self.assertIn("world_spec", first_line)
             restored = WorldSpec.from_json_dict(first_line["world_spec"])
             apply_canonical_seed(restored)
@@ -95,7 +95,7 @@ class TestSurrogateBackfill(unittest.TestCase):
             )
             apply_canonical_seed(spec)
             live_row = buffer_record(
-                features=np.zeros(FEATURE_DIM, dtype=float),
+                features=extract(spec),
                 targets={key: 0.5 for key in TARGET_KEYS},
                 emitter_type="genetic",
                 world_spec=world_spec_dict_for_buffer(spec),

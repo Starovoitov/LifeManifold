@@ -11,7 +11,8 @@ from worldspace.surrogate.checkpoint_quality import (
     checkpoint_quality_allows_hints,
     load_checkpoint_summary,
 )
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 
 
 class TestCheckpointQuality(unittest.TestCase):
@@ -31,8 +32,8 @@ class TestCheckpointQuality(unittest.TestCase):
                 json.dumps(
                     {
                         "quality_passed": True,
-                        "feature_schema_version": "2.0",
-                        "feature_dim": FEATURE_DIM,
+                        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                        "feature_dim": FEATURE_DIM_V21,
                     }
                 ),
                 encoding="utf-8",
@@ -48,8 +49,8 @@ class TestCheckpointQuality(unittest.TestCase):
                 json.dumps(
                     {
                         "quality_passed": False,
-                        "feature_schema_version": "2.0",
-                        "feature_dim": FEATURE_DIM,
+                        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                        "feature_dim": FEATURE_DIM_V21,
                     }
                 ),
                 encoding="utf-8",

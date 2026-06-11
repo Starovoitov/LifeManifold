@@ -72,12 +72,30 @@ class TestSurrogateGenomeFeatures(unittest.TestCase):
         right_vector = encode_world_spec_features(right)
         self.assertNotEqual(left_vector.tolist(), right_vector.tolist())
 
-    def test_feature_extractor_v2_contract(self) -> None:
+    def test_feature_extractor_v21_contract(self) -> None:
+        from worldspace.surrogate.genome_features import FEATURE_DIM_V21
+
         spec = _canonical_spec(birth=[2, 6], survival=[4])
         vector = extract(spec)
-        self.assertEqual(FEATURE_SCHEMA_VERSION, "2.0")
-        self.assertEqual(len(FEATURE_NAMES), FEATURE_DIM)
-        self.assertEqual(vector.shape, (FEATURE_DIM,))
+        self.assertEqual(FEATURE_SCHEMA_VERSION, "2.1")
+        self.assertEqual(len(FEATURE_NAMES), FEATURE_DIM_V21)
+        self.assertEqual(vector.shape, (FEATURE_DIM_V21,))
+
+    def test_v21_count_and_overlap_features(self) -> None:
+        from worldspace.surrogate.genome_features import (
+            encode_world_spec_features_v21,
+            rule_count_overlap_features,
+        )
+
+        spec = _canonical_spec(birth=[2, 6], survival=[2, 4])
+        birth_count, survival_count, overlap = rule_count_overlap_features(spec)
+        self.assertAlmostEqual(birth_count, 2 / 9)
+        self.assertAlmostEqual(survival_count, 2 / 9)
+        self.assertAlmostEqual(overlap, 1 / 9)
+        vector = encode_world_spec_features_v21(spec)
+        self.assertAlmostEqual(float(vector[-3]), birth_count)
+        self.assertAlmostEqual(float(vector[-2]), survival_count)
+        self.assertAlmostEqual(float(vector[-1]), overlap)
 
 
 if __name__ == "__main__":

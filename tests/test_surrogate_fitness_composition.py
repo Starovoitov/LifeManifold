@@ -11,8 +11,12 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import r2_score
 
-from worldspace.illuminators.evaluation import extinction_probability
+from worldspace.illuminators.evaluation import (
+    apply_canonical_seed,
+    extinction_probability,
+)
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
+from worldspace.surrogate.feature_extractor import extract
 from worldspace.surrogate.evaluation import evaluate_holdout
 from worldspace.surrogate.model import FITNESS_TARGET_KEY, SurrogateModel
 from worldspace.surrogate.synthetic_buffer import (
@@ -30,8 +34,11 @@ def _write_threshold_sensitive_buffer(path: Path, *, n_samples: int, seed: int) 
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
     for index in range(n_samples):
-        features = _random_features(rng)
-        targets = _targets_from_features(features)
+        raw_features = _random_features(rng)
+        world_spec = _world_spec_from_features(raw_features)
+        apply_canonical_seed(world_spec)
+        features = extract(world_spec)
+        targets = _targets_from_features(raw_features)
         targets.pop(FITNESS_TARGET_KEY, None)
         targets["final_density"] = 0.49 if index % 2 == 0 else 0.51
         targets["early_extinction_prob"] = extinction_probability(
@@ -42,9 +49,7 @@ def _write_threshold_sensitive_buffer(path: Path, *, n_samples: int, seed: int) 
                 features=features,
                 targets=targets,
                 emitter_type="synthetic",
-                world_spec=world_spec_dict_for_buffer(
-                    _world_spec_from_features(features)
-                ),
+                world_spec=world_spec_dict_for_buffer(world_spec),
             )
         )
     path.write_text(

@@ -7,11 +7,15 @@ from pathlib import Path
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import extinction_probability
+from worldspace.illuminators.evaluation import (
+    apply_canonical_seed,
+    extinction_probability,
+)
 from worldspace.surrogate.evaluation import fitness_from_target_row
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
 from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.feature_extractor import extract
 from worldspace.specs.world_param_bounds import (
     NOISE_MAX,
     PREDATION_MAX,
@@ -40,15 +44,18 @@ def write_synthetic_buffer(
     target.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
     for _ in range(n_samples):
-        features = _random_features(rng)
-        targets = _targets_from_features(features)
-        world_spec = world_spec_dict_for_buffer(_world_spec_from_features(features))
+        raw_features = _random_features(rng)
+        world_spec = _world_spec_from_features(raw_features)
+        apply_canonical_seed(world_spec)
+        features = extract(world_spec)
+        targets = _targets_from_features(raw_features)
+        world_spec_dict = world_spec_dict_for_buffer(world_spec)
         rows.append(
             buffer_record(
                 features=features,
                 targets=targets,
                 emitter_type="synthetic",
-                world_spec=world_spec,
+                world_spec=world_spec_dict,
             )
         )
     with target.open("w", encoding="utf-8") as fh:

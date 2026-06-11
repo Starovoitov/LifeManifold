@@ -11,10 +11,17 @@ from pathlib import Path
 
 import numpy as np
 
+from worldspace.illuminators.evaluation import apply_canonical_seed
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate.backfill import backfill_buffer_from_archive
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.buffer_migrate import re_featurize_buffer
+from worldspace.surrogate.feature_extractor import (
+    FEATURE_SCHEMA_VERSION,
+    FEATURE_SCHEMA_VERSION_20,
+    extract,
+)
+from worldspace.surrogate.genome_features import FEATURE_DIM, FEATURE_DIM_V21
 from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
 from worldspace.surrogate.training import (
     BUFFER_FEATURE_DIM,
@@ -107,7 +114,7 @@ class TestSurrogateBufferSchema(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "buffer.jsonl"
             row = buffer_record(
-                features=np.zeros(FEATURE_DIM, dtype=float),
+                features=np.zeros(FEATURE_DIM_V21, dtype=float),
                 targets=_sample_targets(),
                 emitter_type="random",
                 world_spec=_sample_world_spec_dict(),
@@ -169,7 +176,7 @@ class TestSurrogateBufferSchema(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             payload = json.loads(result.stdout.strip())
-            self.assertEqual(payload["feature_schema_version"], "2.0")
+            self.assertEqual(payload["feature_schema_version"], "2.1")
             self.assertEqual(payload["feature_dim"], BUFFER_FEATURE_DIM)
             self.assertGreater(payload["loaded_rows"], 0)
             features, _ = load_buffer(output)
@@ -203,7 +210,7 @@ class TestSurrogateBufferSchema(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        self.assertEqual(summary["feature_schema_version"], "2.0")
+        self.assertEqual(summary["feature_schema_version"], "2.1")
         self.assertEqual(summary["feature_dim"], BUFFER_FEATURE_DIM)
 
     def test_backfill_output_is_loadable(self) -> None:
@@ -221,6 +228,121 @@ class TestSurrogateBufferSchema(unittest.TestCase):
             features, targets = load_buffer(buffer_path)
         self.assertEqual(features.shape[1], BUFFER_FEATURE_DIM)
         self.assertEqual(features.shape[0], len(targets["stability"]))
+
+    def test_load_buffer_accepts_schema_20_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "buffer_v20.jsonl"
+            write_synthetic_buffer(path, n_samples=6, seed=4)
+            downgraded: list[str] = []
+            for line in path.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                spec = WorldSpec.from_json_dict(row["world_spec"])
+                apply_canonical_seed(spec)
+                row["feature_schema_version"] = FEATURE_SCHEMA_VERSION_20
+                row["features"] = [
+                    float(value)
+                    for value in extract(spec, schema_version=FEATURE_SCHEMA_VERSION_20)
+                ]
+                downgraded.append(json.dumps(row, sort_keys=True))
+            path.write_text("\n".join(downgraded) + "\n", encoding="utf-8")
+            features, targets = load_buffer(path)
+        self.assertEqual(features.shape, (6, FEATURE_DIM))
+        self.assertEqual(len(targets["stability"]), 6)
+
+    def test_load_buffer_rejects_mixed_schema_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "mixed.jsonl"
+            write_synthetic_buffer(path, n_samples=4, seed=2)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            row = json.loads(lines[0])
+            spec = WorldSpec.from_json_dict(row["world_spec"])
+            apply_canonical_seed(spec)
+            row["feature_schema_version"] = FEATURE_SCHEMA_VERSION_20
+            row["features"] = [
+                float(value)
+                for value in extract(spec, schema_version=FEATURE_SCHEMA_VERSION_20)
+            ]
+            lines[0] = json.dumps(row, sort_keys=True)
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Mixed feature_schema_version"):
+                load_buffer(path)
+
+    def test_re_featurize_upgrades_schema_20_to_21(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "buffer_v20.jsonl"
+            target = root / "buffer_v21.jsonl"
+            write_synthetic_buffer(source, n_samples=10, seed=6)
+            downgraded: list[str] = []
+            for line in source.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                spec = WorldSpec.from_json_dict(row["world_spec"])
+                apply_canonical_seed(spec)
+                row["feature_schema_version"] = FEATURE_SCHEMA_VERSION_20
+                row["features"] = [
+                    float(value)
+                    for value in extract(spec, schema_version=FEATURE_SCHEMA_VERSION_20)
+                ]
+                downgraded.append(json.dumps(row, sort_keys=True))
+            source.write_text("\n".join(downgraded) + "\n", encoding="utf-8")
+            stats = re_featurize_buffer(
+                source,
+                target,
+                target_schema=FEATURE_SCHEMA_VERSION,
+                overwrite=True,
+            )
+            features, targets = load_buffer(target)
+            self.assertEqual(stats["rows_written"], 10)
+            self.assertEqual(features.shape, (10, FEATURE_DIM_V21))
+            self.assertEqual(len(targets["stability"]), 10)
+            first = json.loads(target.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(first["feature_schema_version"], "2.1")
+            self.assertEqual(len(first["features"]), FEATURE_DIM_V21)
+
+    def test_migrate_script_re_featurize_mode(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "buffer_v20.jsonl"
+            target = root / "buffer_v21.jsonl"
+            write_synthetic_buffer(source, n_samples=5, seed=8)
+            downgraded: list[str] = []
+            for line in source.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                spec = WorldSpec.from_json_dict(row["world_spec"])
+                apply_canonical_seed(spec)
+                row["feature_schema_version"] = FEATURE_SCHEMA_VERSION_20
+                row["features"] = [
+                    float(value)
+                    for value in extract(spec, schema_version=FEATURE_SCHEMA_VERSION_20)
+                ]
+                downgraded.append(json.dumps(row, sort_keys=True))
+            source.write_text("\n".join(downgraded) + "\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/migrate_surrogate_buffer.py",
+                    "--buffer",
+                    str(source),
+                    "--re-featurize",
+                    "--target-schema",
+                    "2.1",
+                    "--output",
+                    str(target),
+                    "--overwrite",
+                ],
+                cwd=repo_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            payload = json.loads(result.stdout.strip())
+            self.assertEqual(payload["mode"], "re_featurize")
+            self.assertEqual(payload["feature_schema_version"], "2.1")
+            self.assertEqual(payload["feature_dim"], FEATURE_DIM_V21)
+            features, _ = load_buffer(target)
+            self.assertEqual(features.shape[1], FEATURE_DIM_V21)
 
 
 if __name__ == "__main__":

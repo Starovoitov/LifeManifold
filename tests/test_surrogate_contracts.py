@@ -142,7 +142,7 @@ class SurrogateContractsTests(unittest.TestCase):
         spec = self._sample_spec()
         apply_canonical_seed(spec)
         vector = extract_features(spec)
-        self.assertEqual(FEATURE_SCHEMA_VERSION, "2.0")
+        self.assertEqual(FEATURE_SCHEMA_VERSION, "2.1")
         self.assertEqual(len(FEATURE_NAMES), FEATURE_DIM)
         self.assertEqual(vector.shape, (FEATURE_DIM,))
 

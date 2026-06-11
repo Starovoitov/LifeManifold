@@ -25,8 +25,8 @@ class TestRecordFeatureExtractorV2Eval(unittest.TestCase):
             root = Path(tmpdir)
             summary_path = root / "micro.summary.json"
             summary = {
-                "feature_schema_version": "2.0",
-                "feature_dim": 21,
+                "feature_schema_version": "2.1",
+                "feature_dim": 24,
                 "sample_count": 200,
                 "train_count": 160,
                 "holdout_count": 40,

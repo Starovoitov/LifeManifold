@@ -10,8 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import extinction_probability
+from worldspace.illuminators.evaluation import (
+    apply_canonical_seed,
+    extinction_probability,
+)
 from worldspace.surrogate.buffer import buffer_record, world_spec_dict_for_buffer
+from worldspace.surrogate.feature_extractor import extract
 from worldspace.surrogate.evaluation import evaluate_holdout
 from worldspace.surrogate.model import FITNESS_TARGET_KEY, SurrogateModel
 from worldspace.surrogate.synthetic_buffer import (
@@ -29,8 +33,11 @@ def _write_direct_fitness_buffer(path: Path, *, n_samples: int, seed: int) -> No
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
     for index in range(n_samples):
-        features = _random_features(rng)
-        targets = _targets_from_features(features)
+        raw_features = _random_features(rng)
+        world_spec = _world_spec_from_features(raw_features)
+        apply_canonical_seed(world_spec)
+        features = extract(world_spec)
+        targets = _targets_from_features(raw_features)
         targets["final_density"] = 0.49 if index % 2 == 0 else 0.51
         targets["early_extinction_prob"] = float(
             np.clip(
@@ -41,16 +48,14 @@ def _write_direct_fitness_buffer(path: Path, *, n_samples: int, seed: int) -> No
             )
         )
         targets[FITNESS_TARGET_KEY] = float(
-            np.clip(0.12 + 0.75 * float(np.mean(features)), 0.0, 1.0)
+            np.clip(0.12 + 0.75 * float(np.mean(raw_features)), 0.0, 1.0)
         )
         rows.append(
             buffer_record(
                 features=features,
                 targets=targets,
                 emitter_type="synthetic",
-                world_spec=world_spec_dict_for_buffer(
-                    _world_spec_from_features(features)
-                ),
+                world_spec=world_spec_dict_for_buffer(world_spec),
             )
         )
     path.write_text(

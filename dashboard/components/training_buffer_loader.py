@@ -191,13 +191,13 @@ def schema_mix_warnings(frame: pd.DataFrame) -> list[str]:
         warnings.append(
             "Mixed feature_schema_version values: "
             + ", ".join(summary["schema_versions"])
-            + ". Training requires schema 2.0 only."
+            + ". Training requires a single schema version (2.0 or 2.1)."
         )
     if summary["mixed_feature_dim"]:
         dim_text = ", ".join(str(value) for value in summary["feature_dims"])
         warnings.append(
             f"Mixed feature_dim values: {dim_text}. "
-            "Training requires schema 2.0 rows only; migrate or replace the buffer."
+            "Training requires one feature width per buffer; migrate mixed rows."
         )
     missing = int(summary["rows_missing_world_spec"])
     if missing:
