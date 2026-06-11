@@ -7,7 +7,10 @@ from sklearn.metrics import mean_absolute_error, r2_score
 
 from worldspace.surrogate.model import FITNESS_TARGET_KEY, TARGET_KEYS, SurrogateModel
 from worldspace.surrogate.types import SurrogatePrediction
-from worldspace.surrogate.utils import compute_fitness_from_prediction
+from worldspace.surrogate.utils import (
+    compute_fitness_from_prediction,
+    compute_soft_fitness_from_prediction,
+)
 
 MIN_TRAIN_SAMPLES_FULL = 2000
 MIN_TRAIN_SAMPLES_MICRO = 100
@@ -22,6 +25,7 @@ __all__ = [
     "QUALITY_MAE_STABILITY_MAX",
     "QUALITY_R2_FITNESS_MIN",
     "evaluate_holdout",
+    "evaluate_fitness_compose_ab",
     "fitness_from_target_row",
     "quality_thresholds_met",
 ]
@@ -109,6 +113,56 @@ def evaluate_holdout(
                 mean_absolute_error(true_direct, pred_direct)
             )
     return metrics
+
+
+def evaluate_fitness_compose_ab(
+    model: SurrogateModel,
+    feature_matrix: np.ndarray,
+    targets: dict[str, np.ndarray],
+) -> dict[str, dict[str, float]]:
+    """Compare hard vs soft composed fitness on the same hold-out rows."""
+    n_rows = int(feature_matrix.shape[0])
+    if n_rows < 1:
+        msg = "hold-out set must contain at least one row"
+        raise ValueError(msg)
+
+    true_fitness = np.asarray(
+        [
+            fitness_from_target_row({k: float(targets[k][i]) for k in TARGET_KEYS})
+            for i in range(n_rows)
+        ],
+        dtype=float,
+    )
+    pred_hard = np.empty(n_rows, dtype=float)
+    pred_soft = np.empty(n_rows, dtype=float)
+
+    for row_index in range(n_rows):
+        components = model.predict_components(feature_matrix[row_index])
+        prediction = SurrogatePrediction(
+            components=components,
+            measures={
+                "stability": float(components["stability"]),
+                "diversity": float(components["diversity"]),
+            },
+            fitness=0.0,
+            uncertainty=float(model.predict_uncertainty(feature_matrix[row_index])),
+        )
+        pred_hard[row_index] = compute_fitness_from_prediction(
+            prediction,
+            use_soft_extinction=False,
+        )
+        pred_soft[row_index] = compute_soft_fitness_from_prediction(prediction)
+
+    return {
+        "hard": {
+            "r2_fitness": float(r2_score(true_fitness, pred_hard)),
+            "mae_fitness": float(mean_absolute_error(true_fitness, pred_hard)),
+        },
+        "soft": {
+            "r2_fitness": float(r2_score(true_fitness, pred_soft)),
+            "mae_fitness": float(mean_absolute_error(true_fitness, pred_soft)),
+        },
+    }
 
 
 def quality_thresholds_met(metrics: dict[str, float]) -> bool:

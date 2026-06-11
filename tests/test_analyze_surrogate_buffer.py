@@ -49,6 +49,58 @@ class TestAnalyzeSurrogateBuffer(unittest.TestCase):
             self.assertIn("Target stability:", text)
             self.assertIn("Quality gate reference:", text)
 
+    def test_format_analysis_report_ignores_boolean_fitness_compose_ab(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=200, seed=5)
+            report = analyze_buffer_path(buffer_path, fit_model=False)
+            report["fitness_compose_ab"] = True
+            text = format_analysis_report(report)
+            self.assertNotIn("Fitness compose A/B", text)
+
+    def test_compare_models_primary_fail_fitness_compose_ab(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=200, seed=5)
+
+            def fail_lightgbm(model_type, *_args, **_kwargs):
+                if model_type == "lightgbm":
+                    raise RuntimeError("simulated primary failure")
+                return {
+                    "model_type": model_type,
+                    "model_holdout": {
+                        "r2_fitness": 0.1,
+                        "mae_fitness": 0.1,
+                        "mae_stability": 0.1,
+                    },
+                    "per_target_holdout": [],
+                    "stability_mae_bands": [],
+                    "quality_gate": {
+                        "model_mae_stability": 0.1,
+                        "model_mae_stability_gap_to_gate": 0.04,
+                    },
+                    "fitness_compose_ab": {
+                        "hard": {"r2_fitness": 0.1, "mae_fitness": 0.1},
+                        "soft": {"r2_fitness": 0.2, "mae_fitness": 0.09},
+                    },
+                }
+
+            with unittest.mock.patch(
+                "worldspace.surrogate.buffer_analysis._fit_holdout_model",
+                side_effect=fail_lightgbm,
+            ):
+                report = analyze_buffer_path(
+                    buffer_path,
+                    fit_model=True,
+                    compare_models=True,
+                    fitness_compose_ab=True,
+                    model_type="lightgbm",
+                )
+            self.assertTrue(report["fitness_compose_ab_requested"])
+            self.assertNotIn("fitness_compose_ab", report)
+            text = format_analysis_report(report)
+            self.assertNotIn("Fitness compose A/B", text)
+
     def test_analyze_main_writes_json_for_buffer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

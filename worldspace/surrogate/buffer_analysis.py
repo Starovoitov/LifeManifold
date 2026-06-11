@@ -14,6 +14,7 @@ from worldspace.surrogate.evaluation import (
     QUALITY_MAE_FITNESS_MAX,
     QUALITY_MAE_STABILITY_MAX,
     QUALITY_R2_FITNESS_MIN,
+    evaluate_fitness_compose_ab,
     evaluate_holdout,
 )
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES
@@ -239,6 +240,7 @@ def _fit_holdout_model(
     *,
     random_state: int,
     ensemble_size: int,
+    fitness_compose_ab: bool = False,
 ) -> dict[str, Any]:
     model = SurrogateModel(
         model_type=model_type,
@@ -252,7 +254,7 @@ def _fit_holdout_model(
         val_targets=y_hold,
     )
     holdout_metrics = evaluate_holdout(model, x_hold, y_hold)
-    return {
+    result: dict[str, Any] = {
         "model_type": model_type,
         "model_holdout": holdout_metrics,
         "per_target_holdout": _per_target_holdout(model, x_hold, y_hold),
@@ -264,6 +266,13 @@ def _fit_holdout_model(
             ),
         },
     }
+    if fitness_compose_ab:
+        result["fitness_compose_ab"] = evaluate_fitness_compose_ab(
+            model,
+            x_hold,
+            y_hold,
+        )
+    return result
 
 
 def analyze_buffer_path(
@@ -272,6 +281,7 @@ def analyze_buffer_path(
     fit_model: bool = False,
     model_type: ModelType = "lightgbm",
     compare_models: bool = False,
+    fitness_compose_ab: bool = False,
     random_state: int = 42,
     test_fraction: float = 0.2,
     ensemble_size: int = 1,
@@ -336,6 +346,7 @@ def analyze_buffer_path(
         "model_fit": fit_model,
         "model_type": model_type if fit_model else None,
         "compare_models": compare_models if fit_model else False,
+        "fitness_compose_ab_requested": bool(fit_model and fitness_compose_ab),
     }
 
     if fit_model:
@@ -351,6 +362,7 @@ def analyze_buffer_path(
                         y_hold,
                         random_state=random_state,
                         ensemble_size=ensemble_size,
+                        fitness_compose_ab=fitness_compose_ab,
                     )
                 except Exception as exc:  # noqa: BLE001 — report unavailable backends
                     model_reports[backend] = {"error": str(exc)}
@@ -361,6 +373,8 @@ def analyze_buffer_path(
                 report["per_target_holdout"] = primary["per_target_holdout"]
                 report["stability_mae_bands"] = primary["stability_mae_bands"]
                 report["quality_gate"].update(primary["quality_gate"])
+                if fitness_compose_ab and "fitness_compose_ab" in primary:
+                    report["fitness_compose_ab"] = primary["fitness_compose_ab"]
         else:
             fitted = _fit_holdout_model(
                 model_type,
@@ -370,11 +384,14 @@ def analyze_buffer_path(
                 y_hold,
                 random_state=random_state,
                 ensemble_size=ensemble_size,
+                fitness_compose_ab=fitness_compose_ab,
             )
             report["model_holdout"] = fitted["model_holdout"]
             report["per_target_holdout"] = fitted["per_target_holdout"]
             report["stability_mae_bands"] = fitted["stability_mae_bands"]
             report["quality_gate"].update(fitted["quality_gate"])
+            if fitness_compose_ab and "fitness_compose_ab" in fitted:
+                report["fitness_compose_ab"] = fitted["fitness_compose_ab"]
 
     return report
 
@@ -447,6 +464,23 @@ def format_analysis_report(report: dict[str, Any]) -> str:
             f"(gap to gate: {gate['mae_stability_gap_to_gate']:+.4f})",
         ]
     )
+
+    ab = report.get("fitness_compose_ab")
+    if isinstance(ab, dict) and "hard" in ab and "soft" in ab:
+        lines.extend(
+            [
+                "",
+                "Fitness compose A/B (hold-out, composed path only):",
+                (
+                    f"  hard: r2={ab['hard']['r2_fitness']:.4f} "
+                    f"mae={ab['hard']['mae_fitness']:.4f}"
+                ),
+                (
+                    f"  soft: r2={ab['soft']['r2_fitness']:.4f} "
+                    f"mae={ab['soft']['mae_fitness']:.4f}"
+                ),
+            ]
+        )
 
     if report.get("model_comparison"):
         lines.extend(["", "Model comparison (hold-out r2_fitness):"])

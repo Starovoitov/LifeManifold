@@ -84,6 +84,11 @@ def parse_args() -> argparse.Namespace:
         help="When --fit-model is set, fit both LightGBM and MLP and compare hold-out",
     )
     parser.add_argument(
+        "--fitness-compose-ab",
+        action="store_true",
+        help="When --fit-model is set, report hard vs soft composed fitness on hold-out",
+    )
+    parser.add_argument(
         "--ensemble-size",
         type=int,
         default=1,
@@ -125,6 +130,7 @@ def _analyze_kwargs(args: argparse.Namespace) -> dict[str, object]:
         "fit_model": args.fit_model,
         "model_type": args.model_type,
         "compare_models": args.compare_models,
+        "fitness_compose_ab": args.fitness_compose_ab,
         "ensemble_size": args.ensemble_size,
     }
 

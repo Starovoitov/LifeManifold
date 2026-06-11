@@ -59,6 +59,7 @@ class SurrogateFacade:
     uncertainty_fallback: float
     calibrator: UncertaintyCalibrator | None = None
     calibration_configured: bool = False
+    use_soft_extinction: bool = False
     cache_capacity: int = 1024
     _cache: OrderedDict[str, SurrogatePrediction] = field(default_factory=OrderedDict)
     _cache_hits: int = 0
@@ -100,7 +101,12 @@ class SurrogateFacade:
         resolved = SurrogatePrediction(
             components=prediction.components,
             measures=prediction.measures,
-            fitness=resolve_surrogate_fitness(self.model, features, prediction),
+            fitness=resolve_surrogate_fitness(
+                self.model,
+                features,
+                prediction,
+                use_soft_extinction=self.use_soft_extinction,
+            ),
             uncertainty=prediction.uncertainty,
         )
         self._cache_set(key, resolved)
@@ -140,6 +146,7 @@ def build_surrogate_facade(
     *,
     uncertainty_fallback: float,
     calibration_path: str | Path | None = None,
+    use_soft_extinction: bool = False,
     cache_capacity: int = 1024,
 ) -> SurrogateFacade:
     """Construct a facade with explicit constructor kwargs for type checkers."""
@@ -152,6 +159,7 @@ def build_surrogate_facade(
         uncertainty_fallback=uncertainty_fallback,
         calibrator=calibrator,
         calibration_configured=configured,
+        use_soft_extinction=use_soft_extinction,
         cache_capacity=cache_capacity,
     )
 

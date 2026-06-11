@@ -28,6 +28,7 @@ class SurrogateConfig:
     stub_uncertainty: float
     calibration: str | None = None
     require_quality_gate: bool = False
+    use_soft_extinction: bool = False
 
 
 @dataclass(frozen=True)
