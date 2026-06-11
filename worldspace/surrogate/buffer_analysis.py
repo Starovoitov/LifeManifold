@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -20,9 +20,12 @@ from worldspace.surrogate.feature_extractor import FEATURE_NAMES
 from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
 from worldspace.surrogate.training import holdout_split, load_buffer
 
+ModelType = Literal["lightgbm", "mlp"]
+
 __all__ = [
     "STABILITY_HISTOGRAM_BINS",
     "STABILITY_MAE_BANDS",
+    "ModelType",
     "analyze_buffer_path",
     "format_analysis_report",
     "scan_buffer_metadata",
@@ -227,10 +230,48 @@ def _per_target_holdout(
     return rows
 
 
+def _fit_holdout_model(
+    model_type: ModelType,
+    x_train: np.ndarray,
+    y_train: dict[str, np.ndarray],
+    x_hold: np.ndarray,
+    y_hold: dict[str, np.ndarray],
+    *,
+    random_state: int,
+    ensemble_size: int,
+) -> dict[str, Any]:
+    model = SurrogateModel(
+        model_type=model_type,
+        random_state=random_state,
+        ensemble_size=ensemble_size,
+    )
+    model.fit(
+        x_train,
+        y_train,
+        val_features=x_hold,
+        val_targets=y_hold,
+    )
+    holdout_metrics = evaluate_holdout(model, x_hold, y_hold)
+    return {
+        "model_type": model_type,
+        "model_holdout": holdout_metrics,
+        "per_target_holdout": _per_target_holdout(model, x_hold, y_hold),
+        "stability_mae_bands": _stability_mae_bands(model, x_hold, y_hold),
+        "quality_gate": {
+            "model_mae_stability": holdout_metrics["mae_stability"],
+            "model_mae_stability_gap_to_gate": float(
+                holdout_metrics["mae_stability"] - QUALITY_MAE_STABILITY_MAX
+            ),
+        },
+    }
+
+
 def analyze_buffer_path(
     path: Path | str,
     *,
     fit_model: bool = False,
+    model_type: ModelType = "lightgbm",
+    compare_models: bool = False,
     random_state: int = 42,
     test_fraction: float = 0.2,
     ensemble_size: int = 1,
@@ -293,23 +334,47 @@ def analyze_buffer_path(
             ),
         },
         "model_fit": fit_model,
+        "model_type": model_type if fit_model else None,
+        "compare_models": compare_models if fit_model else False,
     }
 
     if fit_model:
-        model = SurrogateModel(
-            model_type="lightgbm",
-            random_state=random_state,
-            ensemble_size=ensemble_size,
-        )
-        model.fit(x_train, y_train)
-        holdout_metrics = evaluate_holdout(model, x_hold, y_hold)
-        report["model_holdout"] = holdout_metrics
-        report["per_target_holdout"] = _per_target_holdout(model, x_hold, y_hold)
-        report["stability_mae_bands"] = _stability_mae_bands(model, x_hold, y_hold)
-        report["quality_gate"]["model_mae_stability"] = holdout_metrics["mae_stability"]
-        report["quality_gate"]["model_mae_stability_gap_to_gate"] = float(
-            holdout_metrics["mae_stability"] - QUALITY_MAE_STABILITY_MAX
-        )
+        if compare_models:
+            model_reports: dict[str, Any] = {}
+            for backend in ("lightgbm", "mlp"):
+                try:
+                    model_reports[backend] = _fit_holdout_model(
+                        backend,  # type: ignore[arg-type]
+                        x_train,
+                        y_train,
+                        x_hold,
+                        y_hold,
+                        random_state=random_state,
+                        ensemble_size=ensemble_size,
+                    )
+                except Exception as exc:  # noqa: BLE001 — report unavailable backends
+                    model_reports[backend] = {"error": str(exc)}
+            report["model_comparison"] = model_reports
+            primary = model_reports.get(model_type)
+            if isinstance(primary, dict) and "model_holdout" in primary:
+                report["model_holdout"] = primary["model_holdout"]
+                report["per_target_holdout"] = primary["per_target_holdout"]
+                report["stability_mae_bands"] = primary["stability_mae_bands"]
+                report["quality_gate"].update(primary["quality_gate"])
+        else:
+            fitted = _fit_holdout_model(
+                model_type,
+                x_train,
+                y_train,
+                x_hold,
+                y_hold,
+                random_state=random_state,
+                ensemble_size=ensemble_size,
+            )
+            report["model_holdout"] = fitted["model_holdout"]
+            report["per_target_holdout"] = fitted["per_target_holdout"]
+            report["stability_mae_bands"] = fitted["stability_mae_bands"]
+            report["quality_gate"].update(fitted["quality_gate"])
 
     return report
 
@@ -382,6 +447,20 @@ def format_analysis_report(report: dict[str, Any]) -> str:
             f"(gap to gate: {gate['mae_stability_gap_to_gate']:+.4f})",
         ]
     )
+
+    if report.get("model_comparison"):
+        lines.extend(["", "Model comparison (hold-out r2_fitness):"])
+        for backend, payload in report["model_comparison"].items():
+            if "error" in payload:
+                lines.append(f"  {backend}: error={payload['error']}")
+                continue
+            metrics = payload["model_holdout"]
+            lines.append(
+                f"  {backend}: r2_fitness={metrics['r2_fitness']:.4f} "
+                f"mae_fitness={metrics['mae_fitness']:.4f} "
+                f"mae_stability={metrics['mae_stability']:.4f}"
+            )
+        lines.append("")
 
     if report.get("model_holdout"):
         metrics = report["model_holdout"]

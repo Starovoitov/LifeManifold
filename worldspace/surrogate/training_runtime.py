@@ -79,6 +79,13 @@ def validate_model_dependencies(model_type: ModelType) -> None:
             "Install project dependencies or use model_type='mlp'."
         )
         raise TrainError(msg)
+    if model_type == "mlp" and find_spec("torch") is None:
+        msg = (
+            "Model type 'mlp' requested, but dependency is missing. "
+            "Install project dependencies (pyproject.toml includes torch>=2.2) "
+            "or use model_type='lightgbm'."
+        )
+        raise TrainError(msg)
 
 
 def train_from_buffer(
@@ -91,6 +98,7 @@ def train_from_buffer(
     min_samples: int | None = None,
     require_quality_gate: bool = True,
     consistency_weight: float = 0.0,
+    fitness_loss_weight: float = 1.0,
     acquisition_report: bool = False,
     calibration_path: Path | str | None = None,
     acquisition_policy: AcquisitionConfig | None = None,
@@ -150,7 +158,13 @@ def train_from_buffer(
             random_state=42,
             ensemble_size=8,
         )
-        model.fit(x_train, y_train)
+        model.fit(
+            x_train,
+            y_train,
+            fitness_loss_weight=fitness_loss_weight,
+            val_features=x_holdout,
+            val_targets=y_holdout,
+        )
         consistency_before: float | None = None
         consistency_after: float | None = None
         if consistency_weight > 0.0:
@@ -192,6 +206,7 @@ def train_from_buffer(
             consistency_mae_before=consistency_before,
             consistency_mae_after=consistency_after,
             fitness_rows_with_label=fitness_rows_with_label,
+            fitness_loss_weight=fitness_loss_weight if model_type == "mlp" else None,
         )
         if acquisition_report:
             policy = acquisition_policy or AcquisitionConfig(mode="filter")
@@ -254,6 +269,7 @@ def _save_summary(
     consistency_mae_before: float | None = None,
     consistency_mae_after: float | None = None,
     fitness_rows_with_label: int | None = None,
+    fitness_loss_weight: float | None = None,
 ) -> None:
     payload: dict[str, object] = {
         "model_type": model_type,
@@ -273,6 +289,8 @@ def _save_summary(
         payload["consistency_mae_train_after"] = consistency_mae_after
     if fitness_rows_with_label is not None:
         payload["fitness_rows_with_label"] = fitness_rows_with_label
+    if fitness_loss_weight is not None:
+        payload["fitness_loss_weight"] = fitness_loss_weight
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

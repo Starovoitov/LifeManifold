@@ -294,10 +294,7 @@ def _aligned_fitness_error(
 ) -> float:
     """Absolute error with matching fitness definitions for predicted vs actual."""
     direct = model.predict_fitness(features)
-    if (
-        _row_has_direct_fitness_label(model, targets, row_index)
-        and direct is not None
-    ):
+    if _row_has_direct_fitness_label(model, targets, row_index) and direct is not None:
         predicted = direct
         actual = float(targets[FITNESS_TARGET_KEY][row_index])
     else:

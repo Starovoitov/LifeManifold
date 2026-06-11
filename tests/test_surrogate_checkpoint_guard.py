@@ -139,6 +139,30 @@ class TestSurrogateLegacyCheckpointFields(unittest.TestCase):
         self.assertFalse(model._has_fitness_head)
         self.assertEqual(model._fitness_ensemble, [])
 
+    def test_load_pre_mlp_checkpoint_without_uses_mlp_field(self) -> None:
+        """Checkpoints from before MLP fields must restore without attribute errors."""
+        legacy = SurrogateModel.__new__(SurrogateModel)
+        legacy.__dict__.update(
+            {
+                "model_type": "lightgbm",
+                "random_state": 42,
+                "ensemble_size": 8,
+                "_component_means": {key: 0.5 for key in TARGET_KEYS},
+                "_ensemble": {},
+                "_uses_lightgbm": False,
+                "_has_fitness_head": True,
+            }
+        )
+        self.assertNotIn("_uses_mlp", legacy.__dict__)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "pre_mlp.pkl"
+            with checkpoint.open("wb") as fh:
+                pickle.dump(legacy, fh)
+            model = load_surrogate_checkpoint(checkpoint)
+        self.assertFalse(model._uses_mlp)
+        self.assertEqual(model._mlp_members, [])
+        self.assertFalse(model._has_fitness_head)
+
 
 @unittest.skipIf(find_spec("lightgbm") is None, "lightgbm not installed")
 class TestSurrogateCheckpointGuard(unittest.TestCase):

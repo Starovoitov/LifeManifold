@@ -70,13 +70,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fit-model",
         action="store_true",
-        help="Train LightGBM on the train split and report hold-out metrics",
+        help="Train a surrogate on the train split and report hold-out metrics",
+    )
+    parser.add_argument(
+        "--model-type",
+        choices=("lightgbm", "mlp"),
+        default="lightgbm",
+        help="Surrogate backend when --fit-model is set (default: lightgbm)",
+    )
+    parser.add_argument(
+        "--compare-models",
+        action="store_true",
+        help="When --fit-model is set, fit both LightGBM and MLP and compare hold-out",
     )
     parser.add_argument(
         "--ensemble-size",
         type=int,
         default=1,
-        help="LightGBM ensemble size when --fit-model is set (default: 1)",
+        help="Ensemble size when --fit-model is set (default: 1)",
     )
     parser.add_argument(
         "--quiet",
@@ -109,6 +120,15 @@ def _collapsed_buffer_from_archive(
     return buffer_path, stats
 
 
+def _analyze_kwargs(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "fit_model": args.fit_model,
+        "model_type": args.model_type,
+        "compare_models": args.compare_models,
+        "ensemble_size": args.ensemble_size,
+    }
+
+
 def main() -> int:
     args = parse_args()
     output_json = args.output_json or _DEFAULT_OUTPUT
@@ -121,8 +141,7 @@ def main() -> int:
             return 2
         line_report = analyze_buffer_path(
             args.compare_buffer,
-            fit_model=args.fit_model,
-            ensemble_size=args.ensemble_size,
+            **_analyze_kwargs(args),
         )
         collapsed_path, backfill_stats = _collapsed_buffer_from_archive(
             args.compare_archive,
@@ -130,8 +149,7 @@ def main() -> int:
         )
         collapsed_report = analyze_buffer_path(
             collapsed_path,
-            fit_model=args.fit_model,
-            ensemble_size=args.ensemble_size,
+            **_analyze_kwargs(args),
         )
         payload: dict[str, object] = {
             "schema_version": "1.0",
@@ -161,8 +179,7 @@ def main() -> int:
         )
         report = analyze_buffer_path(
             buffer_path,
-            fit_model=args.fit_model,
-            ensemble_size=args.ensemble_size,
+            **_analyze_kwargs(args),
         )
         payload = {
             "schema_version": "1.0",
@@ -185,8 +202,7 @@ def main() -> int:
 
     report = analyze_buffer_path(
         buffer_path,
-        fit_model=args.fit_model,
-        ensemble_size=args.ensemble_size,
+        **_analyze_kwargs(args),
     )
     payload = {
         "schema_version": "1.0",

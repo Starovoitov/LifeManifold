@@ -12,6 +12,7 @@ from worldspace.surrogate.feature_extractor import FEATURE_NAMES
 from worldspace.surrogate.determinism import (
     DEFAULT_ENSEMBLE_SIZE,
     DEFAULT_RANDOM_STATE,
+    apply_mlp_determinism,
     lightgbm_deterministic_params,
     member_random_state,
 )
@@ -44,6 +45,7 @@ __all__ = [
 ]
 
 EXPECTED_FEATURE_DIM = len(FEATURE_NAMES)
+_DEFAULT_MLP_HIDDEN_DIMS: tuple[int, ...] = (64, 64)
 
 
 @dataclass
@@ -57,6 +59,10 @@ class SurrogateModel:
     _ensemble: dict[str, list[Any]] = field(default_factory=dict)
     _fitness_ensemble: list[Any] = field(default_factory=list)
     _uses_lightgbm: bool = False
+    _uses_mlp: bool = False
+    _mlp_members: list[dict[str, Any]] = field(default_factory=list)
+    _mlp_hidden_dims: tuple[int, ...] = _DEFAULT_MLP_HIDDEN_DIMS
+    _fitness_loss_weight: float = 1.0
     _has_fitness_head: bool = False
 
     def __setstate__(self, state: object) -> None:
@@ -68,27 +74,59 @@ class SurrogateModel:
         self.ensure_legacy_checkpoint_fields()
 
     def ensure_legacy_checkpoint_fields(self) -> None:
-        """Initialize fitness-head fields missing from older pickled checkpoints."""
+        """Initialize fields missing from older pickled checkpoints."""
         if "_fitness_ensemble" not in self.__dict__:
             self.__dict__["_fitness_ensemble"] = []
+        if "_uses_mlp" not in self.__dict__:
+            self.__dict__["_uses_mlp"] = False
+        if "_mlp_members" not in self.__dict__:
+            self.__dict__["_mlp_members"] = []
+        if "_mlp_hidden_dims" not in self.__dict__:
+            self.__dict__["_mlp_hidden_dims"] = _DEFAULT_MLP_HIDDEN_DIMS
+        if "_fitness_loss_weight" not in self.__dict__:
+            self.__dict__["_fitness_loss_weight"] = 1.0
         if "_has_fitness_head" not in self.__dict__:
             self.__dict__["_has_fitness_head"] = False
-        elif self.__dict__["_has_fitness_head"] and not self.__dict__["_fitness_ensemble"]:
+        elif self.__dict__["_has_fitness_head"] and not self._fitness_head_is_trained():
             self.__dict__["_has_fitness_head"] = False
+
+    def _fitness_head_is_trained(self) -> bool:
+        if self.__dict__.get("_uses_mlp", False):
+            return bool(self.__dict__.get("_mlp_members"))
+        return bool(self.__dict__.get("_fitness_ensemble"))
 
     def fit(
         self,
         feature_matrix: np.ndarray,
         targets: dict[str, np.ndarray],
+        *,
+        fitness_loss_weight: float = 1.0,
+        val_features: np.ndarray | None = None,
+        val_targets: dict[str, np.ndarray] | None = None,
     ) -> None:
-        """Fit component regressors; LightGBM ensemble when available."""
+        """Fit component regressors; LightGBM or MLP ensemble when available."""
         self._component_means = {
             key: float(np.mean(_as_float_array(targets, key))) for key in TARGET_KEYS
         }
         self._ensemble = {}
         self._fitness_ensemble = []
         self._uses_lightgbm = False
+        self._uses_mlp = False
+        self._mlp_members = []
         self._has_fitness_head = False
+        self._fitness_loss_weight = float(fitness_loss_weight)
+
+        if self.model_type == "mlp":
+            if find_spec("torch") is None:
+                return
+            self._fit_mlp_ensemble(
+                feature_matrix,
+                targets,
+                val_features=val_features,
+                val_targets=val_targets,
+            )
+            return
+
         if self.model_type != "lightgbm" or find_spec("lightgbm") is None:
             return
         self._fit_lightgbm_ensemble(feature_matrix, targets)
@@ -145,6 +183,8 @@ class SurrogateModel:
         self._ensemble = {}
         self._fitness_ensemble = []
         self._uses_lightgbm = False
+        self._uses_mlp = False
+        self._mlp_members = []
         self._has_fitness_head = False
 
     def predict_fitness(self, features: np.ndarray) -> float | None:
@@ -152,6 +192,8 @@ class SurrogateModel:
         if not self._has_fitness_head:
             return None
         vector = np.asarray(features, dtype=float).reshape(-1)
+        if self._uses_mlp:
+            return self._predict_mlp_fitness(vector)
         row = _lightgbm_feature_row(vector)
         values = [
             float(estimator.predict(row)[0]) for estimator in self._fitness_ensemble
@@ -161,6 +203,8 @@ class SurrogateModel:
     def predict_components(self, features: np.ndarray) -> dict[str, float]:
         """Predict all Strategy A target components from extracted features."""
         vector = np.asarray(features, dtype=float).reshape(-1)
+        if self._uses_mlp:
+            return self._predict_mlp_components(vector)
         if self._uses_lightgbm:
             row = _lightgbm_feature_row(vector)
             return {
@@ -181,6 +225,8 @@ class SurrogateModel:
     def predict_uncertainty(self, features: np.ndarray) -> float:
         """Return ensemble standard deviation of predicted fitness."""
         vector = np.asarray(features, dtype=float).reshape(-1)
+        if self._uses_mlp:
+            return self._predict_mlp_uncertainty(vector)
         if not self._uses_lightgbm:
             return 0.0
         fitness_values: list[float] = []
@@ -200,6 +246,112 @@ class SurrogateModel:
                 uncertainty=0.0,
             )
             fitness_values.append(compute_fitness_from_prediction(prediction))
+        if len(fitness_values) < 2:
+            return 0.0
+        return float(np.std(np.asarray(fitness_values, dtype=float), ddof=0))
+
+    def _fit_mlp_ensemble(
+        self,
+        feature_matrix: np.ndarray,
+        targets: dict[str, np.ndarray],
+        *,
+        val_features: np.ndarray | None = None,
+        val_targets: dict[str, np.ndarray] | None = None,
+    ) -> None:
+        from worldspace.surrogate.mlp_model import (
+            MlpTrainConfig,
+            ensemble_member_seed,
+            train_mlp_member,
+        )
+
+        apply_mlp_determinism()
+        fitness = targets.get(FITNESS_TARGET_KEY)
+        train_fitness_head = False
+        if fitness is not None:
+            labels = np.asarray(fitness, dtype=float).reshape(-1)
+            train_fitness_head = (
+                int(np.isfinite(labels).sum()) >= MIN_FITNESS_HEAD_SAMPLES
+            )
+
+        config = MlpTrainConfig(
+            hidden_dims=self._mlp_hidden_dims,
+            fitness_loss_weight=self._fitness_loss_weight,
+        )
+        members: list[dict[str, Any]] = []
+        for member_index in range(self.ensemble_size):
+            seed = ensemble_member_seed(self.random_state, member_index)
+            state_dict = train_mlp_member(
+                feature_matrix,
+                targets,
+                seed=seed,
+                config=config,
+                val_features=val_features,
+                val_targets=val_targets,
+            )
+            members.append(state_dict)
+        self._mlp_members = members
+        self._uses_mlp = True
+        self._has_fitness_head = train_fitness_head
+
+    def _predict_mlp_outputs(self, vector: np.ndarray) -> np.ndarray:
+        from worldspace.surrogate.mlp_model import predict_mlp_state_dict
+
+        matrix = np.asarray(vector, dtype=float).reshape(1, -1)
+        member_preds = [
+            predict_mlp_state_dict(
+                state_dict,
+                matrix,
+                hidden_dims=self._mlp_hidden_dims,
+            )[0]
+            for state_dict in self._mlp_members
+        ]
+        return np.mean(np.stack(member_preds, axis=0), axis=0)
+
+    def _predict_mlp_member_outputs(self, vector: np.ndarray) -> list[np.ndarray]:
+        from worldspace.surrogate.mlp_model import predict_mlp_state_dict
+
+        matrix = np.asarray(vector, dtype=float).reshape(1, -1)
+        return [
+            predict_mlp_state_dict(
+                state_dict,
+                matrix,
+                hidden_dims=self._mlp_hidden_dims,
+            )[0]
+            for state_dict in self._mlp_members
+        ]
+
+    def _predict_mlp_components(self, vector: np.ndarray) -> dict[str, float]:
+        outputs = self._predict_mlp_outputs(vector)
+        return {key: float(outputs[index]) for index, key in enumerate(TARGET_KEYS)}
+
+    def _predict_mlp_fitness(self, vector: np.ndarray) -> float:
+        from worldspace.surrogate.mlp_model import FITNESS_OUTPUT_INDEX
+
+        member_outputs = self._predict_mlp_member_outputs(vector)
+        values = [float(row[FITNESS_OUTPUT_INDEX]) for row in member_outputs]
+        return float(np.mean(values))
+
+    def _predict_mlp_uncertainty(self, vector: np.ndarray) -> float:
+        from worldspace.surrogate.mlp_model import FITNESS_OUTPUT_INDEX
+
+        fitness_values: list[float] = []
+        for row in self._predict_mlp_member_outputs(vector):
+            components = {
+                key: float(row[index]) for index, key in enumerate(TARGET_KEYS)
+            }
+            prediction = SurrogatePrediction(
+                components=components,
+                measures={
+                    "stability": components["stability"],
+                    "diversity": components["diversity"],
+                },
+                fitness=0.0,
+                uncertainty=0.0,
+            )
+            if self._has_fitness_head:
+                fitness_values.append(float(row[FITNESS_OUTPUT_INDEX]))
+            else:
+                fitness_values.append(compute_fitness_from_prediction(prediction))
         if len(fitness_values) < 2:
             return 0.0
         return float(np.std(np.asarray(fitness_values, dtype=float), ddof=0))
@@ -324,10 +476,12 @@ def consistency_mae_on_rows(
 
 
 def checkpoint_feature_dim(model: SurrogateModel) -> int | None:
-    """Return trained input width for LightGBM checkpoints.
+    """Return trained input width for LightGBM or MLP checkpoints.
 
-    Default-only models (no fitted LightGBM ensemble) return ``None``.
+    Default-only models (no fitted backend) return ``None``.
     """
+    if model._uses_mlp:
+        return EXPECTED_FEATURE_DIM if model._mlp_members else None
     if not model._uses_lightgbm:
         return None
     dims: set[int] = set()

@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional fitness-consistency refinement weight (0 disables)",
     )
     parser.add_argument(
+        "--fitness-loss-weight",
+        type=float,
+        default=1.0,
+        help="MLP multi-task fitness loss weight (default: 1.0)",
+    )
+    parser.add_argument(
         "--acquisition-report",
         action="store_true",
         help="Append acquisition replay metrics to the training summary JSON",
@@ -104,6 +110,12 @@ def main() -> None:
             "Model type 'lightgbm' requested, but dependency is missing. "
             "Install project dependencies (pyproject.toml includes lightgbm>=4.0) "
             "or run with --model-type mlp."
+        )
+    if model_type == "mlp" and find_spec("torch") is None:
+        raise SystemExit(
+            "Model type 'mlp' requested, but dependency is missing. "
+            "Install project dependencies (pyproject.toml includes torch>=2.2) "
+            "or run with --model-type lightgbm."
         )
     min_samples = args.min_samples
     if min_samples is None:
@@ -123,6 +135,7 @@ def main() -> None:
         min_samples=min_samples,
         require_quality_gate=not args.no_quality_gate,
         consistency_weight=max(0.0, float(args.consistency_weight)),
+        fitness_loss_weight=max(0.0, float(args.fitness_loss_weight)),
         acquisition_report=args.acquisition_report,
         calibration_path=calibration_path,
     )
