@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 import unittest.mock
+from importlib.util import find_spec
 from pathlib import Path
 
 from scripts.analyze_surrogate_buffer import main as analyze_main
@@ -17,6 +18,7 @@ from worldspace.surrogate.buffer_analysis import (
 )
 from worldspace.surrogate.model import TARGET_KEYS
 from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
+from worldspace.surrogate.training_runtime import train_from_buffer
 
 
 class TestAnalyzeSurrogateBuffer(unittest.TestCase):
@@ -123,6 +125,57 @@ class TestAnalyzeSurrogateBuffer(unittest.TestCase):
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["mode"], "buffer")
             self.assertEqual(payload["report"]["sample_count"], 80)
+
+    def test_analyze_cli_fit_model_matches_train_holdout(self) -> None:
+        if find_spec("lightgbm") is None:
+            self.skipTest("lightgbm not installed")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            buffer_path = root / "buffer.jsonl"
+            output_path = root / "analysis.json"
+            checkpoint_path = root / "model.pkl"
+            summary_path = root / "model.summary.json"
+            write_synthetic_buffer(buffer_path, n_samples=240, seed=42)
+            train_result = train_from_buffer(
+                buffer_path=buffer_path,
+                checkpoint_path=checkpoint_path,
+                summary_path=summary_path,
+                model_type="lightgbm",
+                micro=True,
+                require_quality_gate=False,
+                consistency_weight=0.0,
+            )
+            self.assertTrue(train_result.success, msg=train_result.error_message)
+            argv = [
+                "analyze_surrogate_buffer.py",
+                "--buffer",
+                str(buffer_path),
+                "--output-json",
+                str(output_path),
+                "--fit-model",
+                "--ensemble-size",
+                "8",
+                "--random-state",
+                "42",
+                "--test-fraction",
+                "0.2",
+                "--consistency-weight",
+                "0",
+                "--quiet",
+            ]
+            with unittest.mock.patch("sys.argv", argv):
+                with unittest.mock.patch("sys.stdout", io.StringIO()):
+                    exit_code = analyze_main()
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            analyze_metrics = payload["report"]["model_holdout"]
+            for key in ("r2_fitness", "mae_fitness", "mae_stability"):
+                self.assertAlmostEqual(
+                    analyze_metrics[key],
+                    train_result.holdout_metrics[key],
+                    places=3,
+                    msg=f"cli mismatch on {key}",
+                )
 
 
 if __name__ == "__main__":

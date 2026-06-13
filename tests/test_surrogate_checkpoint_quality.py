@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from importlib.util import find_spec
 from pathlib import Path
 
 from worldspace.surrogate.checkpoint_quality import (
@@ -14,6 +15,8 @@ from worldspace.surrogate.checkpoint_quality import (
 from worldspace.surrogate.evaluation import hints_thresholds_met, quality_thresholds_met
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
 from worldspace.surrogate.genome_features import FEATURE_DIM_V21
+from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
+from worldspace.surrogate.training_runtime import train_from_buffer
 
 
 def _write_summary(checkpoint: Path, payload: dict[str, object]) -> None:
@@ -89,6 +92,33 @@ class TestCheckpointQuality(unittest.TestCase):
             "mae_stability": 0.07,
         }
         self.assertTrue(hints_thresholds_met(metrics))
+
+    def test_train_summary_hints_ok_matches_threshold_helper(self) -> None:
+        if find_spec("lightgbm") is None:
+            self.skipTest("lightgbm not installed")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            buffer_path = root / "buffer.jsonl"
+            checkpoint_path = root / "model.pkl"
+            summary_path = root / "model.summary.json"
+            write_synthetic_buffer(buffer_path, n_samples=240, seed=42)
+            train_result = train_from_buffer(
+                buffer_path=buffer_path,
+                checkpoint_path=checkpoint_path,
+                summary_path=summary_path,
+                model_type="lightgbm",
+                micro=True,
+                require_quality_gate=False,
+            )
+            self.assertTrue(train_result.success, msg=train_result.error_message)
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertIn("hints_ok", summary)
+            self.assertEqual(
+                summary["hints_ok"],
+                hints_thresholds_met(train_result.holdout_metrics),
+            )
+            self.assertIn("per_target_holdout", summary)
+            self.assertEqual(len(summary["per_target_holdout"]), 7)
 
 
 if __name__ == "__main__":

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from importlib.util import find_spec
 from pathlib import Path
 
 from worldspace.surrogate.buffer_analysis import analyze_buffer_path
+from worldspace.surrogate.evaluation import hints_thresholds_met
+from worldspace.surrogate.model import TARGET_KEYS
 from worldspace.surrogate.synthetic_buffer import write_synthetic_buffer
 from worldspace.surrogate.training_runtime import train_from_buffer
 
@@ -41,15 +44,60 @@ class TestTrainAnalyzeParity(unittest.TestCase):
                 test_fraction=0.2,
                 consistency_weight=0.0,
             )
-            train_metrics = train_result.holdout_metrics
-            analyze_metrics = report["model_holdout"]
-            for key in ("r2_fitness", "mae_fitness", "mae_stability"):
-                self.assertAlmostEqual(
-                    analyze_metrics[key],
-                    train_metrics[key],
-                    places=3,
-                    msg=f"mismatch on {key}",
-                )
+            _assert_holdout_metrics_parity(
+                self,
+                train_result.holdout_metrics,
+                report["model_holdout"],
+            )
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                summary["hints_ok"],
+                hints_thresholds_met(train_result.holdout_metrics),
+            )
+            _assert_per_target_parity(
+                self,
+                summary["per_target_holdout"],
+                report["per_target_holdout"],
+            )
+
+
+def _assert_holdout_metrics_parity(
+    testcase: unittest.TestCase,
+    train_metrics: dict[str, float],
+    analyze_metrics: dict[str, float],
+) -> None:
+    for key in ("r2_fitness", "mae_fitness", "mae_stability"):
+        testcase.assertAlmostEqual(
+            analyze_metrics[key],
+            train_metrics[key],
+            places=3,
+            msg=f"mismatch on {key}",
+        )
+
+
+def _assert_per_target_parity(
+    testcase: unittest.TestCase,
+    train_rows: list[dict[str, float | str]],
+    analyze_rows: list[dict[str, float | str]],
+) -> None:
+    train_by_target = {str(row["target"]): row for row in train_rows}
+    analyze_by_target = {str(row["target"]): row for row in analyze_rows}
+    testcase.assertEqual(set(train_by_target), set(analyze_by_target))
+    for target in TARGET_KEYS:
+        train_row = train_by_target[target]
+        analyze_row = analyze_by_target[target]
+        testcase.assertAlmostEqual(
+            float(train_row["mae"]),
+            float(analyze_row["mae"]),
+            places=3,
+            msg=f"per-target mae mismatch on {target}",
+        )
+        testcase.assertAlmostEqual(
+            float(train_row["r2"]),
+            float(analyze_row["r2"]),
+            places=3,
+            msg=f"per-target r2 mismatch on {target}",
+        )
 
 
 if __name__ == "__main__":
