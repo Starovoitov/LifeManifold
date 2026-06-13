@@ -13,6 +13,8 @@ from worldspace.surrogate.evaluation import (
     MIN_TRAIN_SAMPLES_FULL,
     MIN_TRAIN_SAMPLES_MICRO,
     evaluate_holdout,
+    hints_thresholds_met,
+    per_target_holdout,
     quality_thresholds_met,
 )
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
@@ -202,6 +204,7 @@ def train_from_buffer(
             holdout_count=int(x_holdout.shape[0]),
             feature_dim=int(feature_matrix.shape[1]),
             holdout_metrics=holdout_metrics,
+            per_target_holdout_rows=per_target_holdout(model, x_holdout, y_holdout),
             micro=micro,
             consistency_mae_before=consistency_before,
             consistency_mae_after=consistency_after,
@@ -265,6 +268,7 @@ def _save_summary(
     holdout_count: int,
     feature_dim: int,
     holdout_metrics: dict[str, float],
+    per_target_holdout_rows: list[dict[str, float | str]],
     micro: bool,
     consistency_mae_before: float | None = None,
     consistency_mae_after: float | None = None,
@@ -280,7 +284,9 @@ def _save_summary(
         "feature_schema_version": BUFFER_SCHEMA_VERSION,
         "target_keys": list(TARGET_KEYS),
         "holdout_metrics": holdout_metrics,
+        "per_target_holdout": per_target_holdout_rows,
         "quality_passed": quality_thresholds_met(holdout_metrics),
+        "hints_ok": hints_thresholds_met(holdout_metrics),
         "micro": micro,
     }
     if consistency_mae_before is not None:

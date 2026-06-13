@@ -16,9 +16,13 @@ from worldspace.surrogate.evaluation import (
     QUALITY_R2_FITNESS_MIN,
     evaluate_fitness_compose_ab,
     evaluate_holdout,
+    per_target_holdout,
 )
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES
-from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
+from worldspace.surrogate.model import (
+    TARGET_KEYS,
+    SurrogateModel,
+)
 from worldspace.surrogate.training import holdout_split, load_buffer
 
 ModelType = Literal["lightgbm", "mlp"]
@@ -203,34 +207,6 @@ def _stability_mae_bands(
     return rows
 
 
-def _per_target_holdout(
-    model: SurrogateModel,
-    x_hold: np.ndarray,
-    y_hold: dict[str, np.ndarray],
-) -> list[dict[str, float | str]]:
-    rows: list[dict[str, float | str]] = []
-    for key in TARGET_KEYS:
-        true = np.asarray(y_hold[key], dtype=float)
-        preds = np.asarray(
-            [
-                model.predict_components(x_hold[index])[key]
-                for index in range(len(x_hold))
-            ],
-            dtype=float,
-        )
-        ss_res = float(np.sum((preds - true) ** 2))
-        ss_tot = float(np.sum((true - true.mean()) ** 2))
-        r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0.0 else float("nan")
-        rows.append(
-            {
-                "target": key,
-                "mae": float(np.mean(np.abs(preds - true))),
-                "r2": r2,
-            }
-        )
-    return rows
-
-
 def _fit_holdout_model(
     model_type: ModelType,
     x_train: np.ndarray,
@@ -240,6 +216,8 @@ def _fit_holdout_model(
     *,
     random_state: int,
     ensemble_size: int,
+    consistency_weight: float = 0.0,
+    fitness_loss_weight: float = 1.0,
     fitness_compose_ab: bool = False,
 ) -> dict[str, Any]:
     model = SurrogateModel(
@@ -250,14 +228,21 @@ def _fit_holdout_model(
     model.fit(
         x_train,
         y_train,
+        fitness_loss_weight=fitness_loss_weight,
         val_features=x_hold,
         val_targets=y_hold,
     )
+    if consistency_weight > 0.0:
+        model.apply_consistency_refinement(
+            x_train,
+            y_train,
+            weight=consistency_weight,
+        )
     holdout_metrics = evaluate_holdout(model, x_hold, y_hold)
     result: dict[str, Any] = {
         "model_type": model_type,
         "model_holdout": holdout_metrics,
-        "per_target_holdout": _per_target_holdout(model, x_hold, y_hold),
+        "per_target_holdout": per_target_holdout(model, x_hold, y_hold),
         "stability_mae_bands": _stability_mae_bands(model, x_hold, y_hold),
         "quality_gate": {
             "model_mae_stability": holdout_metrics["mae_stability"],
@@ -284,7 +269,9 @@ def analyze_buffer_path(
     fitness_compose_ab: bool = False,
     random_state: int = 42,
     test_fraction: float = 0.2,
-    ensemble_size: int = 1,
+    ensemble_size: int = 8,
+    consistency_weight: float = 0.0,
+    fitness_loss_weight: float = 1.0,
 ) -> dict[str, Any]:
     """Analyze one schema 2.0 buffer JSONL and return a JSON-serializable report."""
     buffer_path = Path(path)
@@ -362,6 +349,8 @@ def analyze_buffer_path(
                         y_hold,
                         random_state=random_state,
                         ensemble_size=ensemble_size,
+                        consistency_weight=consistency_weight,
+                        fitness_loss_weight=fitness_loss_weight,
                         fitness_compose_ab=fitness_compose_ab,
                     )
                 except Exception as exc:  # noqa: BLE001 — report unavailable backends
@@ -384,6 +373,8 @@ def analyze_buffer_path(
                 y_hold,
                 random_state=random_state,
                 ensemble_size=ensemble_size,
+                consistency_weight=consistency_weight,
+                fitness_loss_weight=fitness_loss_weight,
                 fitness_compose_ab=fitness_compose_ab,
             )
             report["model_holdout"] = fitted["model_holdout"]

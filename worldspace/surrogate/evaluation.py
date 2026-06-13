@@ -17,16 +17,22 @@ MIN_TRAIN_SAMPLES_MICRO = 100
 QUALITY_R2_FITNESS_MIN = 0.72
 QUALITY_MAE_FITNESS_MAX = 0.085
 QUALITY_MAE_STABILITY_MAX = 0.06
+HINTS_R2_FITNESS_MIN = 0.30
+HINTS_MAE_FITNESS_MAX = QUALITY_MAE_FITNESS_MAX
 
 __all__ = [
     "MIN_TRAIN_SAMPLES_FULL",
     "MIN_TRAIN_SAMPLES_MICRO",
+    "HINTS_MAE_FITNESS_MAX",
+    "HINTS_R2_FITNESS_MIN",
     "QUALITY_MAE_FITNESS_MAX",
     "QUALITY_MAE_STABILITY_MAX",
     "QUALITY_R2_FITNESS_MIN",
     "evaluate_holdout",
     "evaluate_fitness_compose_ab",
     "fitness_from_target_row",
+    "hints_thresholds_met",
+    "per_target_holdout",
     "quality_thresholds_met",
 ]
 
@@ -115,6 +121,34 @@ def evaluate_holdout(
     return metrics
 
 
+def per_target_holdout(
+    model: SurrogateModel,
+    feature_matrix: np.ndarray,
+    targets: dict[str, np.ndarray],
+) -> list[dict[str, float | str]]:
+    """Per-target MAE and R² on hold-out rows."""
+    x_hold = np.asarray(feature_matrix, dtype=float)
+    n_rows = int(x_hold.shape[0])
+    rows: list[dict[str, float | str]] = []
+    for key in TARGET_KEYS:
+        true = np.asarray(targets[key], dtype=float)
+        preds = np.asarray(
+            [model.predict_components(x_hold[index])[key] for index in range(n_rows)],
+            dtype=float,
+        )
+        ss_res = float(np.sum((preds - true) ** 2))
+        ss_tot = float(np.sum((true - true.mean()) ** 2))
+        r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0.0 else float("nan")
+        rows.append(
+            {
+                "target": key,
+                "mae": float(np.mean(np.abs(preds - true))),
+                "r2": r2,
+            }
+        )
+    return rows
+
+
 def evaluate_fitness_compose_ab(
     model: SurrogateModel,
     feature_matrix: np.ndarray,
@@ -163,6 +197,14 @@ def evaluate_fitness_compose_ab(
             "mae_fitness": float(mean_absolute_error(true_fitness, pred_soft)),
         },
     }
+
+
+def hints_thresholds_met(metrics: dict[str, float]) -> bool:
+    """Return whether hold-out metrics satisfy pilot LLM-hints tier."""
+    return (
+        metrics["r2_fitness"] >= HINTS_R2_FITNESS_MIN
+        and metrics["mae_fitness"] < HINTS_MAE_FITNESS_MAX
+    )
 
 
 def quality_thresholds_met(metrics: dict[str, float]) -> bool:

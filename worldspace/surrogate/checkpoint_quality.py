@@ -39,15 +39,22 @@ def load_checkpoint_summary(checkpoint_path: Path | str) -> dict[str, Any] | Non
 
 
 def checkpoint_quality_allows_hints(checkpoint_path: Path | str) -> bool:
-    """Return whether a checkpoint passed the v2 hold-out quality gate."""
+    """Return whether a checkpoint passed the pilot hold-out hints tier."""
     summary = load_checkpoint_summary(checkpoint_path)
     if summary is None:
         return False
-    if summary.get("quality_passed") is not True:
+    if not _summary_schema_matches(summary):
         return False
+    hints_ok = summary.get("hints_ok")
+    if hints_ok is True:
+        return True
+    if hints_ok is False:
+        return False
+    return summary.get("quality_passed") is True
+
+
+def _summary_schema_matches(summary: dict[str, Any]) -> bool:
     if summary.get("feature_schema_version") != FEATURE_SCHEMA_VERSION:
         return False
     feature_dim = summary.get("feature_dim")
-    if feature_dim != feature_dim_for_schema(FEATURE_SCHEMA_VERSION):
-        return False
-    return True
+    return feature_dim == feature_dim_for_schema(FEATURE_SCHEMA_VERSION)

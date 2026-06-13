@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Literal, TypedDict, cast
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
@@ -19,6 +20,20 @@ from worldspace.surrogate.buffer_analysis import (
 )
 
 _DEFAULT_OUTPUT = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_analysis.json"
+
+_AnalyzeModelType = Literal["lightgbm", "mlp"]
+
+
+class _AnalyzeKwargs(TypedDict):
+    fit_model: bool
+    model_type: _AnalyzeModelType
+    compare_models: bool
+    fitness_compose_ab: bool
+    ensemble_size: int
+    random_state: int
+    test_fraction: float
+    consistency_weight: float
+    fitness_loss_weight: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,8 +106,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ensemble-size",
         type=int,
-        default=1,
-        help="Ensemble size when --fit-model is set (default: 1)",
+        default=8,
+        help="Ensemble size when --fit-model is set (default: 8, matches train)",
+    )
+    parser.add_argument(
+        "--random-state",
+        type=int,
+        default=42,
+        help="Hold-out split seed when --fit-model is set (default: 42)",
+    )
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.2,
+        help="Hold-out fraction when --fit-model is set (default: 0.2)",
+    )
+    parser.add_argument(
+        "--consistency-weight",
+        type=float,
+        default=0.0,
+        help="Fitness-consistency refinement weight when --fit-model is set",
+    )
+    parser.add_argument(
+        "--fitness-loss-weight",
+        type=float,
+        default=1.0,
+        help="MLP multi-task fitness loss weight when --fit-model is set",
     )
     parser.add_argument(
         "--quiet",
@@ -125,13 +164,17 @@ def _collapsed_buffer_from_archive(
     return buffer_path, stats
 
 
-def _analyze_kwargs(args: argparse.Namespace) -> dict[str, object]:
+def _analyze_kwargs(args: argparse.Namespace) -> _AnalyzeKwargs:
     return {
         "fit_model": args.fit_model,
-        "model_type": args.model_type,
+        "model_type": cast(_AnalyzeModelType, args.model_type),
         "compare_models": args.compare_models,
         "fitness_compose_ab": args.fitness_compose_ab,
         "ensemble_size": args.ensemble_size,
+        "random_state": args.random_state,
+        "test_fraction": args.test_fraction,
+        "consistency_weight": max(0.0, float(args.consistency_weight)),
+        "fitness_loss_weight": max(0.0, float(args.fitness_loss_weight)),
     }
 
 
