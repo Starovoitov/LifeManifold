@@ -95,7 +95,13 @@ class SurrogateModel:
             self.__dict__["_training_device_preference"] = "auto"
         if "_resolved_lightgbm_device" not in self.__dict__:
             self.__dict__["_resolved_lightgbm_device"] = "cpu"
-        elif self.__dict__["_has_fitness_head"] and not self._fitness_head_is_trained():
+        if "_trained_input_dim" not in self.__dict__ and self.__dict__.get("_mlp_members"):
+            from worldspace.surrogate.mlp_model import input_dim_from_state_dict
+
+            self.__dict__["_trained_input_dim"] = input_dim_from_state_dict(
+                self.__dict__["_mlp_members"][0]
+            )
+        if self.__dict__.get("_has_fitness_head") and not self._fitness_head_is_trained():
             self.__dict__["_has_fitness_head"] = False
 
     def _fitness_head_is_trained(self) -> bool:
@@ -318,6 +324,7 @@ class SurrogateModel:
                 state_dict,
                 matrix,
                 hidden_dims=self._mlp_hidden_dims,
+                input_dim=self._trained_input_dim,
             )[0]
             for state_dict in self._mlp_members
         ]
@@ -332,6 +339,7 @@ class SurrogateModel:
                 state_dict,
                 matrix,
                 hidden_dims=self._mlp_hidden_dims,
+                input_dim=self._trained_input_dim,
             )[0]
             for state_dict in self._mlp_members
         ]
@@ -508,7 +516,11 @@ def checkpoint_feature_dim(model: SurrogateModel) -> int | None:
     if trained_dim is not None:
         return int(trained_dim)
     if model._uses_mlp:
-        return EXPECTED_FEATURE_DIM if model._mlp_members else None
+        if model._mlp_members:
+            from worldspace.surrogate.mlp_model import input_dim_from_state_dict
+
+            return input_dim_from_state_dict(model._mlp_members[0])
+        return None
     if not model._uses_lightgbm:
         return None
     dims: set[int] = set()

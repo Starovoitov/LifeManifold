@@ -25,6 +25,7 @@ __all__ = [
     "MLP_OUTPUT_DIM",
     "MlpTrainConfig",
     "build_strategy_a_mlp",
+    "input_dim_from_state_dict",
     "predict_mlp_state_dict",
     "train_mlp_member",
 ]
@@ -67,6 +68,15 @@ def build_strategy_a_mlp(
             return self.net(features)
 
     return StrategyAMlp(nn.Sequential(*layers))
+
+
+def input_dim_from_state_dict(state_dict: dict[str, Any]) -> int:
+    """Infer MLP input width from the first linear layer weights."""
+    weight = state_dict.get("net.0.weight")
+    if weight is None:
+        msg = "state_dict missing net.0.weight"
+        raise ValueError(msg)
+    return int(weight.shape[1])
 
 
 def train_mlp_member(
@@ -207,6 +217,7 @@ def predict_mlp_state_dict(
     features: np.ndarray,
     *,
     hidden_dims: tuple[int, ...] = (64, 64),
+    input_dim: int | None = None,
 ) -> np.ndarray:
     """Run one pickled MLP member; returns shape ``(N, MLP_OUTPUT_DIM)``."""
     import torch
@@ -216,7 +227,13 @@ def predict_mlp_state_dict(
         matrix = vector.reshape(1, -1)
     else:
         matrix = vector
-    model = build_strategy_a_mlp(hidden_dims=hidden_dims)
+    resolved_input_dim = (
+        int(input_dim) if input_dim is not None else input_dim_from_state_dict(state_dict)
+    )
+    model = build_strategy_a_mlp(
+        input_dim=resolved_input_dim,
+        hidden_dims=hidden_dims,
+    )
     model.load_state_dict(state_dict)
     model.eval()
     with torch.no_grad():

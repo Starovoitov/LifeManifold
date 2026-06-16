@@ -187,6 +187,18 @@ class TestSurrogateMlp(unittest.TestCase):
         uncertainty = model.predict_uncertainty(feature_matrix[0])
         self.assertGreaterEqual(uncertainty, 0.0)
 
+    def test_mlp_predict_uses_trained_input_dim_not_runtime_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=120, seed=31)
+            feature_matrix, targets = load_buffer(buffer_path)
+            legacy_features = feature_matrix[:, :21]
+            model = self._fit_mlp(legacy_features, targets, ensemble_size=2)
+
+        self.assertEqual(model._trained_input_dim, 21)
+        prediction = model.predict_components(legacy_features[0])
+        self.assertIn("stability", prediction)
+
 
 if __name__ == "__main__":
     unittest.main()

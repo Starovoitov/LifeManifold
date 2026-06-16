@@ -43,11 +43,11 @@ reportPrivateImportUsage = "none"
 [tool.uv]
 package = false
 
-# CPU-only wheels (avoid multi‑GB CUDA stacks for the small MLP generator).
+# CUDA wheels for MLP surrogate training (--device auto falls back to CPU when unavailable).
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu124" }
