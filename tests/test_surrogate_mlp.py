@@ -199,6 +199,46 @@ class TestSurrogateMlp(unittest.TestCase):
         prediction = model.predict_components(legacy_features[0])
         self.assertIn("stability", prediction)
 
+    def test_mlp_checkpoint_uses_batch_norm_and_gelu(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=120, seed=37)
+            feature_matrix, targets = load_buffer(buffer_path)
+            model = self._fit_mlp(feature_matrix, targets, ensemble_size=1)
+
+        from worldspace.surrogate.mlp_model import mlp_state_dict_uses_batch_norm
+
+        state_dict = model._mlp_members[0]
+        self.assertTrue(mlp_state_dict_uses_batch_norm(state_dict))
+        self.assertIn("net.1.running_mean", state_dict)
+        self.assertIn("net.4.running_mean", state_dict)
+
+    def test_legacy_relu_checkpoint_still_loads(self) -> None:
+        from worldspace.surrogate.mlp_model import (
+            build_strategy_a_mlp,
+            predict_mlp_state_dict,
+        )
+
+        legacy = build_strategy_a_mlp(
+            input_dim=21,
+            hidden_dims=(64, 64),
+            activation="relu",
+            batch_norm=False,
+        )
+        state_dict = legacy.state_dict()
+        features = np.zeros(21, dtype=np.float32)
+        preds = predict_mlp_state_dict(state_dict, features, hidden_dims=(64, 64))
+        self.assertEqual(preds.shape, (1, 8))
+
+    def test_mlp_train_config_uses_huber_and_cosine_defaults(self) -> None:
+        from worldspace.surrogate.mlp_model import MlpTrainConfig, _make_loss_fn
+
+        cfg = MlpTrainConfig()
+        self.assertEqual(cfg.huber_delta, 0.05)
+        self.assertEqual(cfg.cosine_eta_min_factor, 0.01)
+        loss_fn = _make_loss_fn(cfg)
+        self.assertEqual(loss_fn.beta, 0.05)
+
 
 if __name__ == "__main__":
     unittest.main()

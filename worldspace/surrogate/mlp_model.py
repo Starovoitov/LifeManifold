@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -23,12 +23,17 @@ FITNESS_OUTPUT_INDEX = len(TARGET_KEYS)
 __all__ = [
     "FITNESS_OUTPUT_INDEX",
     "MLP_OUTPUT_DIM",
+    "MlpActivation",
     "MlpTrainConfig",
     "build_strategy_a_mlp",
+    "build_strategy_a_mlp_for_state_dict",
     "input_dim_from_state_dict",
+    "mlp_state_dict_uses_batch_norm",
     "predict_mlp_state_dict",
     "train_mlp_member",
 ]
+
+MlpActivation = Literal["gelu", "relu"]
 
 
 @dataclass(frozen=True)
@@ -41,12 +46,54 @@ class MlpTrainConfig:
     patience: int = 15
     batch_size: int = 256
     fitness_loss_weight: float = 1.0
+    huber_delta: float = 0.05
+    cosine_eta_min_factor: float = 0.01
+
+
+def _make_loss_fn(cfg: MlpTrainConfig) -> Any:
+    """Huber (Smooth L1) loss for bounded surrogate regression targets."""
+    import torch.nn as nn
+
+    return nn.SmoothL1Loss(beta=float(cfg.huber_delta))
+
+
+def _member_training_loss(
+    preds: Any,
+    *,
+    component_targets: Any,
+    fitness_targets: Any | None,
+    fitness_mask: Any | None,
+    loss_fn: Any,
+    fitness_loss_weight: float,
+    train_fitness_head: bool,
+) -> Any:
+    loss = loss_fn(preds[:, COMPONENT_SLICE], component_targets)
+    if (
+        train_fitness_head
+        and fitness_mask is not None
+        and fitness_targets is not None
+        and bool(fitness_mask.any())
+    ):
+        fit_preds = preds[fitness_mask, FITNESS_OUTPUT_INDEX]
+        fit_targets = fitness_targets[fitness_mask]
+        loss = loss + float(fitness_loss_weight) * loss_fn(fit_preds, fit_targets)
+    return loss
+
+
+def _activation_module(activation: MlpActivation) -> Any:
+    import torch.nn as nn
+
+    if activation == "gelu":
+        return nn.GELU()
+    return nn.ReLU()
 
 
 def build_strategy_a_mlp(
     *,
     input_dim: int = EXPECTED_FEATURE_DIM,
     hidden_dims: tuple[int, ...] = (64, 64),
+    activation: MlpActivation = "gelu",
+    batch_norm: bool = True,
 ) -> Any:
     """Construct an untrained ``StrategyAMlp`` module."""
     import torch.nn as nn
@@ -55,7 +102,9 @@ def build_strategy_a_mlp(
     prev = input_dim
     for width in hidden_dims:
         layers.append(nn.Linear(prev, width))
-        layers.append(nn.ReLU())
+        if batch_norm:
+            layers.append(nn.BatchNorm1d(width))
+        layers.append(_activation_module(activation))
         prev = width
     layers.append(nn.Linear(prev, MLP_OUTPUT_DIM))
 
@@ -68,6 +117,33 @@ def build_strategy_a_mlp(
             return self.net(features)
 
     return StrategyAMlp(nn.Sequential(*layers))
+
+
+def mlp_state_dict_uses_batch_norm(state_dict: dict[str, Any]) -> bool:
+    """Return whether a checkpoint uses BatchNorm (vs legacy ReLU-only blocks)."""
+    return any(key.endswith(".running_mean") for key in state_dict)
+
+
+def build_strategy_a_mlp_for_state_dict(
+    state_dict: dict[str, Any],
+    *,
+    input_dim: int,
+    hidden_dims: tuple[int, ...] = (64, 64),
+) -> Any:
+    """Rebuild the MLP architecture that matches one pickled ``state_dict``."""
+    if mlp_state_dict_uses_batch_norm(state_dict):
+        return build_strategy_a_mlp(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            activation="gelu",
+            batch_norm=True,
+        )
+    return build_strategy_a_mlp(
+        input_dim=input_dim,
+        hidden_dims=hidden_dims,
+        activation="relu",
+        batch_norm=False,
+    )
 
 
 def input_dim_from_state_dict(state_dict: dict[str, Any]) -> int:
@@ -91,7 +167,6 @@ def train_mlp_member(
 ) -> dict[str, Any]:
     """Train one MLP member and return a CPU ``state_dict``."""
     import torch
-    import torch.nn as nn
 
     apply_mlp_determinism()
     torch.manual_seed(int(seed))
@@ -122,7 +197,12 @@ def train_mlp_member(
     model = build_strategy_a_mlp(input_dim=input_dim, hidden_dims=cfg.hidden_dims)
     model.to(torch_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
-    loss_fn = nn.MSELoss()
+    loss_fn = _make_loss_fn(cfg)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=int(cfg.max_epochs),
+        eta_min=float(cfg.learning_rate) * float(cfg.cosine_eta_min_factor),
+    )
 
     x_tensor = torch.from_numpy(x_train).to(torch_device)
     y_comp_tensor = torch.from_numpy(y_components).to(torch_device)
@@ -162,18 +242,22 @@ def train_mlp_member(
             batch_x = x_tensor[batch_idx]
             batch_y = y_comp_tensor[batch_idx]
             preds = model(batch_x)
-            loss = loss_fn(preds[:, COMPONENT_SLICE], batch_y)
-            if train_fitness_head:
-                batch_mask = fit_mask_tensor[batch_idx]
-                if bool(batch_mask.any()):
-                    fit_preds = preds[batch_mask, FITNESS_OUTPUT_INDEX]
-                    fit_targets = y_fit_tensor[batch_idx][batch_mask]
-                    loss = loss + cfg.fitness_loss_weight * loss_fn(
-                        fit_preds, fit_targets
-                    )
+            batch_fit_targets = y_fit_tensor[batch_idx]
+            batch_fit_mask = fit_mask_tensor[batch_idx]
+            loss = _member_training_loss(
+                preds,
+                component_targets=batch_y,
+                fitness_targets=batch_fit_targets,
+                fitness_mask=batch_fit_mask,
+                loss_fn=loss_fn,
+                fitness_loss_weight=cfg.fitness_loss_weight,
+                train_fitness_head=train_fitness_head,
+            )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+        scheduler.step()
 
         if x_val_tensor is None or y_comp_val is None:
             continue
@@ -181,19 +265,15 @@ def train_mlp_member(
         model.eval()
         with torch.no_grad():
             val_preds = model(x_val_tensor)
-            val_loss = loss_fn(val_preds[:, COMPONENT_SLICE], y_comp_val)
-            if (
-                train_fitness_head
-                and fit_mask_val is not None
-                and y_fit_val is not None
-                and bool(fit_mask_val.any())
-            ):
-                val_fit_preds = val_preds[fit_mask_val, FITNESS_OUTPUT_INDEX]
-                val_fit_targets = y_fit_val[fit_mask_val]
-                val_loss = val_loss + cfg.fitness_loss_weight * loss_fn(
-                    val_fit_preds,
-                    val_fit_targets,
-                )
+            val_loss = _member_training_loss(
+                val_preds,
+                component_targets=y_comp_val,
+                fitness_targets=y_fit_val,
+                fitness_mask=fit_mask_val,
+                loss_fn=loss_fn,
+                fitness_loss_weight=cfg.fitness_loss_weight,
+                train_fitness_head=train_fitness_head,
+            )
             val_scalar = float(val_loss.item())
 
         if val_scalar < best_val_loss:
@@ -230,7 +310,8 @@ def predict_mlp_state_dict(
     resolved_input_dim = (
         int(input_dim) if input_dim is not None else input_dim_from_state_dict(state_dict)
     )
-    model = build_strategy_a_mlp(
+    model = build_strategy_a_mlp_for_state_dict(
+        state_dict,
         input_dim=resolved_input_dim,
         hidden_dims=hidden_dims,
     )
