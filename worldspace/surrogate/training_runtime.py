@@ -18,6 +18,11 @@ from worldspace.surrogate.evaluation import (
     per_target_holdout,
     quality_thresholds_met,
 )
+from worldspace.surrogate.device import (
+    DevicePreference,
+    resolve_lightgbm_device,
+    resolve_training_device,
+)
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
 import numpy as np
 
@@ -47,6 +52,7 @@ ModelType = Literal["lightgbm", "mlp"]
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "DevicePreference",
     "ModelType",
     "TrainError",
     "TrainResult",
@@ -114,6 +120,7 @@ def train_from_buffer(
     acquisition_report: bool = False,
     calibration_path: Path | str | None = None,
     acquisition_policy: AcquisitionConfig | None = None,
+    device: DevicePreference = "auto",
 ) -> TrainResult:
     """Train a surrogate from buffer JSONL and write checkpoint + summary."""
     resolved_summary = summary_path or default_summary_path(checkpoint_path)
@@ -201,6 +208,7 @@ def train_from_buffer(
             val_features=x_holdout,
             val_targets=y_holdout,
             sample_weight=sample_weight,
+            device=device,
         )
         consistency_before: float | None = None
         consistency_after: float | None = None
@@ -231,6 +239,8 @@ def train_from_buffer(
             fitness_rows_with_label = int(
                 np.isfinite(targets[FITNESS_TARGET_KEY]).sum()
             )
+        resolved_torch_device = resolve_training_device(device)
+        resolved_lightgbm_device = resolve_lightgbm_device(device)
         _save_summary(
             resolved_summary,
             model_type=model_type,
@@ -249,6 +259,12 @@ def train_from_buffer(
             stratify_emitter=stratify_emitter,
             low_stability_weight=low_stability_weight,
             consistency_weight=consistency_weight,
+            training_device_requested=device,
+            training_device_resolved=(
+                resolved_torch_device
+                if model_type == "mlp"
+                else resolved_lightgbm_device
+            ),
         )
         if acquisition_report:
             policy = acquisition_policy or AcquisitionConfig(mode="filter")
@@ -317,6 +333,8 @@ def _save_summary(
     stratify_emitter: bool = False,
     low_stability_weight: float = 1.0,
     consistency_weight: float = 0.0,
+    training_device_requested: DevicePreference = "auto",
+    training_device_resolved: str = "cpu",
 ) -> None:
     payload: dict[str, object] = {
         "model_type": model_type,
@@ -348,6 +366,8 @@ def _save_summary(
         payload["low_stability_weight"] = float(low_stability_weight)
     if consistency_weight > 0.0:
         payload["consistency_weight"] = float(consistency_weight)
+    payload["training_device_requested"] = training_device_requested
+    payload["training_device_resolved"] = training_device_resolved
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

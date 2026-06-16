@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from worldspace.surrogate.device import DevicePreference, resolve_training_device
 from worldspace.surrogate.determinism import apply_mlp_determinism
 from worldspace.surrogate.model import (
     EXPECTED_FEATURE_DIM,
@@ -76,6 +77,7 @@ def train_mlp_member(
     config: MlpTrainConfig | None = None,
     val_features: np.ndarray | None = None,
     val_targets: dict[str, np.ndarray] | None = None,
+    device: DevicePreference = "auto",
 ) -> dict[str, Any]:
     """Train one MLP member and return a CPU ``state_dict``."""
     import torch
@@ -84,6 +86,7 @@ def train_mlp_member(
     apply_mlp_determinism()
     torch.manual_seed(int(seed))
     np.random.seed(int(seed))
+    torch_device = torch.device(resolve_training_device(device))
 
     cfg = config or MlpTrainConfig()
     x_train = np.asarray(feature_matrix, dtype=np.float32)
@@ -107,13 +110,14 @@ def train_mlp_member(
         train_fitness_head = int(fitness_mask.sum()) >= MIN_FITNESS_HEAD_SAMPLES
 
     model = build_strategy_a_mlp(input_dim=input_dim, hidden_dims=cfg.hidden_dims)
+    model.to(torch_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
     loss_fn = nn.MSELoss()
 
-    x_tensor = torch.from_numpy(x_train)
-    y_comp_tensor = torch.from_numpy(y_components)
-    y_fit_tensor = torch.from_numpy(y_fitness)
-    fit_mask_tensor = torch.from_numpy(fitness_mask)
+    x_tensor = torch.from_numpy(x_train).to(torch_device)
+    y_comp_tensor = torch.from_numpy(y_components).to(torch_device)
+    y_fit_tensor = torch.from_numpy(y_fitness).to(torch_device)
+    fit_mask_tensor = torch.from_numpy(fitness_mask).to(torch_device)
 
     x_val_tensor: torch.Tensor | None = None
     y_comp_val: torch.Tensor | None = None
@@ -125,15 +129,15 @@ def train_mlp_member(
             [np.asarray(val_targets[key], dtype=np.float32) for key in TARGET_KEYS],
             axis=1,
         )
-        x_val_tensor = torch.from_numpy(x_val)
-        y_comp_val = torch.from_numpy(y_comp_val_np)
+        x_val_tensor = torch.from_numpy(x_val).to(torch_device)
+        y_comp_val = torch.from_numpy(y_comp_val_np).to(torch_device)
         val_fitness = val_targets.get(FITNESS_TARGET_KEY)
         if val_fitness is not None:
             val_fit_arr = np.asarray(val_fitness, dtype=np.float32).reshape(-1)
-            fit_mask_val = torch.from_numpy(np.isfinite(val_fit_arr))
+            fit_mask_val = torch.from_numpy(np.isfinite(val_fit_arr)).to(torch_device)
             y_fit_val = torch.from_numpy(
                 np.where(np.isfinite(val_fit_arr), val_fit_arr, 0.0).astype(np.float32)
-            )
+            ).to(torch_device)
 
     best_state: dict[str, Any] | None = None
     best_val_loss = float("inf")

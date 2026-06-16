@@ -17,6 +17,7 @@ from worldspace.surrogate.determinism import (
     lightgbm_deterministic_params,
     member_random_state,
 )
+from worldspace.surrogate.device import DevicePreference, resolve_lightgbm_device
 from worldspace.surrogate.types import SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
 
@@ -65,6 +66,8 @@ class SurrogateModel:
     _mlp_hidden_dims: tuple[int, ...] = _DEFAULT_MLP_HIDDEN_DIMS
     _fitness_loss_weight: float = 1.0
     _has_fitness_head: bool = False
+    _training_device_preference: DevicePreference = "auto"
+    _resolved_lightgbm_device: str = "cpu"
 
     def __setstate__(self, state: object) -> None:
         """Restore pickle state and backfill fields from pre-fitness-head checkpoints."""
@@ -88,6 +91,10 @@ class SurrogateModel:
             self.__dict__["_fitness_loss_weight"] = 1.0
         if "_has_fitness_head" not in self.__dict__:
             self.__dict__["_has_fitness_head"] = False
+        if "_training_device_preference" not in self.__dict__:
+            self.__dict__["_training_device_preference"] = "auto"
+        if "_resolved_lightgbm_device" not in self.__dict__:
+            self.__dict__["_resolved_lightgbm_device"] = "cpu"
         elif self.__dict__["_has_fitness_head"] and not self._fitness_head_is_trained():
             self.__dict__["_has_fitness_head"] = False
 
@@ -105,8 +112,11 @@ class SurrogateModel:
         val_features: np.ndarray | None = None,
         val_targets: dict[str, np.ndarray] | None = None,
         sample_weight: np.ndarray | None = None,
+        device: DevicePreference = "auto",
     ) -> None:
         """Fit component regressors; LightGBM or MLP ensemble when available."""
+        self._training_device_preference = device
+        self._resolved_lightgbm_device = resolve_lightgbm_device(device)
         self._component_means = {
             key: float(np.mean(_as_float_array(targets, key))) for key in TARGET_KEYS
         }
@@ -292,6 +302,7 @@ class SurrogateModel:
                 config=config,
                 val_features=val_features,
                 val_targets=val_targets,
+                device=self._training_device_preference,
             )
             members.append(state_dict)
         self._mlp_members = members
@@ -376,6 +387,7 @@ class SurrogateModel:
             weights = np.asarray(sample_weight, dtype=float).reshape(-1)
         base_params = {
             **lightgbm_deterministic_params(),
+            "device": self._resolved_lightgbm_device,
             "n_estimators": 64,
             "num_leaves": 31,
             "learning_rate": 0.05,
@@ -409,6 +421,7 @@ class SurrogateModel:
         y_train = labels[mask]
         base_params = {
             **lightgbm_deterministic_params(),
+            "device": self._resolved_lightgbm_device,
             "n_estimators": 64,
             "num_leaves": 31,
             "learning_rate": 0.05,
@@ -437,6 +450,7 @@ class SurrogateModel:
         x_train = _lightgbm_feature_matrix(feature_matrix)
         base_params = {
             **lightgbm_deterministic_params(),
+            "device": self._resolved_lightgbm_device,
             "n_estimators": 32,
             "num_leaves": 31,
             "learning_rate": 0.03,

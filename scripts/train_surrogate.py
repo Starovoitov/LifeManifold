@@ -115,6 +115,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Append acquisition replay metrics to the training summary JSON",
     )
+    parser.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help=(
+            "Training device: auto uses GPU when available, otherwise CPU "
+            "(default: auto)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -157,6 +166,7 @@ def main() -> None:
         low_stability_weight=max(1.0, float(args.low_stability_weight)),
         acquisition_report=args.acquisition_report,
         calibration_path=calibration_path,
+        device=args.device,
     )
 
     if not result.success:
