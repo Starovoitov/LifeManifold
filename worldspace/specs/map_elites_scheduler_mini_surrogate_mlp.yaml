@@ -1,5 +1,5 @@
 schema_version: "1.2"
-# Fast CI run with surrogate.model_type mlp (experimental checkpoint).
+# Fast CI run with surrogate.model_type mlp (default backend).
 iterations: 2
 batch_size: 4
 grid_resolution: 10

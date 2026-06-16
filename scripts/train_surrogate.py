@@ -27,8 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-type",
         choices=("lightgbm", "mlp"),
-        default="lightgbm",
-        help="Surrogate backend to train",
+        default="mlp",
+        help="Surrogate backend to train (default: mlp)",
     )
     parser.add_argument(
         "--buffer-path",

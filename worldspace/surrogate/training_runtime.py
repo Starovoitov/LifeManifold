@@ -108,7 +108,7 @@ def train_from_buffer(
     buffer_path: Path,
     checkpoint_path: Path,
     summary_path: Path | None = None,
-    model_type: ModelType = "lightgbm",
+    model_type: ModelType = "mlp",
     micro: bool = False,
     min_samples: int | None = None,
     require_quality_gate: bool = True,

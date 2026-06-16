@@ -179,9 +179,11 @@ def _surrogate_config_from_dashboard(
     surrogate_section = cfg.get("surrogate")
     block = surrogate_section if isinstance(surrogate_section, dict) else {}
     checkpoint = resolve_checkpoint_path(cfg, archive_path=archive_path)
+    raw_model_type = str(block.get("model_type", "mlp")).strip().lower()
+    model_type = raw_model_type if raw_model_type in ("mlp", "lightgbm") else "mlp"
     return SurrogateConfig(
         enabled=bool(block.get("enabled", True)),
-        model_type="lightgbm",
+        model_type=model_type,  # type: ignore[arg-type]
         checkpoint=str(checkpoint) if checkpoint is not None else None,
         stub_mean=float(block.get("stub_mean", 0.5)),
         stub_uncertainty=float(block.get("stub_uncertainty", 0.85)),
@@ -196,10 +198,11 @@ def _cached_load_surrogate(
     stub_mean: float,
     stub_uncertainty: float,
 ) -> SurrogateProtocol:
-    del model_type
     config = SurrogateConfig(
         enabled=enabled,
-        model_type="lightgbm",
+        model_type=(
+            model_type if model_type in ("mlp", "lightgbm") else "mlp"  # type: ignore[arg-type]
+        ),
         checkpoint=checkpoint_str or None,
         stub_mean=stub_mean,
         stub_uncertainty=stub_uncertainty,

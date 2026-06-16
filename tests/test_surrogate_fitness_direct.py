@@ -128,7 +128,27 @@ class TestSurrogateFitnessDirect(unittest.TestCase):
             direct = model.predict_fitness(row_features)
             self.assertIsNotNone(direct)
             resolved = resolve_surrogate_fitness(model, row_features, prediction)
-            self.assertAlmostEqual(resolved, float(direct))
+            self.assertAlmostEqual(
+                resolved,
+                float(np.clip(float(direct), 0.0, 1.0)),
+            )
+
+    def test_resolve_surrogate_fitness_clips_unbounded_direct_head(self) -> None:
+        from unittest import mock
+
+        model = mock.MagicMock()
+        model.predict_fitness.return_value = -0.25
+        prediction = SurrogatePrediction(
+            components={"stability": 0.5, "diversity": 0.5},
+            measures={"stability": 0.5, "diversity": 0.5},
+            fitness=0.0,
+            uncertainty=0.0,
+        )
+        resolved = resolve_surrogate_fitness(model, np.zeros(24), prediction)
+        self.assertEqual(resolved, 0.0)
+        model.predict_fitness.return_value = 1.75
+        resolved = resolve_surrogate_fitness(model, np.zeros(24), prediction)
+        self.assertEqual(resolved, 1.0)
 
 
 if __name__ == "__main__":

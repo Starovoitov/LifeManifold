@@ -54,7 +54,7 @@ _DEFAULT_MLP_HIDDEN_DIMS: tuple[int, ...] = (64, 64)
 class SurrogateModel:
     """Deterministic component regressor for Strategy A outputs."""
 
-    model_type: str = "lightgbm"
+    model_type: str = "mlp"
     random_state: int = DEFAULT_RANDOM_STATE
     ensemble_size: int = DEFAULT_ENSEMBLE_SIZE
     _component_means: dict[str, float] = field(default_factory=dict)

@@ -94,6 +94,11 @@ def _is_early_extinct(components: dict[str, float]) -> bool:
     return float(components["early_extinction_prob"]) >= 0.5
 
 
+def _clip_unit_fitness(value: float) -> float:
+    """Clamp runtime surrogate fitness to the illuminator unit interval."""
+    return float(np.clip(value, 0.0, 1.0))
+
+
 def resolve_surrogate_fitness(
     model: SurrogateModel,
     features,
@@ -104,8 +109,10 @@ def resolve_surrogate_fitness(
     """Use direct fitness head when trained, otherwise compose from components."""
     direct = model.predict_fitness(features)
     if direct is not None:
-        return float(direct)
-    return compute_fitness_from_prediction(
-        prediction,
-        use_soft_extinction=use_soft_extinction,
+        return _clip_unit_fitness(float(direct))
+    return _clip_unit_fitness(
+        compute_fitness_from_prediction(
+            prediction,
+            use_soft_extinction=use_soft_extinction,
+        )
     )

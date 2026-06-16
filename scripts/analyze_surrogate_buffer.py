@@ -93,8 +93,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-type",
         choices=("lightgbm", "mlp"),
-        default="lightgbm",
-        help="Surrogate backend when --fit-model is set (default: lightgbm)",
+        default="mlp",
+        help="Surrogate backend when --fit-model is set (default: mlp)",
     )
     parser.add_argument(
         "--compare-models",

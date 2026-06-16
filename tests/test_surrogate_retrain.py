@@ -54,7 +54,7 @@ _MINI_CONFIG = SchedulerConfig(
     initial_random_candidates=0,
     llm_enabled=False,
     surrogate_enabled=True,
-    surrogate_model_type="lightgbm",
+    surrogate_model_type="mlp",
     surrogate_checkpoint="artifacts/surrogate/checkpoints/latest.pkl",
     surrogate_buffer_path="artifacts/surrogate/buffer.jsonl",
     surrogate_stub_mean=0.5,
@@ -224,7 +224,7 @@ class TestMaybeRetrainAfterIteration(unittest.TestCase):
         assert outcome.train_result is not None
         train_result = outcome.train_result
         self.assertFalse(train_result.success)
-        self.assertIn("lightgbm", train_result.error_message or "")
+        self.assertIn("torch", train_result.error_message or "")
 
     def test_train_from_buffer_missing_dependency_does_not_raise(self) -> None:
         with mock.patch(
@@ -236,7 +236,7 @@ class TestMaybeRetrainAfterIteration(unittest.TestCase):
                 checkpoint_path=Path("unused.pkl"),
             )
         self.assertFalse(result.success)
-        self.assertIn("lightgbm", result.error_message or "")
+        self.assertIn("torch", result.error_message or "")
 
 
 class TestSurrogateFacadeReload(unittest.TestCase):

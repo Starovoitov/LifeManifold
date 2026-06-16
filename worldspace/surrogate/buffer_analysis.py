@@ -276,7 +276,7 @@ def analyze_buffer_path(
     path: Path | str,
     *,
     fit_model: bool = False,
-    model_type: ModelType = "lightgbm",
+    model_type: ModelType = "mlp",
     compare_models: bool = False,
     fitness_compose_ab: bool = False,
     random_state: int = 42,
@@ -361,7 +361,7 @@ def analyze_buffer_path(
     if fit_model:
         if compare_models:
             model_reports: dict[str, Any] = {}
-            for backend in ("lightgbm", "mlp"):
+            for backend in ("mlp", "lightgbm"):
                 try:
                     model_reports[backend] = _fit_holdout_model(
                         backend,  # type: ignore[arg-type]

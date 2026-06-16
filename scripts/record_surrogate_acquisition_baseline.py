@@ -119,7 +119,7 @@ def run_train(
         sys.executable,
         str(_TRAIN_SCRIPT),
         "--model-type",
-        "lightgbm",
+        "mlp",
         "--buffer-path",
         str(buffer_path),
         "--checkpoint-path",

@@ -22,7 +22,7 @@ llm:
 
 surrogate:
   enabled: true
-  model_type: lightgbm
+  model_type: mlp
   checkpoint: artifacts/surrogate/checkpoints/latest.pkl
   buffer_path: artifacts/surrogate/baseline/run_buffer.jsonl
   stub_mean: 0.5

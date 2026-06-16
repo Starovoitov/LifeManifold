@@ -147,7 +147,7 @@ def _nightly_surrogate_model_type() -> str:
     model_type = str(config.surrogate_model_type).strip().lower()
     if model_type in {"lightgbm", "mlp"}:
         return model_type
-    return "lightgbm"
+    return "mlp"
 
 
 def ensure_nightly_buffer_backfill(

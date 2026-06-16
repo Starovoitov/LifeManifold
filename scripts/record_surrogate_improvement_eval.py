@@ -53,7 +53,7 @@ def build_run_entry(
     holdout_metrics = holdout if isinstance(holdout, dict) else {}
     per_target = summary.get("per_target_holdout")
     return {
-        "model_type": summary.get("model_type", "lightgbm"),
+        "model_type": summary.get("model_type", "mlp"),
         "feature_schema_version": summary.get("feature_schema_version"),
         "feature_dim": summary.get("feature_dim"),
         "emitter_onehot": bool(summary.get("emitter_onehot")),

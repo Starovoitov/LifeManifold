@@ -32,7 +32,7 @@ def _write_scheduler_with_surrogate(
     enabled: bool,
     checkpoint_path: Path,
     buffer_path: Path,
-    model_type: str = "lightgbm",
+    model_type: str = "mlp",
 ) -> None:
     raw = yaml.safe_load(DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8"))
     raw["iterations"] = _FAST_ITERATIONS
@@ -108,7 +108,7 @@ class TestSurrogateEnabledSmoke(unittest.TestCase):
             surrogate = get_surrogate(
                 SurrogateConfig(
                     enabled=True,
-                    model_type="lightgbm",
+                    model_type="mlp",
                     checkpoint=str(checkpoint_path),
                     stub_mean=0.5,
                     stub_uncertainty=1.0,
@@ -130,6 +130,7 @@ class TestSurrogateEnabledSmoke(unittest.TestCase):
             prediction = surrogate.predict(spec)
             self.assertGreaterEqual(prediction.fitness, 0.0)
             self.assertLessEqual(prediction.fitness, 1.0)
+            self.assertGreaterEqual(prediction.uncertainty, 0.0)
 
     def test_mini_run_with_mlp_checkpoint_completes_quickly(self) -> None:
         from importlib.util import find_spec
@@ -210,9 +211,8 @@ class TestSurrogateEnabledSmoke(unittest.TestCase):
                 seed=0,
             )
             prediction = surrogate.predict(spec)
-            import numpy as np
-
-            self.assertTrue(np.isfinite(prediction.fitness))
+            self.assertGreaterEqual(prediction.fitness, 0.0)
+            self.assertLessEqual(prediction.fitness, 1.0)
             self.assertGreaterEqual(prediction.uncertainty, 0.0)
 
 

@@ -71,8 +71,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-type",
         choices=("lightgbm", "mlp"),
-        default="lightgbm",
-        help="Surrogate backend for training",
+        default="mlp",
+        help="Surrogate backend for training (default: mlp)",
     )
     return parser.parse_args()
 

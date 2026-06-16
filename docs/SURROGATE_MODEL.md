@@ -107,7 +107,7 @@ flowchart TB
 | Input (YAML) | Meaning |
 |--------------|---------|
 | `surrogate.enabled` | If `false`, prompt uses stubs only; `get_surrogate` returns `StubSurrogate`. |
-| `surrogate.model_type` | `lightgbm` or `mlp` (training script; runtime loads pickled `SurrogateModel`). |
+| `surrogate.model_type` | `mlp` (default) or `lightgbm` (training script; runtime loads pickled `SurrogateModel`). |
 | `surrogate.checkpoint` | Path to `SurrogateModel` pickle (e.g. `artifacts/surrogate/checkpoints/nightly_v2.pkl`). |
 | `surrogate.buffer_path` | Append-only JSONL for training (e.g. `artifacts/surrogate/buffer.jsonl`). |
 | `surrogate.stub_mean` | Default prompt fitness hint when surrogate off or model missing (typical `0.5`). |
@@ -442,7 +442,7 @@ surrogate:
 
 ```bash
 python scripts/train_surrogate.py \
-  --model-type lightgbm \
+  --model-type mlp \
   --buffer-path artifacts/surrogate/buffer_nightly.jsonl \
   --checkpoint-path artifacts/surrogate/checkpoints/nightly_v2.pkl \
   --summary-path artifacts/surrogate/checkpoints/nightly_v2.summary.json
