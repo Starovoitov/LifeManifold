@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from worldspace.surrogate.emitter_features import augment_features_with_emitter
 from worldspace.surrogate.feature_extractor import (
     FEATURE_NAMES,
     FEATURE_SCHEMA_VERSION,
@@ -22,14 +23,18 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BUFFER_FEATURE_DIM",
     "BUFFER_SCHEMA_VERSION",
+    "LOW_STABILITY_BAND_MAX",
     "detect_buffer_schema_version",
     "holdout_split",
     "load_buffer",
+    "load_buffer_emitter_types",
     "scan_buffer_rows",
+    "training_sample_weights",
 ]
 
 BUFFER_SCHEMA_VERSION = FEATURE_SCHEMA_VERSION
 BUFFER_FEATURE_DIM = len(FEATURE_NAMES)
+LOW_STABILITY_BAND_MAX = 0.3
 
 
 def detect_buffer_schema_version(path: Path) -> str:
@@ -64,7 +69,11 @@ def detect_buffer_schema_version(path: Path) -> str:
     return next(iter(versions))
 
 
-def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+def load_buffer(
+    path: Path,
+    *,
+    emitter_onehot: bool = False,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Load a schema 2.0/2.1 training matrix and per-target arrays from JSONL buffer."""
     if not path.is_file():
         msg = f"Buffer JSONL not found: {path}"
@@ -72,6 +81,7 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     schema_version = detect_buffer_schema_version(path)
     expected_dim = feature_dim_for_schema(schema_version)
     features: list[list[float]] = []
+    emitter_types: list[str] = []
     target_rows: dict[str, list[float]] = {key: [] for key in TARGET_KEYS}
     fitness_rows: list[float] = []
     rows_without_fitness = 0
@@ -95,6 +105,7 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
             row_features = row["features"]
             row_targets = row["targets"]
             features.append([float(value) for value in row_features])
+            emitter_types.append(str(row.get("emitter_type") or "unknown"))
             for key in TARGET_KEYS:
                 target_rows[key].append(float(row_targets[key]))
             if FITNESS_TARGET_KEY in row_targets:
@@ -114,11 +125,38 @@ def load_buffer(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
             FITNESS_TARGET_KEY,
         )
     feature_matrix = np.asarray(features, dtype=float)
+    if emitter_onehot:
+        feature_matrix = augment_features_with_emitter(
+            feature_matrix,
+            np.asarray(emitter_types, dtype=object),
+        )
     targets = {
         key: np.asarray(values, dtype=float) for key, values in target_rows.items()
     }
     targets[FITNESS_TARGET_KEY] = np.asarray(fitness_rows, dtype=float)
     return feature_matrix, targets
+
+
+def load_buffer_emitter_types(path: Path) -> np.ndarray:
+    """Return per-row emitter_type labels in the same order as ``load_buffer``."""
+    if not path.is_file():
+        msg = f"Buffer JSONL not found: {path}"
+        raise FileNotFoundError(msg)
+    labels: list[str] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                msg = f"Invalid row format in {path}: expected JSON object"
+                raise ValueError(msg)
+            labels.append(str(row.get("emitter_type") or "unknown"))
+    if not labels:
+        msg = f"No training samples found in {path}"
+        raise ValueError(msg)
+    return np.asarray(labels, dtype=object)
 
 
 def scan_buffer_rows(path: Path) -> dict[str, Any]:
@@ -179,19 +217,27 @@ def holdout_split(
     *,
     test_fraction: float = 0.2,
     random_state: int = 42,
+    stratify_labels: np.ndarray | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray, dict[str, np.ndarray]]:
     """Split features and targets into train and hold-out sets."""
     n_rows = int(feature_matrix.shape[0])
     if n_rows < 2:
         msg = "need at least two samples for hold-out split"
         raise ValueError(msg)
-    rng = np.random.default_rng(random_state)
-    indices = np.arange(n_rows)
-    rng.shuffle(indices)
-    test_size = max(1, int(round(n_rows * test_fraction)))
-    test_size = min(test_size, n_rows - 1)
-    test_indices = np.sort(indices[:test_size])
-    train_indices = np.sort(indices[test_size:])
+    if stratify_labels is not None:
+        train_indices, test_indices = _stratified_holdout_indices(
+            np.asarray(stratify_labels).reshape(-1),
+            test_fraction=test_fraction,
+            random_state=random_state,
+        )
+    else:
+        rng = np.random.default_rng(random_state)
+        indices = np.arange(n_rows)
+        rng.shuffle(indices)
+        test_size = max(1, int(round(n_rows * test_fraction)))
+        test_size = min(test_size, n_rows - 1)
+        test_indices = np.sort(indices[:test_size])
+        train_indices = np.sort(indices[test_size:])
     target_keys = list(TARGET_KEYS)
     if FITNESS_TARGET_KEY in targets:
         target_keys.append(FITNESS_TARGET_KEY)
@@ -203,6 +249,20 @@ def holdout_split(
         feature_matrix[test_indices],
         test_targets,
     )
+
+
+def training_sample_weights(
+    targets: dict[str, np.ndarray],
+    *,
+    low_stability_weight: float,
+) -> np.ndarray | None:
+    """Return per-row LightGBM weights emphasizing low-stability training rows."""
+    if low_stability_weight <= 1.0:
+        return None
+    stability = np.asarray(targets["stability"], dtype=float)
+    weights = np.ones(int(stability.shape[0]), dtype=float)
+    weights[stability < LOW_STABILITY_BAND_MAX] = float(low_stability_weight)
+    return weights
 
 
 def _validate_buffer_row(
@@ -251,3 +311,40 @@ def _validate_buffer_row(
     if not isinstance(world_spec, dict) or not world_spec:
         msg = f"Missing world_spec at {path}:{line_no}"
         raise ValueError(msg)
+
+
+def _stratified_holdout_indices(
+    labels: np.ndarray,
+    *,
+    test_fraction: float,
+    random_state: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    n_rows = int(labels.shape[0])
+    if n_rows < 2:
+        msg = "need at least two samples for hold-out split"
+        raise ValueError(msg)
+    rng = np.random.default_rng(random_state)
+    test_parts: list[np.ndarray] = []
+    train_parts: list[np.ndarray] = []
+    for label in np.unique(labels):
+        group = np.flatnonzero(labels == label)
+        if int(group.shape[0]) < 1:
+            continue
+        shuffled = group.copy()
+        rng.shuffle(shuffled)
+        group_test = max(0, int(round(int(shuffled.shape[0]) * test_fraction)))
+        if group_test == 0 and int(shuffled.shape[0]) > 1:
+            group_test = 1
+        group_test = min(group_test, int(shuffled.shape[0]) - 1)
+        test_parts.append(np.sort(shuffled[:group_test]))
+        train_parts.append(np.sort(shuffled[group_test:]))
+    test_indices = (
+        np.sort(np.concatenate(test_parts)) if test_parts else np.array([], dtype=int)
+    )
+    train_indices = (
+        np.sort(np.concatenate(train_parts)) if train_parts else np.array([], dtype=int)
+    )
+    if int(train_indices.shape[0]) < 1 or int(test_indices.shape[0]) < 1:
+        msg = "stratified hold-out split produced an empty train or test partition"
+        raise ValueError(msg)
+    return train_indices, test_indices

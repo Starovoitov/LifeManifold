@@ -1,6 +1,6 @@
 # Surrogate model (LifeManifold + MAP-Elites)
 
-This document explains **what the surrogate is for**, how it fits into the illuminator loop, and **every stage** with explicit inputs and outputs. It describes the **v2** implementation in `worldspace/surrogate/` (feature schema `"2.0"`, 21 genome-aligned dimensions).
+This document explains **what the surrogate is for**, how it fits into the illuminator loop, and **every stage** with explicit inputs and outputs. It describes the **v2.1** implementation in `worldspace/surrogate/` (feature schema `"2.1"`, 24 genome-aligned dimensions; schema `"2.0"` / 21 dim still loads for legacy buffers).
 
 Operational runbook: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
@@ -29,12 +29,16 @@ Related material:
 - Does **not** edit prompt text files under `prompts/` (only placeholder substitution).
 - Does **not** replace **archive fitness** (ground truth is always the real simulation).
 
-### 1.4 Two different “fitness” values
+### 1.4 Fitness values (archive vs surrogate)
 
 | Name | Source | Used for |
 |------|--------|----------|
 | **Archive fitness** | `evaluate_candidate` → `compute_fitness` on real `WorldMetrics` | `GridArchive.try_insert`, JSONL elites |
+| **Composed surrogate fitness** | `compute_fitness_from_prediction` on predicted components | Fallback when direct head absent |
+| **Direct surrogate fitness** | Trained fitness head (`predict_fitness`) when labels exist | `SurrogateFacade.predict`, dashboard, LLM hints (preferred) |
 | **`surrogate_mean` in prompt** | `resolve_surrogate_stub()` → `prediction.fitness` or YAML stub | LLM user prompt only |
+
+When `use_soft_extinction: true` (surrogate-only), composed fitness uses a soft extinction blend instead of a hard zero above `early_extinction_prob >= 0.5`. Archive fitness is unchanged.
 
 When `surrogate.enabled: false`, prompt numbers are **fixed constants** (`stub_mean`, `stub_uncertainty`), not the parent’s simulated fitness.
 
@@ -120,8 +124,8 @@ flowchart TB
 |-----------|--------|
 | `enabled == false` | `StubSurrogate(stub_mean, stub_uncertainty)` |
 | `enabled == true`, checkpoint missing or stub sentinel | Same stub |
-| `enabled == true`, checkpoint dim ≠ 21 or corrupt ensemble | Log warning → stub |
-| `enabled == true`, `require_quality_gate` and summary fails | Log warning → stub |
+| `enabled == true`, checkpoint dim ≠ current extractor (24, or 27 with experimental emitter one-hot train) | Log warning → stub |
+| `enabled == true`, `require_quality_gate` and summary fails `hints_ok` / legacy `quality_passed` | Log warning → stub |
 | `enabled == true`, valid v2 `.pkl` | `SurrogateFacade` via `build_surrogate_facade(model, uncertainty_fallback=stub_uncertainty)` |
 
 GitHub LLM runs set `require_quality_gate` via `SURROGATE_REQUIRE_QUALITY_GATE` (see `scripts/run_github_llm_map_elites.py`).
@@ -344,20 +348,21 @@ Written for every evaluation in surrogate-enabled runs (insert accept or reject)
 
 | Input | Output |
 |-------|--------|
-| Buffer JSONL path (>= 2000 rows for production; strict v2 schema) | `feature_matrix` `(N, 21)`, `targets` dict of `(N,)` arrays |
+| Buffer JSONL path (>= 2000 rows for production; schema 2.0 or 2.1) | `feature_matrix` `(N, 21|24)`, optional `+3` emitter one-hot at train time |
 | 80/20 hold-out split (`random_state=42`) | Train fit + hold-out metrics |
 | `--model-type lightgbm` | LightGBM ensemble per Strategy A target |
 | `--checkpoint-path` | Pickle loaded by `get_surrogate` (production: `nightly_v2.pkl`) |
 | `--summary-path` | JSON with `feature_schema_version`, `feature_dim`, `quality_passed`, `holdout_metrics` |
 | `--micro` | >= 100 rows; writes checkpoint without failing on quality gate |
 
-**Hold-out quality (MVP DoD, full training only):**
+**Hold-out quality (tiered gate):**
 
-| Metric | Threshold |
-|--------|-----------|
-| `R²(fitness)` | > 0.72 |
-| `MAE(fitness)` | < 0.085 |
-| `MAE(stability)` | < 0.06 |
+| Tier | Field | Threshold | Policy |
+|------|-------|-----------|--------|
+| Pilot / LLM hints | `hints_ok` | R²(fitness) ≥ 0.30, MAE(fitness) < 0.085 | `checkpoint_quality_allows_hints` |
+| Production | `quality_passed` | R²(fitness) > 0.72, MAE(fitness) < 0.085, MAE(stability) < 0.06 | strict runtime gate when enabled |
+
+Summary also includes `per_target_holdout`, `r2_fitness_direct` / `mae_fitness_direct` when the fitness head is trained, and `model_type` (`lightgbm` | `mlp`).
 
 Summary is written beside the checkpoint (e.g. `nightly_v2.summary.json`). See [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md) for go/no-go policy.
 
@@ -373,9 +378,11 @@ Training is **outside** the illuminator loop; no online weight updates during MA
 worldspace/surrogate/
 ├── __init__.py            # get_surrogate(), dim + quality guards
 ├── types.py               # SurrogateConfig, SurrogatePrediction, SurrogateProtocol
-├── genome_features.py     # encode_world_spec_features → (21,)
-├── feature_extractor.py   # extract(spec), FEATURE_SCHEMA_VERSION "2.0"
-├── checkpoint_quality.py  # quality_passed gate for LLM hints
+├── genome_features.py     # encode_world_spec_features_v21 → (24,)
+├── feature_extractor.py   # extract(spec), FEATURE_SCHEMA_VERSION "2.1"
+├── emitter_features.py    # optional train-time emitter one-hot
+├── buffer_filter.py       # dedupe / source filters for JSONL buffers
+├── checkpoint_quality.py  # hints_ok / quality_passed gate for LLM hints
 ├── checkpoint_paths.py    # stub sentinel, resolve_runtime_checkpoint_path
 ├── model.py               # SurrogateModel, TARGET_KEYS, fit / predict_components
 ├── training.py            # load_buffer strict v2

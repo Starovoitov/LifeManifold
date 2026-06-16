@@ -115,16 +115,18 @@ def train_nightly_surrogate(
     buffer_path: Path | None = None,
     checkpoint_path: Path | None = None,
     summary_path: Path | None = None,
+    model_type: str | None = None,
 ) -> Path:
-    """Train LightGBM surrogate from the nightly buffer; returns training summary path."""
+    """Train surrogate from the nightly buffer; returns training summary path."""
     buffer = buffer_path or _NIGHTLY_BUFFER_PATH
     checkpoint = checkpoint_path or _NIGHTLY_CHECKPOINT_PATH
     summary = summary_path or _NIGHTLY_TRAINING_SUMMARY_PATH
+    resolved_model_type = model_type or _nightly_surrogate_model_type()
     cmd = [
         sys.executable,
         str(_TRAIN_SCRIPT),
         "--model-type",
-        "lightgbm",
+        resolved_model_type,
         "--buffer-path",
         str(buffer),
         "--checkpoint-path",
@@ -137,6 +139,15 @@ def train_nightly_surrogate(
     logger.info("Training nightly surrogate: %s", " ".join(cmd))
     subprocess.run(cmd, cwd=_REPO_ROOT, env=env, check=True)
     return summary
+
+
+def _nightly_surrogate_model_type() -> str:
+    """Read surrogate.model_type from the nightly surrogate scheduler YAML."""
+    config = load_scheduler(DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH)
+    model_type = str(config.surrogate_model_type).strip().lower()
+    if model_type in {"lightgbm", "mlp"}:
+        return model_type
+    return "lightgbm"
 
 
 def ensure_nightly_buffer_backfill(

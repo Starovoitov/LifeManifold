@@ -23,7 +23,12 @@ from worldspace.surrogate.model import (
     TARGET_KEYS,
     SurrogateModel,
 )
-from worldspace.surrogate.training import holdout_split, load_buffer
+from worldspace.surrogate.training import (
+    holdout_split,
+    load_buffer,
+    load_buffer_emitter_types,
+    training_sample_weights,
+)
 
 ModelType = Literal["lightgbm", "mlp"]
 
@@ -218,6 +223,9 @@ def _fit_holdout_model(
     ensemble_size: int,
     consistency_weight: float = 0.0,
     fitness_loss_weight: float = 1.0,
+    emitter_onehot: bool = False,
+    stratify_emitter: bool = False,
+    low_stability_weight: float = 1.0,
     fitness_compose_ab: bool = False,
 ) -> dict[str, Any]:
     model = SurrogateModel(
@@ -231,6 +239,10 @@ def _fit_holdout_model(
         fitness_loss_weight=fitness_loss_weight,
         val_features=x_hold,
         val_targets=y_hold,
+        sample_weight=training_sample_weights(
+            y_train,
+            low_stability_weight=low_stability_weight,
+        ),
     )
     if consistency_weight > 0.0:
         model.apply_consistency_refinement(
@@ -272,27 +284,35 @@ def analyze_buffer_path(
     ensemble_size: int = 8,
     consistency_weight: float = 0.0,
     fitness_loss_weight: float = 1.0,
+    emitter_onehot: bool = False,
+    stratify_emitter: bool = False,
+    low_stability_weight: float = 1.0,
 ) -> dict[str, Any]:
     """Analyze one schema 2.0 buffer JSONL and return a JSON-serializable report."""
     buffer_path = Path(path)
-    feature_matrix, targets = load_buffer(buffer_path)
+    feature_matrix, targets = load_buffer(buffer_path, emitter_onehot=emitter_onehot)
     metadata = scan_buffer_metadata(buffer_path)
     sample_count = int(feature_matrix.shape[0])
 
     target_stats = {key: summarize_target_array(targets[key]) for key in TARGET_KEYS}
     stability_histogram = _histogram(targets["stability"], STABILITY_HISTOGRAM_BINS)
 
+    stratify_labels = None
+    if stratify_emitter:
+        stratify_labels = load_buffer_emitter_types(buffer_path)
     x_train, y_train, x_hold, y_hold = holdout_split(
         feature_matrix,
         targets,
         test_fraction=test_fraction,
         random_state=random_state,
+        stratify_labels=stratify_labels,
     )
     holdout_split_stats = {
         "train_count": int(x_train.shape[0]),
         "holdout_count": int(x_hold.shape[0]),
         "random_state": random_state,
         "test_fraction": test_fraction,
+        "stratify_emitter": stratify_emitter,
         "train_mean": {key: float(y_train[key].mean()) for key in TARGET_KEYS},
         "holdout_mean": {key: float(y_hold[key].mean()) for key in TARGET_KEYS},
         "train_std": {key: float(y_train[key].std()) for key in TARGET_KEYS},
@@ -331,6 +351,8 @@ def analyze_buffer_path(
             ),
         },
         "model_fit": fit_model,
+        "feature_dim": int(feature_matrix.shape[1]),
+        "emitter_onehot": emitter_onehot,
         "model_type": model_type if fit_model else None,
         "compare_models": compare_models if fit_model else False,
         "fitness_compose_ab_requested": bool(fit_model and fitness_compose_ab),
@@ -351,6 +373,7 @@ def analyze_buffer_path(
                         ensemble_size=ensemble_size,
                         consistency_weight=consistency_weight,
                         fitness_loss_weight=fitness_loss_weight,
+                        low_stability_weight=low_stability_weight,
                         fitness_compose_ab=fitness_compose_ab,
                     )
                 except Exception as exc:  # noqa: BLE001 — report unavailable backends
@@ -375,6 +398,7 @@ def analyze_buffer_path(
                 ensemble_size=ensemble_size,
                 consistency_weight=consistency_weight,
                 fitness_loss_weight=fitness_loss_weight,
+                low_stability_weight=low_stability_weight,
                 fitness_compose_ab=fitness_compose_ab,
             )
             report["model_holdout"] = fitted["model_holdout"]

@@ -34,6 +34,9 @@ class _AnalyzeKwargs(TypedDict):
     test_fraction: float
     consistency_weight: float
     fitness_loss_weight: float
+    emitter_onehot: bool
+    stratify_emitter: bool
+    low_stability_weight: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,6 +137,22 @@ def parse_args() -> argparse.Namespace:
         help="MLP multi-task fitness loss weight when --fit-model is set",
     )
     parser.add_argument(
+        "--emitter-onehot",
+        action="store_true",
+        help="Append emitter_type one-hot columns when --fit-model is set",
+    )
+    parser.add_argument(
+        "--stratify-emitter",
+        action="store_true",
+        help="Stratify hold-out split by emitter_type when --fit-model is set",
+    )
+    parser.add_argument(
+        "--low-stability-weight",
+        type=float,
+        default=1.0,
+        help="LightGBM sample weight for low-stability rows when --fit-model is set",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Only write JSON; do not print the text report",
@@ -175,6 +194,9 @@ def _analyze_kwargs(args: argparse.Namespace) -> _AnalyzeKwargs:
         "test_fraction": args.test_fraction,
         "consistency_weight": max(0.0, float(args.consistency_weight)),
         "fitness_loss_weight": max(0.0, float(args.fitness_loss_weight)),
+        "emitter_onehot": bool(args.emitter_onehot),
+        "stratify_emitter": bool(args.stratify_emitter),
+        "low_stability_weight": max(1.0, float(args.low_stability_weight)),
     }
 
 

@@ -87,12 +87,10 @@ def train_mlp_member(
 
     cfg = config or MlpTrainConfig()
     x_train = np.asarray(feature_matrix, dtype=np.float32)
-    if x_train.ndim != 2 or x_train.shape[1] != EXPECTED_FEATURE_DIM:
-        msg = (
-            f"feature matrix must be (N, {EXPECTED_FEATURE_DIM}), "
-            f"got shape={x_train.shape!r}"
-        )
+    if x_train.ndim != 2 or x_train.shape[0] < 1:
+        msg = f"feature matrix must be (N, D) with N >= 1, got shape={x_train.shape!r}"
         raise ValueError(msg)
+    input_dim = int(x_train.shape[1])
 
     y_components = np.stack(
         [np.asarray(targets[key], dtype=np.float32) for key in TARGET_KEYS],
@@ -108,7 +106,7 @@ def train_mlp_member(
         y_fitness = np.where(fitness_mask, fitness_arr, 0.0).astype(np.float32)
         train_fitness_head = int(fitness_mask.sum()) >= MIN_FITNESS_HEAD_SAMPLES
 
-    model = build_strategy_a_mlp(hidden_dims=cfg.hidden_dims)
+    model = build_strategy_a_mlp(input_dim=input_dim, hidden_dims=cfg.hidden_dims)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
     loss_fn = nn.MSELoss()
 

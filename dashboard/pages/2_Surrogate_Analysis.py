@@ -137,6 +137,10 @@ col_r2.metric("R²", f"{r2:.4f}" if np.isfinite(r2) else "—")
 col_n.metric("Points", len(prediction_frame))
 
 st.subheader("Real vs predicted")
+st.caption(
+    "Real = simulated archive fitness. Predicted = direct fitness head when trained, "
+    "otherwise composed fitness from predicted components."
+)
 scatter_fig = plot_real_vs_predicted(
     y_true,
     y_pred,

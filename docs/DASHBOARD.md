@@ -57,6 +57,10 @@ make surrogate-acquisition-baseline
 
 See `artifacts/surrogate/README.md`.
 
+### Surrogate Analysis (direct vs composed)
+
+Page **Surrogate Analysis** plots archive **real fitness** (simulation) vs **predicted fitness** from the checkpoint. When a direct fitness head is trained, predictions use it; otherwise the UI shows **composed** fitness from predicted Strategy A components. See `docs/SURROGATE_MODEL.md` §1.4.
+
 ### Acquisition log (SurrogateArchive)
 
 Page **Acquisition Log** reads `paths.surrogate_archive` (default `artifacts/surrogate/surrogate_archive.jsonl`): per-slot `decision`, `acquisition_mode`, and skip KPIs. For local UI smoke tests without a full illuminator run, point config at `tests/fixtures/surrogate_archive_smoke.jsonl`.

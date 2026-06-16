@@ -32,6 +32,7 @@ def _write_scheduler_with_surrogate(
     enabled: bool,
     checkpoint_path: Path,
     buffer_path: Path,
+    model_type: str = "lightgbm",
 ) -> None:
     raw = yaml.safe_load(DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8"))
     raw["iterations"] = _FAST_ITERATIONS
@@ -39,7 +40,7 @@ def _write_scheduler_with_surrogate(
     raw["llm"] = {"enabled": False}
     raw["surrogate"] = {
         "enabled": enabled,
-        "model_type": "lightgbm",
+        "model_type": model_type,
         "checkpoint": str(checkpoint_path),
         "buffer_path": str(buffer_path),
         "stub_mean": 0.5,
@@ -129,6 +130,90 @@ class TestSurrogateEnabledSmoke(unittest.TestCase):
             prediction = surrogate.predict(spec)
             self.assertGreaterEqual(prediction.fitness, 0.0)
             self.assertLessEqual(prediction.fitness, 1.0)
+
+    def test_mini_run_with_mlp_checkpoint_completes_quickly(self) -> None:
+        from importlib.util import find_spec
+
+        if find_spec("torch") is None:
+            self.skipTest("torch not installed")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            buffer_path = root / "train_buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=150, seed=99)
+            checkpoint_path = root / "micro_mlp.pkl"
+            summary_path = root / "micro_mlp.summary.json"
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(_REPO_ROOT)
+            train = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/train_surrogate.py",
+                    "--model-type",
+                    "mlp",
+                    "--buffer-path",
+                    str(buffer_path),
+                    "--checkpoint-path",
+                    str(checkpoint_path),
+                    "--summary-path",
+                    str(summary_path),
+                    "--micro",
+                ],
+                cwd=_REPO_ROOT,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(train.returncode, 0, msg=train.stderr)
+
+            scheduler_path = root / "scheduler_mlp.yaml"
+            run_buffer = root / "run_buffer.jsonl"
+            _write_scheduler_with_surrogate(
+                scheduler_path,
+                enabled=True,
+                checkpoint_path=checkpoint_path,
+                buffer_path=run_buffer,
+                model_type="mlp",
+            )
+            config = load_scheduler(scheduler_path)
+            self.assertEqual(config.surrogate_model_type, "mlp")
+
+            out_dir = root / "smoke_mlp_out"
+            result = MapElitesIlluminator().run(
+                scheduler_path=scheduler_path,
+                output_dir=out_dir,
+                seed=42,
+                grid_size=8,
+                steps=200,
+            )
+            self.assertGreater(result.filled_cells, 0)
+            surrogate = get_surrogate(
+                SurrogateConfig(
+                    enabled=True,
+                    model_type="mlp",
+                    checkpoint=str(checkpoint_path),
+                    stub_mean=0.5,
+                    stub_uncertainty=1.0,
+                )
+            )
+            from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+
+            spec = WorldSpec(
+                birth=[1, 3],
+                survival=[2, 3],
+                noise=0.02,
+                resource_regen=0.05,
+                predation=0.1,
+                cell_types=CANONICAL_CELL_TYPES.copy(),
+                grid_size=8,
+                steps=200,
+                seed=0,
+            )
+            prediction = surrogate.predict(spec)
+            import numpy as np
+
+            self.assertTrue(np.isfinite(prediction.fitness))
+            self.assertGreaterEqual(prediction.uncertainty, 0.0)
 
 
 if __name__ == "__main__":

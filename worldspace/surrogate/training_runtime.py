@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
@@ -33,11 +34,17 @@ from worldspace.surrogate.reporting import (
 )
 from worldspace.surrogate.training import (
     BUFFER_SCHEMA_VERSION,
+    detect_buffer_schema_version,
     holdout_split,
     load_buffer,
+    load_buffer_emitter_types,
+    training_sample_weights,
 )
+from worldspace.surrogate.feature_extractor import feature_dim_for_schema
 
 ModelType = Literal["lightgbm", "mlp"]
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ModelType",
@@ -101,6 +108,9 @@ def train_from_buffer(
     require_quality_gate: bool = True,
     consistency_weight: float = 0.0,
     fitness_loss_weight: float = 1.0,
+    emitter_onehot: bool = False,
+    stratify_emitter: bool = False,
+    low_stability_weight: float = 1.0,
     acquisition_report: bool = False,
     calibration_path: Path | str | None = None,
     acquisition_policy: AcquisitionConfig | None = None,
@@ -124,7 +134,10 @@ def train_from_buffer(
         effective_min = MIN_TRAIN_SAMPLES_MICRO if micro else MIN_TRAIN_SAMPLES_FULL
 
     try:
-        feature_matrix, targets = load_buffer(buffer_path.expanduser())
+        feature_matrix, targets = load_buffer(
+            buffer_path.expanduser(),
+            emitter_onehot=emitter_onehot,
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return TrainResult(
             success=False,
@@ -137,6 +150,19 @@ def train_from_buffer(
         )
 
     sample_count = int(feature_matrix.shape[0])
+    feature_dim = int(feature_matrix.shape[1])
+    schema_version = detect_buffer_schema_version(buffer_path.expanduser())
+    expected_dim = feature_dim_for_schema(schema_version)
+    if feature_dim != expected_dim:
+        logger.warning(
+            "Buffer %s: feature_schema_version=%s expects %d dims but loaded width is %d; "
+            "training uses actual row width. Re-featurize with "
+            "scripts/migrate_surrogate_buffer.py --re-featurize for schema 2.1 rows.",
+            buffer_path,
+            schema_version,
+            expected_dim,
+            feature_dim,
+        )
     if sample_count < effective_min:
         return TrainResult(
             success=False,
@@ -151,9 +177,17 @@ def train_from_buffer(
         )
 
     try:
+        stratify_labels = None
+        if stratify_emitter:
+            stratify_labels = load_buffer_emitter_types(buffer_path.expanduser())
         x_train, y_train, x_holdout, y_holdout = holdout_split(
             feature_matrix,
             targets,
+            stratify_labels=stratify_labels,
+        )
+        sample_weight = training_sample_weights(
+            y_train,
+            low_stability_weight=low_stability_weight,
         )
         model = SurrogateModel(
             model_type=model_type,
@@ -166,6 +200,7 @@ def train_from_buffer(
             fitness_loss_weight=fitness_loss_weight,
             val_features=x_holdout,
             val_targets=y_holdout,
+            sample_weight=sample_weight,
         )
         consistency_before: float | None = None
         consistency_after: float | None = None
@@ -210,6 +245,10 @@ def train_from_buffer(
             consistency_mae_after=consistency_after,
             fitness_rows_with_label=fitness_rows_with_label,
             fitness_loss_weight=fitness_loss_weight if model_type == "mlp" else None,
+            emitter_onehot=emitter_onehot,
+            stratify_emitter=stratify_emitter,
+            low_stability_weight=low_stability_weight,
+            consistency_weight=consistency_weight,
         )
         if acquisition_report:
             policy = acquisition_policy or AcquisitionConfig(mode="filter")
@@ -274,6 +313,10 @@ def _save_summary(
     consistency_mae_after: float | None = None,
     fitness_rows_with_label: int | None = None,
     fitness_loss_weight: float | None = None,
+    emitter_onehot: bool = False,
+    stratify_emitter: bool = False,
+    low_stability_weight: float = 1.0,
+    consistency_weight: float = 0.0,
 ) -> None:
     payload: dict[str, object] = {
         "model_type": model_type,
@@ -297,6 +340,14 @@ def _save_summary(
         payload["fitness_rows_with_label"] = fitness_rows_with_label
     if fitness_loss_weight is not None:
         payload["fitness_loss_weight"] = fitness_loss_weight
+    if emitter_onehot:
+        payload["emitter_onehot"] = True
+    if stratify_emitter:
+        payload["stratify_emitter"] = True
+    if low_stability_weight > 1.0:
+        payload["low_stability_weight"] = float(low_stability_weight)
+    if consistency_weight > 0.0:
+        payload["consistency_weight"] = float(consistency_weight)
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")

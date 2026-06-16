@@ -8,7 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from worldspace.surrogate.feature_extractor import FEATURE_NAMES
+from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.feature_extractor import FEATURE_NAMES, feature_names_for_dim
 from worldspace.surrogate.determinism import (
     DEFAULT_ENSEMBLE_SIZE,
     DEFAULT_RANDOM_STATE,
@@ -103,6 +104,7 @@ class SurrogateModel:
         fitness_loss_weight: float = 1.0,
         val_features: np.ndarray | None = None,
         val_targets: dict[str, np.ndarray] | None = None,
+        sample_weight: np.ndarray | None = None,
     ) -> None:
         """Fit component regressors; LightGBM or MLP ensemble when available."""
         self._component_means = {
@@ -115,6 +117,7 @@ class SurrogateModel:
         self._mlp_members = []
         self._has_fitness_head = False
         self._fitness_loss_weight = float(fitness_loss_weight)
+        self._trained_input_dim = int(feature_matrix.shape[1])
 
         if self.model_type == "mlp":
             if find_spec("torch") is None:
@@ -129,7 +132,9 @@ class SurrogateModel:
 
         if self.model_type != "lightgbm" or find_spec("lightgbm") is None:
             return
-        self._fit_lightgbm_ensemble(feature_matrix, targets)
+        self._fit_lightgbm_ensemble(
+            feature_matrix, targets, sample_weight=sample_weight
+        )
         fitness = targets.get(FITNESS_TARGET_KEY)
         if fitness is not None:
             self._fit_fitness_ensemble(feature_matrix, fitness)
@@ -360,10 +365,15 @@ class SurrogateModel:
         self,
         feature_matrix: np.ndarray,
         targets: dict[str, np.ndarray],
+        *,
+        sample_weight: np.ndarray | None = None,
     ) -> None:
         import lightgbm as lgb
 
         x_train = _lightgbm_feature_matrix(feature_matrix)
+        weights = None
+        if sample_weight is not None:
+            weights = np.asarray(sample_weight, dtype=float).reshape(-1)
         base_params = {
             **lightgbm_deterministic_params(),
             "n_estimators": 64,
@@ -379,7 +389,7 @@ class SurrogateModel:
                 member_params = dict(base_params)
                 member_params["random_state"] = member_random_state(member_index)
                 regressor = lgb.LGBMRegressor(**member_params)
-                regressor.fit(x_train, y_train)
+                regressor.fit(x_train, y_train, sample_weight=weights)
                 estimators.append(regressor)
             self._ensemble[key] = estimators
         self._uses_lightgbm = True
@@ -480,6 +490,9 @@ def checkpoint_feature_dim(model: SurrogateModel) -> int | None:
 
     Default-only models (no fitted backend) return ``None``.
     """
+    trained_dim = getattr(model, "_trained_input_dim", None)
+    if trained_dim is not None:
+        return int(trained_dim)
     if model._uses_mlp:
         return EXPECTED_FEATURE_DIM if model._mlp_members else None
     if not model._uses_lightgbm:
@@ -510,7 +523,7 @@ def checkpoint_matches_extractor(model: SurrogateModel) -> bool:
     dim = checkpoint_feature_dim(model)
     if dim is None:
         return True
-    return dim == EXPECTED_FEATURE_DIM
+    return dim in (FEATURE_DIM, EXPECTED_FEATURE_DIM)
 
 
 def _lightgbm_feature_matrix(feature_matrix: np.ndarray) -> Any:
@@ -518,13 +531,14 @@ def _lightgbm_feature_matrix(feature_matrix: np.ndarray) -> Any:
     import pandas as pd
 
     matrix = np.asarray(feature_matrix, dtype=float)
-    if matrix.ndim != 2 or matrix.shape[1] != len(FEATURE_NAMES):
-        msg = (
-            f"feature matrix must be (N, {len(FEATURE_NAMES)}), "
-            f"got shape={matrix.shape!r}"
-        )
+    if matrix.ndim != 2 or matrix.shape[0] < 1:
+        msg = f"feature matrix must be (N, D) with N >= 1, got shape={matrix.shape!r}"
         raise ValueError(msg)
-    return pd.DataFrame(matrix, columns=list(FEATURE_NAMES))
+    n_features = int(matrix.shape[1])
+    columns = feature_names_for_dim(n_features)
+    if len(columns) != n_features:
+        columns = tuple(f"feature_{index}" for index in range(n_features))
+    return pd.DataFrame(matrix, columns=list(columns))
 
 
 def _lightgbm_feature_row(vector: np.ndarray) -> Any:

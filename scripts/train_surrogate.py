@@ -95,6 +95,22 @@ def parse_args() -> argparse.Namespace:
         help="MLP multi-task fitness loss weight (default: 1.0)",
     )
     parser.add_argument(
+        "--emitter-onehot",
+        action="store_true",
+        help="Append emitter_type one-hot columns at train time (experimental)",
+    )
+    parser.add_argument(
+        "--stratify-emitter",
+        action="store_true",
+        help="Stratify hold-out split by emitter_type",
+    )
+    parser.add_argument(
+        "--low-stability-weight",
+        type=float,
+        default=1.0,
+        help="LightGBM sample weight for stability < 0.3 rows (1 disables)",
+    )
+    parser.add_argument(
         "--acquisition-report",
         action="store_true",
         help="Append acquisition replay metrics to the training summary JSON",
@@ -136,6 +152,9 @@ def main() -> None:
         require_quality_gate=not args.no_quality_gate,
         consistency_weight=max(0.0, float(args.consistency_weight)),
         fitness_loss_weight=max(0.0, float(args.fitness_loss_weight)),
+        emitter_onehot=bool(args.emitter_onehot),
+        stratify_emitter=bool(args.stratify_emitter),
+        low_stability_weight=max(1.0, float(args.low_stability_weight)),
         acquisition_report=args.acquisition_report,
         calibration_path=calibration_path,
     )

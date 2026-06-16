@@ -47,6 +47,7 @@ __all__ = [
     "SUPPORTED_FEATURE_SCHEMA_VERSIONS",
     "extract",
     "feature_dim_for_schema",
+    "feature_names_for_dim",
     "feature_names_for_schema",
 ]
 
@@ -68,6 +69,23 @@ def feature_names_for_schema(schema_version: str) -> tuple[str, ...]:
         return FEATURE_NAMES
     msg = f"Unsupported feature_schema_version: {schema_version!r}"
     raise ValueError(msg)
+
+
+def feature_names_for_dim(feature_dim: int) -> tuple[str, ...]:
+    """Return LightGBM column names for a buffer or matrix feature width."""
+    if feature_dim == FEATURE_DIM:
+        return FEATURE_NAMES_V20
+    if feature_dim == FEATURE_DIM_V21:
+        return FEATURE_NAMES
+    from worldspace.surrogate.emitter_features import EMITTER_ONEHOT_DIM
+
+    if feature_dim == FEATURE_DIM_V21 + EMITTER_ONEHOT_DIM:
+        return FEATURE_NAMES + (
+            "emitter_random",
+            "emitter_genetic",
+            "emitter_llm",
+        )
+    return tuple(f"feature_{index}" for index in range(feature_dim))
 
 
 def extract(
