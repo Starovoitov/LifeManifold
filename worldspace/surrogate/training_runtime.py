@@ -255,6 +255,15 @@ def train_from_buffer(
             consistency_mae_after=consistency_after,
             fitness_rows_with_label=fitness_rows_with_label,
             fitness_loss_weight=fitness_loss_weight if model_type == "mlp" else None,
+            mlp_dropout_p=(
+                float(model._mlp_dropout_p) if model_type == "mlp" else None
+            ),
+            mlp_mc_samples=(
+                int(model._mlp_mc_samples) if model_type == "mlp" else None
+            ),
+            mlp_uncertainty_method=(
+                str(model._mlp_uncertainty_method) if model_type == "mlp" else None
+            ),
             emitter_onehot=emitter_onehot,
             stratify_emitter=stratify_emitter,
             low_stability_weight=low_stability_weight,
@@ -329,6 +338,9 @@ def _save_summary(
     consistency_mae_after: float | None = None,
     fitness_rows_with_label: int | None = None,
     fitness_loss_weight: float | None = None,
+    mlp_dropout_p: float | None = None,
+    mlp_mc_samples: int | None = None,
+    mlp_uncertainty_method: str | None = None,
     emitter_onehot: bool = False,
     stratify_emitter: bool = False,
     low_stability_weight: float = 1.0,
@@ -358,6 +370,12 @@ def _save_summary(
         payload["fitness_rows_with_label"] = fitness_rows_with_label
     if fitness_loss_weight is not None:
         payload["fitness_loss_weight"] = fitness_loss_weight
+    if mlp_dropout_p is not None and mlp_dropout_p > 0.0:
+        payload["mlp_dropout_p"] = float(mlp_dropout_p)
+    if mlp_mc_samples is not None:
+        payload["mlp_mc_samples"] = int(mlp_mc_samples)
+    if mlp_uncertainty_method is not None:
+        payload["mlp_uncertainty_method"] = str(mlp_uncertainty_method)
     if emitter_onehot:
         payload["emitter_onehot"] = True
     if stratify_emitter:

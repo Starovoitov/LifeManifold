@@ -68,6 +68,9 @@ class SurrogateModel:
     _has_fitness_head: bool = False
     _training_device_preference: DevicePreference = "auto"
     _resolved_lightgbm_device: str = "cpu"
+    _mlp_dropout_p: float = 0.0
+    _mlp_mc_samples: int = 16
+    _mlp_uncertainty_method: str = "ensemble"
 
     def __setstate__(self, state: object) -> None:
         """Restore pickle state and backfill fields from pre-fitness-head checkpoints."""
@@ -95,6 +98,12 @@ class SurrogateModel:
             self.__dict__["_training_device_preference"] = "auto"
         if "_resolved_lightgbm_device" not in self.__dict__:
             self.__dict__["_resolved_lightgbm_device"] = "cpu"
+        if "_mlp_dropout_p" not in self.__dict__:
+            self.__dict__["_mlp_dropout_p"] = 0.0
+        if "_mlp_mc_samples" not in self.__dict__:
+            self.__dict__["_mlp_mc_samples"] = 16
+        if "_mlp_uncertainty_method" not in self.__dict__:
+            self.__dict__["_mlp_uncertainty_method"] = "ensemble"
         if "_trained_input_dim" not in self.__dict__ and self.__dict__.get("_mlp_members"):
             from worldspace.surrogate.mlp_model import input_dim_from_state_dict
 
@@ -298,6 +307,9 @@ class SurrogateModel:
             hidden_dims=self._mlp_hidden_dims,
             fitness_loss_weight=self._fitness_loss_weight,
         )
+        self._mlp_dropout_p = float(config.dropout_p)
+        self._mlp_mc_samples = int(config.mc_samples)
+        self._mlp_uncertainty_method = str(config.uncertainty_method)
         members: list[dict[str, Any]] = []
         for member_index in range(self.ensemble_size):
             seed = ensemble_member_seed(self.random_state, member_index)
@@ -355,27 +367,64 @@ class SurrogateModel:
         values = [float(row[FITNESS_OUTPUT_INDEX]) for row in member_outputs]
         return float(np.mean(values))
 
-    def _predict_mlp_uncertainty(self, vector: np.ndarray) -> float:
+    def _fitness_from_mlp_output_row(self, row: np.ndarray) -> float:
         from worldspace.surrogate.mlp_model import FITNESS_OUTPUT_INDEX
 
+        if self._has_fitness_head:
+            return float(row[FITNESS_OUTPUT_INDEX])
+        components = {
+            key: float(row[index]) for index, key in enumerate(TARGET_KEYS)
+        }
+        prediction = SurrogatePrediction(
+            components=components,
+            measures={
+                "stability": components["stability"],
+                "diversity": components["diversity"],
+            },
+            fitness=0.0,
+            uncertainty=0.0,
+        )
+        return compute_fitness_from_prediction(prediction)
+
+    def _ensemble_member_fitness_values(self, vector: np.ndarray) -> list[float]:
         fitness_values: list[float] = []
         for row in self._predict_mlp_member_outputs(vector):
-            components = {
-                key: float(row[index]) for index, key in enumerate(TARGET_KEYS)
-            }
-            prediction = SurrogatePrediction(
-                components=components,
-                measures={
-                    "stability": components["stability"],
-                    "diversity": components["diversity"],
-                },
-                fitness=0.0,
-                uncertainty=0.0,
-            )
-            if self._has_fitness_head:
-                fitness_values.append(float(row[FITNESS_OUTPUT_INDEX]))
-            else:
-                fitness_values.append(compute_fitness_from_prediction(prediction))
+            fitness_values.append(self._fitness_from_mlp_output_row(row))
+        return fitness_values
+
+    def _predict_mlp_uncertainty(self, vector: np.ndarray) -> float:
+        from worldspace.surrogate.mlp_model import (
+            ensemble_member_seed,
+            mlp_state_dict_uses_dropout,
+            sample_mlp_member_outputs_mc,
+        )
+
+        use_mc = (
+            self._mlp_uncertainty_method == "ensemble_mc"
+            and self._mlp_members
+            and mlp_state_dict_uses_dropout(self._mlp_members[0])
+            and self._mlp_mc_samples > 0
+        )
+        if use_mc:
+            fitness_values: list[float] = []
+            for member_index, state_dict in enumerate(self._mlp_members):
+                seed = ensemble_member_seed(
+                    self.random_state,
+                    member_index * max(1, self._mlp_mc_samples),
+                )
+                for row in sample_mlp_member_outputs_mc(
+                    state_dict,
+                    vector,
+                    hidden_dims=self._mlp_hidden_dims,
+                    input_dim=self._trained_input_dim,
+                    n_samples=self._mlp_mc_samples,
+                    seed=seed,
+                ):
+                    fitness_values.append(self._fitness_from_mlp_output_row(row))
+            if len(fitness_values) >= 2:
+                return float(np.std(np.asarray(fitness_values, dtype=float), ddof=0))
+
+        fitness_values = self._ensemble_member_fitness_values(vector)
         if len(fitness_values) < 2:
             return 0.0
         return float(np.std(np.asarray(fitness_values, dtype=float), ddof=0))

@@ -206,12 +206,73 @@ class TestSurrogateMlp(unittest.TestCase):
             feature_matrix, targets = load_buffer(buffer_path)
             model = self._fit_mlp(feature_matrix, targets, ensemble_size=1)
 
-        from worldspace.surrogate.mlp_model import mlp_state_dict_uses_batch_norm
+        from worldspace.surrogate.mlp_model import (
+            mlp_state_dict_uses_batch_norm,
+            mlp_state_dict_uses_dropout,
+        )
 
         state_dict = model._mlp_members[0]
         self.assertTrue(mlp_state_dict_uses_batch_norm(state_dict))
+        self.assertFalse(mlp_state_dict_uses_dropout(state_dict))
         self.assertIn("net.1.running_mean", state_dict)
         self.assertIn("net.4.running_mean", state_dict)
+        self.assertEqual(model._mlp_uncertainty_method, "ensemble")
+        self.assertEqual(model._mlp_dropout_p, 0.0)
+
+    def test_mlp_mc_dropout_uncertainty_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=100, seed=41)
+            feature_matrix, targets = load_buffer(buffer_path)
+            model = SurrogateModel(
+                model_type="mlp",
+                random_state=42,
+                ensemble_size=2,
+            )
+            x_train, y_train, x_hold, y_hold = holdout_split(
+                feature_matrix,
+                targets,
+                random_state=42,
+            )
+            with patch(
+                "worldspace.surrogate.mlp_model.MlpTrainConfig",
+                side_effect=lambda **kw: _fast_mlp_config(
+                    dropout_p=0.1,
+                    uncertainty_method="ensemble_mc",
+                    mc_samples=4,
+                    **kw,
+                ),
+            ):
+                model.fit(
+                    x_train,
+                    y_train,
+                    val_features=x_hold,
+                    val_targets=y_hold,
+                )
+
+        uncertainty = model.predict_uncertainty(feature_matrix[0])
+        self.assertGreater(uncertainty, 0.0)
+
+    def test_legacy_bn_checkpoint_without_dropout_still_loads(self) -> None:
+        from worldspace.surrogate.mlp_model import (
+            build_strategy_a_mlp,
+            mlp_state_dict_uses_dropout,
+            predict_mlp_state_dict,
+        )
+
+        legacy = build_strategy_a_mlp(
+            input_dim=21,
+            hidden_dims=(64, 64),
+            activation="gelu",
+            batch_norm=True,
+            dropout_p=0.0,
+        )
+        state_dict = legacy.state_dict()
+        self.assertFalse(mlp_state_dict_uses_dropout(state_dict))
+        self.assertIn("net.4.running_mean", state_dict)
+        features = np.zeros(21, dtype=np.float32)
+        preds = predict_mlp_state_dict(state_dict, features, hidden_dims=(64, 64))
+        self.assertEqual(preds.shape, (1, 8))
 
     def test_legacy_relu_checkpoint_still_loads(self) -> None:
         from worldspace.surrogate.mlp_model import (
@@ -224,6 +285,7 @@ class TestSurrogateMlp(unittest.TestCase):
             hidden_dims=(64, 64),
             activation="relu",
             batch_norm=False,
+            dropout_p=0.0,
         )
         state_dict = legacy.state_dict()
         features = np.zeros(21, dtype=np.float32)

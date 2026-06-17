@@ -25,15 +25,19 @@ __all__ = [
     "MLP_OUTPUT_DIM",
     "MlpActivation",
     "MlpTrainConfig",
+    "MlpUncertaintyMethod",
     "build_strategy_a_mlp",
     "build_strategy_a_mlp_for_state_dict",
     "input_dim_from_state_dict",
     "mlp_state_dict_uses_batch_norm",
+    "mlp_state_dict_uses_dropout",
     "predict_mlp_state_dict",
+    "sample_mlp_member_outputs_mc",
     "train_mlp_member",
 ]
 
 MlpActivation = Literal["gelu", "relu"]
+MlpUncertaintyMethod = Literal["ensemble", "ensemble_mc"]
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,9 @@ class MlpTrainConfig:
     fitness_loss_weight: float = 1.0
     huber_delta: float = 0.05
     cosine_eta_min_factor: float = 0.01
+    dropout_p: float = 0.0
+    mc_samples: int = 16
+    uncertainty_method: MlpUncertaintyMethod = "ensemble"
 
 
 def _make_loss_fn(cfg: MlpTrainConfig) -> Any:
@@ -94,6 +101,7 @@ def build_strategy_a_mlp(
     hidden_dims: tuple[int, ...] = (64, 64),
     activation: MlpActivation = "gelu",
     batch_norm: bool = True,
+    dropout_p: float = 0.1,
 ) -> Any:
     """Construct an untrained ``StrategyAMlp`` module."""
     import torch.nn as nn
@@ -105,6 +113,8 @@ def build_strategy_a_mlp(
         if batch_norm:
             layers.append(nn.BatchNorm1d(width))
         layers.append(_activation_module(activation))
+        if dropout_p > 0.0:
+            layers.append(nn.Dropout(p=float(dropout_p)))
         prev = width
     layers.append(nn.Linear(prev, MLP_OUTPUT_DIM))
 
@@ -124,6 +134,13 @@ def mlp_state_dict_uses_batch_norm(state_dict: dict[str, Any]) -> bool:
     return any(key.endswith(".running_mean") for key in state_dict)
 
 
+def mlp_state_dict_uses_dropout(state_dict: dict[str, Any]) -> bool:
+    """Return whether a BN+GELU checkpoint includes Dropout blocks."""
+    if not mlp_state_dict_uses_batch_norm(state_dict):
+        return False
+    return "net.3.weight" not in state_dict
+
+
 def build_strategy_a_mlp_for_state_dict(
     state_dict: dict[str, Any],
     *,
@@ -131,18 +148,28 @@ def build_strategy_a_mlp_for_state_dict(
     hidden_dims: tuple[int, ...] = (64, 64),
 ) -> Any:
     """Rebuild the MLP architecture that matches one pickled ``state_dict``."""
-    if mlp_state_dict_uses_batch_norm(state_dict):
+    if not mlp_state_dict_uses_batch_norm(state_dict):
+        return build_strategy_a_mlp(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            activation="relu",
+            batch_norm=False,
+            dropout_p=0.0,
+        )
+    if mlp_state_dict_uses_dropout(state_dict):
         return build_strategy_a_mlp(
             input_dim=input_dim,
             hidden_dims=hidden_dims,
             activation="gelu",
             batch_norm=True,
+            dropout_p=0.1,
         )
     return build_strategy_a_mlp(
         input_dim=input_dim,
         hidden_dims=hidden_dims,
-        activation="relu",
-        batch_norm=False,
+        activation="gelu",
+        batch_norm=True,
+        dropout_p=0.0,
     )
 
 
@@ -194,7 +221,11 @@ def train_mlp_member(
         y_fitness = np.where(fitness_mask, fitness_arr, 0.0).astype(np.float32)
         train_fitness_head = int(fitness_mask.sum()) >= MIN_FITNESS_HEAD_SAMPLES
 
-    model = build_strategy_a_mlp(input_dim=input_dim, hidden_dims=cfg.hidden_dims)
+    model = build_strategy_a_mlp(
+        input_dim=input_dim,
+        hidden_dims=cfg.hidden_dims,
+        dropout_p=cfg.dropout_p,
+    )
     model.to(torch_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
     loss_fn = _make_loss_fn(cfg)
@@ -320,6 +351,53 @@ def predict_mlp_state_dict(
     with torch.no_grad():
         preds = model(torch.from_numpy(matrix))
     return preds.cpu().numpy()
+
+
+def _set_dropout_train_mode(model: Any) -> None:
+    """Keep BatchNorm in eval mode while enabling Dropout for MC sampling."""
+    import torch.nn as nn
+
+    model.eval()
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.train()
+
+
+def sample_mlp_member_outputs_mc(
+    state_dict: dict[str, Any],
+    features: np.ndarray,
+    *,
+    hidden_dims: tuple[int, ...] = (64, 64),
+    input_dim: int | None = None,
+    n_samples: int = 16,
+    seed: int = 0,
+) -> list[np.ndarray]:
+    """Run MC Dropout forward passes; each item is shape ``(MLP_OUTPUT_DIM,)``."""
+    import torch
+
+    if n_samples < 1:
+        msg = f"n_samples must be >= 1, got {n_samples}"
+        raise ValueError(msg)
+    vector = np.asarray(features, dtype=np.float32)
+    matrix = vector.reshape(1, -1) if vector.ndim == 1 else vector
+    resolved_input_dim = (
+        int(input_dim) if input_dim is not None else input_dim_from_state_dict(state_dict)
+    )
+    model = build_strategy_a_mlp_for_state_dict(
+        state_dict,
+        input_dim=resolved_input_dim,
+        hidden_dims=hidden_dims,
+    )
+    model.load_state_dict(state_dict)
+    _set_dropout_train_mode(model)
+    outputs: list[np.ndarray] = []
+    x_tensor = torch.from_numpy(matrix)
+    with torch.no_grad():
+        for sample_index in range(int(n_samples)):
+            torch.manual_seed(int(seed) + sample_index)
+            row = model(x_tensor)[0]
+            outputs.append(row.cpu().numpy())
+    return outputs
 
 
 def ensemble_member_seed(base_seed: int, member_index: int) -> int:
