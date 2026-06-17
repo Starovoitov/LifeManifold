@@ -39,7 +39,7 @@ class TestTrainAnalyzeParity(unittest.TestCase):
                 buffer_path,
                 fit_model=True,
                 model_type="lightgbm",
-                ensemble_size=8,
+                ensemble_size=4,
                 random_state=42,
                 test_fraction=0.2,
                 consistency_weight=0.0,

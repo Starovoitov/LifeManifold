@@ -12,6 +12,7 @@ from worldspace.surrogate.genome_features import FEATURE_DIM
 from worldspace.surrogate.feature_extractor import FEATURE_NAMES, feature_names_for_dim
 from worldspace.surrogate.determinism import (
     DEFAULT_ENSEMBLE_SIZE,
+    DEFAULT_MLP_HIDDEN_DIMS,
     DEFAULT_RANDOM_STATE,
     apply_mlp_determinism,
     lightgbm_deterministic_params,
@@ -47,7 +48,6 @@ __all__ = [
 ]
 
 EXPECTED_FEATURE_DIM = len(FEATURE_NAMES)
-_DEFAULT_MLP_HIDDEN_DIMS: tuple[int, ...] = (64, 64)
 
 
 @dataclass
@@ -63,7 +63,7 @@ class SurrogateModel:
     _uses_lightgbm: bool = False
     _uses_mlp: bool = False
     _mlp_members: list[dict[str, Any]] = field(default_factory=list)
-    _mlp_hidden_dims: tuple[int, ...] = _DEFAULT_MLP_HIDDEN_DIMS
+    _mlp_hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS
     _fitness_loss_weight: float = 1.0
     _has_fitness_head: bool = False
     _training_device_preference: DevicePreference = "auto"
@@ -89,7 +89,17 @@ class SurrogateModel:
         if "_mlp_members" not in self.__dict__:
             self.__dict__["_mlp_members"] = []
         if "_mlp_hidden_dims" not in self.__dict__:
-            self.__dict__["_mlp_hidden_dims"] = _DEFAULT_MLP_HIDDEN_DIMS
+            members = self.__dict__.get("_mlp_members") or []
+            if members:
+                from worldspace.surrogate.mlp_model import hidden_dims_from_state_dict
+
+                self.__dict__["_mlp_hidden_dims"] = hidden_dims_from_state_dict(
+                    members[0]
+                )
+            else:
+                from worldspace.surrogate.determinism import LEGACY_MLP_HIDDEN_DIMS
+
+                self.__dict__["_mlp_hidden_dims"] = LEGACY_MLP_HIDDEN_DIMS
         if "_fitness_loss_weight" not in self.__dict__:
             self.__dict__["_fitness_loss_weight"] = 1.0
         if "_has_fitness_head" not in self.__dict__:
@@ -104,13 +114,18 @@ class SurrogateModel:
             self.__dict__["_mlp_mc_samples"] = 16
         if "_mlp_uncertainty_method" not in self.__dict__:
             self.__dict__["_mlp_uncertainty_method"] = "ensemble"
-        if "_trained_input_dim" not in self.__dict__ and self.__dict__.get("_mlp_members"):
+        if "_trained_input_dim" not in self.__dict__ and self.__dict__.get(
+            "_mlp_members"
+        ):
             from worldspace.surrogate.mlp_model import input_dim_from_state_dict
 
             self.__dict__["_trained_input_dim"] = input_dim_from_state_dict(
                 self.__dict__["_mlp_members"][0]
             )
-        if self.__dict__.get("_has_fitness_head") and not self._fitness_head_is_trained():
+        if (
+            self.__dict__.get("_has_fitness_head")
+            and not self._fitness_head_is_trained()
+        ):
             self.__dict__["_has_fitness_head"] = False
 
     def _fitness_head_is_trained(self) -> bool:
@@ -372,9 +387,7 @@ class SurrogateModel:
 
         if self._has_fitness_head:
             return float(row[FITNESS_OUTPUT_INDEX])
-        components = {
-            key: float(row[index]) for index, key in enumerate(TARGET_KEYS)
-        }
+        components = {key: float(row[index]) for index, key in enumerate(TARGET_KEYS)}
         prediction = SurrogatePrediction(
             components=components,
             measures={

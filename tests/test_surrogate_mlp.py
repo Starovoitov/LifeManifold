@@ -253,6 +253,67 @@ class TestSurrogateMlp(unittest.TestCase):
         uncertainty = model.predict_uncertainty(feature_matrix[0])
         self.assertGreater(uncertainty, 0.0)
 
+    def test_hidden_dims_from_state_dict_infers_architecture(self) -> None:
+        from worldspace.surrogate.mlp_model import (
+            build_strategy_a_mlp,
+            hidden_dims_from_state_dict,
+        )
+
+        small = build_strategy_a_mlp(
+            input_dim=24, hidden_dims=(32, 32), dropout_p=0.0
+        ).state_dict()
+        large = build_strategy_a_mlp(
+            input_dim=24, hidden_dims=(64, 64), dropout_p=0.0
+        ).state_dict()
+        relu = build_strategy_a_mlp(
+            input_dim=21,
+            hidden_dims=(64, 64),
+            activation="relu",
+            batch_norm=False,
+            dropout_p=0.0,
+        ).state_dict()
+
+        self.assertEqual(hidden_dims_from_state_dict(small), (32, 32))
+        self.assertEqual(hidden_dims_from_state_dict(large), (64, 64))
+        self.assertEqual(hidden_dims_from_state_dict(relu), (64, 64))
+
+    def test_legacy_mlp_checkpoint_without_hidden_dims_infers_64x64(self) -> None:
+        import pickle
+        import tempfile
+
+        from worldspace.surrogate.determinism import DEFAULT_MLP_HIDDEN_DIMS
+        from worldspace.surrogate.mlp_model import build_strategy_a_mlp
+
+        trained = build_strategy_a_mlp(
+            input_dim=24, hidden_dims=(64, 64), dropout_p=0.0
+        )
+        model = SurrogateModel()
+        model._uses_mlp = True
+        model._mlp_members = [trained.state_dict()]
+        model._trained_input_dim = 24
+        legacy_state = {
+            key: value
+            for key, value in model.__dict__.items()
+            if key != "_mlp_hidden_dims"
+        }
+        legacy = SurrogateModel.__new__(SurrogateModel)
+        legacy.__dict__.update(legacy_state)
+        legacy.ensure_legacy_checkpoint_fields()
+
+        self.assertEqual(legacy._mlp_hidden_dims, (64, 64))
+        self.assertNotEqual(legacy._mlp_hidden_dims, DEFAULT_MLP_HIDDEN_DIMS)
+        prediction = legacy.predict_components(np.zeros(24, dtype=np.float32))
+        self.assertIn("stability", prediction)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "legacy.pkl"
+            with path.open("wb") as fh:
+                pickle.dump(legacy, fh)
+            from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
+
+            loaded = load_surrogate_checkpoint(path)
+            self.assertEqual(loaded._mlp_hidden_dims, (64, 64))
+
     def test_legacy_bn_checkpoint_without_dropout_still_loads(self) -> None:
         from worldspace.surrogate.mlp_model import (
             build_strategy_a_mlp,

@@ -6,6 +6,7 @@ import unittest
 
 from worldspace.surrogate.determinism import (
     DEFAULT_ENSEMBLE_SIZE,
+    DEFAULT_MLP_HIDDEN_DIMS,
     DEFAULT_RANDOM_STATE,
     lightgbm_deterministic_params,
     member_random_state,
@@ -15,7 +16,8 @@ from worldspace.surrogate.determinism import (
 class TestDeterminismHelpers(unittest.TestCase):
     def test_defaults_match_tz(self) -> None:
         self.assertEqual(DEFAULT_RANDOM_STATE, 42)
-        self.assertEqual(DEFAULT_ENSEMBLE_SIZE, 8)
+        self.assertEqual(DEFAULT_ENSEMBLE_SIZE, 4)
+        self.assertEqual(DEFAULT_MLP_HIDDEN_DIMS, (32, 32))
 
     def test_lightgbm_params_include_deterministic_flag(self) -> None:
         params = lightgbm_deterministic_params()

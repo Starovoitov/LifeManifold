@@ -18,6 +18,7 @@ from worldspace.surrogate.buffer_analysis import (
     analyze_buffer_path,
     format_analysis_report,
 )
+from worldspace.surrogate.determinism import DEFAULT_ENSEMBLE_SIZE
 
 _DEFAULT_OUTPUT = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_analysis.json"
 
@@ -109,8 +110,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ensemble-size",
         type=int,
-        default=8,
-        help="Ensemble size when --fit-model is set (default: 8, matches train)",
+        default=DEFAULT_ENSEMBLE_SIZE,
+        help=f"Ensemble size when --fit-model is set (default: {DEFAULT_ENSEMBLE_SIZE})",
     )
     parser.add_argument(
         "--random-state",

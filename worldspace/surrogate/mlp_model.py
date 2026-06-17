@@ -8,7 +8,10 @@ from typing import Any, Literal
 import numpy as np
 
 from worldspace.surrogate.device import DevicePreference, resolve_training_device
-from worldspace.surrogate.determinism import apply_mlp_determinism
+from worldspace.surrogate.determinism import (
+    DEFAULT_MLP_HIDDEN_DIMS,
+    apply_mlp_determinism,
+)
 from worldspace.surrogate.model import (
     EXPECTED_FEATURE_DIM,
     FITNESS_TARGET_KEY,
@@ -28,6 +31,7 @@ __all__ = [
     "MlpUncertaintyMethod",
     "build_strategy_a_mlp",
     "build_strategy_a_mlp_for_state_dict",
+    "hidden_dims_from_state_dict",
     "input_dim_from_state_dict",
     "mlp_state_dict_uses_batch_norm",
     "mlp_state_dict_uses_dropout",
@@ -44,7 +48,7 @@ MlpUncertaintyMethod = Literal["ensemble", "ensemble_mc"]
 class MlpTrainConfig:
     """Hyper-parameters for one deterministic MLP ensemble member."""
 
-    hidden_dims: tuple[int, ...] = (64, 64)
+    hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS
     learning_rate: float = 1e-3
     max_epochs: int = 200
     patience: int = 15
@@ -98,7 +102,7 @@ def _activation_module(activation: MlpActivation) -> Any:
 def build_strategy_a_mlp(
     *,
     input_dim: int = EXPECTED_FEATURE_DIM,
-    hidden_dims: tuple[int, ...] = (64, 64),
+    hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS,
     activation: MlpActivation = "gelu",
     batch_norm: bool = True,
     dropout_p: float = 0.1,
@@ -145,7 +149,7 @@ def build_strategy_a_mlp_for_state_dict(
     state_dict: dict[str, Any],
     *,
     input_dim: int,
-    hidden_dims: tuple[int, ...] = (64, 64),
+    hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS,
 ) -> Any:
     """Rebuild the MLP architecture that matches one pickled ``state_dict``."""
     if not mlp_state_dict_uses_batch_norm(state_dict):
@@ -180,6 +184,31 @@ def input_dim_from_state_dict(state_dict: dict[str, Any]) -> int:
         msg = "state_dict missing net.0.weight"
         raise ValueError(msg)
     return int(weight.shape[1])
+
+
+def hidden_dims_from_state_dict(state_dict: dict[str, Any]) -> tuple[int, ...]:
+    """Infer hidden layer widths from 2-D ``net.*.weight`` tensors (excludes output head)."""
+    linear_layers: list[tuple[int, int]] = []
+    for key, tensor in state_dict.items():
+        if not key.startswith("net.") or not key.endswith(".weight"):
+            continue
+        shape = getattr(tensor, "shape", None)
+        if shape is None or len(shape) != 2:
+            continue
+        layer_index = int(key.split(".")[1])
+        linear_layers.append((layer_index, int(shape[0])))
+    if not linear_layers:
+        msg = "state_dict has no linear net.*.weight layers"
+        raise ValueError(msg)
+    linear_layers.sort(key=lambda item: item[0])
+    out_dims = [out_features for _, out_features in linear_layers]
+    if out_dims[-1] != MLP_OUTPUT_DIM:
+        msg = (
+            f"expected final linear out_features={MLP_OUTPUT_DIM}, "
+            f"got {out_dims[-1]}"
+        )
+        raise ValueError(msg)
+    return tuple(out_dims[:-1])
 
 
 def train_mlp_member(
@@ -327,7 +356,7 @@ def predict_mlp_state_dict(
     state_dict: dict[str, Any],
     features: np.ndarray,
     *,
-    hidden_dims: tuple[int, ...] = (64, 64),
+    hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS,
     input_dim: int | None = None,
 ) -> np.ndarray:
     """Run one pickled MLP member; returns shape ``(N, MLP_OUTPUT_DIM)``."""
@@ -339,7 +368,9 @@ def predict_mlp_state_dict(
     else:
         matrix = vector
     resolved_input_dim = (
-        int(input_dim) if input_dim is not None else input_dim_from_state_dict(state_dict)
+        int(input_dim)
+        if input_dim is not None
+        else input_dim_from_state_dict(state_dict)
     )
     model = build_strategy_a_mlp_for_state_dict(
         state_dict,
@@ -367,7 +398,7 @@ def sample_mlp_member_outputs_mc(
     state_dict: dict[str, Any],
     features: np.ndarray,
     *,
-    hidden_dims: tuple[int, ...] = (64, 64),
+    hidden_dims: tuple[int, ...] = DEFAULT_MLP_HIDDEN_DIMS,
     input_dim: int | None = None,
     n_samples: int = 16,
     seed: int = 0,
@@ -381,7 +412,9 @@ def sample_mlp_member_outputs_mc(
     vector = np.asarray(features, dtype=np.float32)
     matrix = vector.reshape(1, -1) if vector.ndim == 1 else vector
     resolved_input_dim = (
-        int(input_dim) if input_dim is not None else input_dim_from_state_dict(state_dict)
+        int(input_dim)
+        if input_dim is not None
+        else input_dim_from_state_dict(state_dict)
     )
     model = build_strategy_a_mlp_for_state_dict(
         state_dict,

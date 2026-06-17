@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-DEFAULT_ENSEMBLE_SIZE = 8
+DEFAULT_ENSEMBLE_SIZE = 4
+DEFAULT_MLP_HIDDEN_DIMS: tuple[int, ...] = (32, 32)
+LEGACY_MLP_HIDDEN_DIMS: tuple[int, ...] = (64, 64)
 DEFAULT_RANDOM_STATE = 42
 
 __all__ = [
     "DEFAULT_ENSEMBLE_SIZE",
+    "DEFAULT_MLP_HIDDEN_DIMS",
+    "LEGACY_MLP_HIDDEN_DIMS",
     "DEFAULT_RANDOM_STATE",
     "apply_mlp_determinism",
     "lightgbm_deterministic_params",

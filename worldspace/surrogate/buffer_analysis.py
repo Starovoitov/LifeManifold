@@ -23,6 +23,7 @@ from worldspace.surrogate.model import (
     TARGET_KEYS,
     SurrogateModel,
 )
+from worldspace.surrogate.determinism import DEFAULT_ENSEMBLE_SIZE
 from worldspace.surrogate.training import (
     holdout_split,
     load_buffer,
@@ -281,7 +282,7 @@ def analyze_buffer_path(
     fitness_compose_ab: bool = False,
     random_state: int = 42,
     test_fraction: float = 0.2,
-    ensemble_size: int = 8,
+    ensemble_size: int = DEFAULT_ENSEMBLE_SIZE,
     consistency_weight: float = 0.0,
     fitness_loss_weight: float = 1.0,
     emitter_onehot: bool = False,

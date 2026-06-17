@@ -199,7 +199,6 @@ def train_from_buffer(
         model = SurrogateModel(
             model_type=model_type,
             random_state=42,
-            ensemble_size=8,
         )
         model.fit(
             x_train,
@@ -264,6 +263,10 @@ def train_from_buffer(
             mlp_uncertainty_method=(
                 str(model._mlp_uncertainty_method) if model_type == "mlp" else None
             ),
+            mlp_hidden_dims=(
+                list(model._mlp_hidden_dims) if model_type == "mlp" else None
+            ),
+            ensemble_size=int(model.ensemble_size),
             emitter_onehot=emitter_onehot,
             stratify_emitter=stratify_emitter,
             low_stability_weight=low_stability_weight,
@@ -341,6 +344,8 @@ def _save_summary(
     mlp_dropout_p: float | None = None,
     mlp_mc_samples: int | None = None,
     mlp_uncertainty_method: str | None = None,
+    mlp_hidden_dims: list[int] | None = None,
+    ensemble_size: int | None = None,
     emitter_onehot: bool = False,
     stratify_emitter: bool = False,
     low_stability_weight: float = 1.0,
@@ -376,6 +381,10 @@ def _save_summary(
         payload["mlp_mc_samples"] = int(mlp_mc_samples)
     if mlp_uncertainty_method is not None:
         payload["mlp_uncertainty_method"] = str(mlp_uncertainty_method)
+    if mlp_hidden_dims is not None:
+        payload["mlp_hidden_dims"] = list(mlp_hidden_dims)
+    if ensemble_size is not None:
+        payload["ensemble_size"] = int(ensemble_size)
     if emitter_onehot:
         payload["emitter_onehot"] = True
     if stratify_emitter:
