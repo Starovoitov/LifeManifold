@@ -170,7 +170,7 @@ def read_archive_jsonl(
     line_count = _count_jsonl_lines(path)
 
     if prefer_polars:
-        frame = _read_jsonl_polars(path)
+        frame = _read_jsonl_polars(path, line_count=line_count)
         if frame is not None:
             return frame, line_count
 
@@ -367,16 +367,24 @@ def _archive_type_from_nightly_summary(run_dir: Path) -> ArchiveType | None:
     return "cvt" if archive_type == "cvt" else "grid"
 
 
-def _read_jsonl_polars(path: Path) -> pd.DataFrame | None:
+def _read_jsonl_polars(
+    path: Path, *, line_count: int | None = None
+) -> pd.DataFrame | None:
     try:
         import polars as pl
-        from polars.exceptions import PanicException
+        from polars.exceptions import PanicException, SchemaError
     except ImportError:
         return None
 
+    infer_schema_length: int | None
+    if line_count is not None and line_count > 0:
+        infer_schema_length = line_count
+    else:
+        infer_schema_length = None
+
     try:
-        frame = pl.read_ndjson(path)
-    except (Exception, PanicException):
+        frame = pl.read_ndjson(path, infer_schema_length=infer_schema_length)
+    except (SchemaError, PanicException, Exception):
         return None
 
     rows: list[dict[str, Any]] = []

@@ -226,6 +226,13 @@ class TestDashboardArchiveLoader(unittest.TestCase):
             self.assertEqual(bundle.line_count_raw, 160)
             self.assertGreater(len(bundle.collapsed), 0)
 
+            from dashboard.components.archive_loader import _read_jsonl_polars
+
+            polars_frame = _read_jsonl_polars(path, line_count=160)
+            if polars_frame is None:
+                self.fail("_read_jsonl_polars returned None")
+            self.assertFalse(polars_frame.empty)
+
     def test_synthetic_jsonl_triggers_large_mode(self) -> None:
         from dashboard.components.archive_loader import load_archive_bundle
         from dashboard.utils.config import load_config
