@@ -14,18 +14,19 @@ from dashboard.utils.config import load_config, resolve_repo_path
 ensure_repo_on_path()
 
 from worldspace.illuminators.archive import ArchiveElite, GridArchive
+from worldspace.illuminators.emitters.archive_neighbors import moore_neighbor_elites
 from worldspace.illuminators.emitters.llm_emitter import (
     build_user_prompt,
     format_current_elite_json,
     format_few_shot_block,
-    moore_neighbor_elites,
 )
 from worldspace.illuminators.emitters.llm_prompts import (
     load_system_prompt_template,
     load_user_prompt_template,
     render_system_prompt,
 )
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.scheduler import TargetBin, TargetCell
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
 
 DEFAULT_USER_PROMPT_FILE = "map_elites_llm_emitter_user.txt"
@@ -104,7 +105,7 @@ def list_format_placeholders(template: str) -> list[str]:
     return ordered
 
 
-def load_grid_archive(archive_path: Path, *, resolution: int) -> GridArchive:
+def load_grid_archive(archive_path: Path, *, resolution: int) -> ArchiveProtocol:
     """Load a collapsed ``GridArchive`` from a MAP-Elites JSONL path."""
     from worldspace.illuminators.archive import load_and_collapse_jsonl
 
@@ -188,7 +189,7 @@ def render_user_prompt_preview(
 
 
 def build_user_prompt_like_emitter(
-    archive: GridArchive,
+    archive: ArchiveProtocol,
     target: TargetBin,
     surrogate_mean: float,
     surrogate_uncertainty: float,
@@ -196,8 +197,14 @@ def build_user_prompt_like_emitter(
     rng: np.random.Generator,
 ) -> str:
     """Delegate to ``build_user_prompt`` for parity with the illuminator emitter."""
+    target_cell = TargetCell(
+        cell_id=archive.cell_id_from_bin(target.bin),
+        target_stability=target.target_stability,
+        target_diversity=target.target_diversity,
+        bin_ij=target.bin,
+    )
     return build_user_prompt(
-        target=target,
+        target=target_cell,
         archive=archive,
         surrogate_mean=surrogate_mean,
         surrogate_uncertainty=surrogate_uncertainty,

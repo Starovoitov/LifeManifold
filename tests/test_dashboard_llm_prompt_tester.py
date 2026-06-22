@@ -13,7 +13,7 @@ from worldspace.illuminators.archive import (
     new_elite_metadata,
 )
 from worldspace.illuminators.emitters.llm_emitter import build_user_prompt
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import TargetBin, TargetCell
 from worldspace.specs.spec import WorldSpec
 
 _REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
@@ -154,7 +154,13 @@ class TestDashboardLlmPromptTester(unittest.TestCase):
         )
 
         archive = GridArchive(5)
-        target = TargetBin(bin=(1, 1), target_stability=0.3, target_diversity=0.7)
+        target = TargetCell(
+            cell_id=6,
+            target_stability=0.3,
+            target_diversity=0.7,
+            bin_ij=(1, 1),
+        )
+        target_bin = TargetBin.from_target_cell(target)
         rng = np.random.default_rng(3)
         expected = build_user_prompt(
             target=target,
@@ -165,7 +171,7 @@ class TestDashboardLlmPromptTester(unittest.TestCase):
         )
         actual = build_user_prompt_like_emitter(
             archive,
-            target,
+            target_bin,
             0.55,
             0.2,
             rng=rng,

@@ -11,13 +11,14 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput
 from worldspace.illuminators.emitters.stub import StubCandidateEmitter
 from worldspace.illuminators.loop import run_iteration, run_scheduler
 from worldspace.illuminators.scheduler import (
     RunCounters,
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
 )
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
@@ -67,8 +68,8 @@ class FixedSpecEmitter:
         self,
         *,
         emitter_kind: str,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,

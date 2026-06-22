@@ -127,14 +127,10 @@ def run_iteration(
             candidates_evaluated=counters.candidates_evaluated,
         )
         target_cell = select_target_cell(archive, rng)
-        target = TargetBin(
-            bin=target_cell.bin_ij,
-            target_stability=target_cell.target_stability,
-            target_diversity=target_cell.target_diversity,
-        )
+        target_bin = TargetBin.from_target_cell(target_cell)
         output = emitter.emit(
             emitter_kind=emitter_kind,
-            target=target,
+            target=target_cell,
             archive=archive,
             rng=rng,
             grid_size=grid_size,
@@ -149,7 +145,7 @@ def run_iteration(
         if config.surrogate_enabled and surrogate is not None:
             prediction = surrogate.predict(spec)
             if acquisition_active and isinstance(archive, GridArchive):
-                decision = decide(config.acquisition, prediction, target, archive)
+                decision = decide(config.acquisition, prediction, target_bin, archive)
                 runtime_action = effective_action(
                     config.acquisition.mode,
                     decision,
@@ -165,7 +161,7 @@ def run_iteration(
                     iteration=iteration_index,
                     candidate_id=candidate_id,
                     emitter_type=output.metadata.emitter_type,
-                    target=target,
+                    target=target_bin,
                     world_spec_hash=world_spec_canonical_hash(spec),
                     prediction=prediction,
                     decision=decision,
@@ -175,7 +171,7 @@ def run_iteration(
                 SlotOutcome(
                     candidate_id=candidate_id,
                     emitter_kind=emitter_kind,
-                    target_bin=target,
+                    target_bin=target_bin,
                     skipped=True,
                     eval_result=None,
                     insert=None,
@@ -231,7 +227,7 @@ def run_iteration(
                 iteration=iteration_index,
                 candidate_id=candidate_id,
                 emitter_type=output.metadata.emitter_type,
-                target=target,
+                target=target_bin,
                 world_spec_hash=world_spec_canonical_hash(spec),
                 prediction=prediction,
                 decision=decision,
@@ -244,7 +240,7 @@ def run_iteration(
             SlotOutcome(
                 candidate_id=candidate_id,
                 emitter_kind=emitter_kind,
-                target_bin=target,
+                target_bin=target_bin,
                 skipped=False,
                 eval_result=eval_result,
                 insert=insert,

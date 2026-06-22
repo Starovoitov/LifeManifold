@@ -16,7 +16,7 @@ from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import (
     EmitterKind,
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
     surrogate_config_from_scheduler,
 )
 from worldspace.surrogate.types import SurrogateProtocol
@@ -54,7 +54,7 @@ class CandidateEmitter(Protocol):
         self,
         *,
         emitter_kind: EmitterKind,
-        target: TargetBin,
+        target: TargetCell,
         archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
@@ -115,7 +115,7 @@ class MapElitesEmitter:
         self,
         *,
         emitter_kind: EmitterKind,
-        target: TargetBin,
+        target: TargetCell,
         archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,

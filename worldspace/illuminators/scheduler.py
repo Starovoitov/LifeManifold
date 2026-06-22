@@ -137,6 +137,15 @@ class TargetBin:
     target_stability: float
     target_diversity: float
 
+    @classmethod
+    def from_target_cell(cls, cell: TargetCell) -> TargetBin:
+        """Bridge ``TargetCell`` to acquisition and logging APIs that use bins."""
+        return cls(
+            bin=cell.bin_ij,
+            target_stability=cell.target_stability,
+            target_diversity=cell.target_diversity,
+        )
+
 
 @dataclass
 class RunCounters:

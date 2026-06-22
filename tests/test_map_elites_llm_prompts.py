@@ -15,10 +15,10 @@ from worldspace.illuminators.archive import (
     GridArchive,
     new_elite_metadata,
 )
+from worldspace.illuminators.emitters.archive_neighbors import moore_neighbor_elites
 from worldspace.illuminators.emitters.llm_emitter import (
     build_user_prompt,
     format_few_shot_block,
-    moore_neighbor_elites,
 )
 from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
@@ -26,7 +26,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
     render_system_prompt,
     system_prompt_version,
 )
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_param_bounds import NOISE_MAX, NOISE_MIN
 from worldspace.specs.world_spec_constraints import (
@@ -96,7 +96,12 @@ class TestUserPrompt(unittest.TestCase):
 
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
         archive = GridArchive(5)
-        target = TargetBin(bin=(2, 2), target_stability=0.42, target_diversity=0.57)
+        target = TargetCell(
+            cell_id=12,
+            target_stability=0.42,
+            target_diversity=0.57,
+            bin_ij=(2, 2),
+        )
         prompt = build_user_prompt(
             target=target,
             archive=archive,

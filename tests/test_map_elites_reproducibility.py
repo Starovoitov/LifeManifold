@@ -8,6 +8,7 @@ from dataclasses import replace
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 
 from worldspace.illuminators.emitters.base import EmitterOutput, MapElitesEmitter
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
@@ -16,7 +17,7 @@ from worldspace.illuminators.loop import run_scheduler
 from worldspace.illuminators.scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
     load_scheduler,
 )
 
@@ -76,8 +77,8 @@ class _FailingLlmEmitter(LlmEmitter):
     def emit(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,

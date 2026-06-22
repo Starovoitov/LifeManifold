@@ -15,7 +15,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.llm_prompts import system_prompt_version
-from worldspace.illuminators.scheduler import SchedulerConfig, TargetBin
+from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
@@ -23,7 +23,12 @@ from worldspace.specs.world_spec_from_llm import (
 )
 from worldspace.surrogate.types import SurrogatePrediction
 
-_TARGET = TargetBin(bin=(1, 1), target_stability=0.5, target_diversity=0.6)
+_TARGET = TargetCell(
+    cell_id=6,
+    target_stability=0.5,
+    target_diversity=0.6,
+    bin_ij=(1, 1),
+)
 _BASE = WorldSpec(
     birth=[1, 3],
     survival=[2, 3],
@@ -262,6 +267,76 @@ class TestSurrogateStub(unittest.TestCase):
         )
         self.assertIn("0.420", captured[0])
         self.assertIn("0.880", captured[0])
+
+
+class TestLlmEmitterCvt(unittest.TestCase):
+    def test_cvt_few_shot_uses_voronoi_neighbors(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+        from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
+
+        centroids = generate_centroids(9, seed=0, lloyd_iterations=5)
+        archive = CvtArchive(centroids)
+        archive.try_insert(
+            ArchiveElite(
+                bin=(0, 0),
+                fitness=0.5,
+                world_spec=replace(_BASE, seed=1),
+                measures={"stability": 0.5, "diversity": 0.5},
+                metadata=new_elite_metadata(
+                    generated_by="random",
+                    emitter_type="random",
+                    elite_id="center",
+                    timestamp="2026-01-01T00:00:00+00:00",
+                ),
+            )
+        )
+        neighbor_id = archive.neighbors(0)[0]
+        archive.try_insert(
+            ArchiveElite(
+                bin=archive.bin_from_cell_id(neighbor_id),
+                fitness=0.4,
+                world_spec=replace(_BASE, seed=2),
+                measures={"stability": 0.4, "diversity": 0.6},
+                metadata=new_elite_metadata(
+                    generated_by="random",
+                    emitter_type="random",
+                    elite_id="neighbor",
+                    timestamp="2026-01-01T00:00:00+00:00",
+                ),
+            )
+        )
+        neighbors = neighbor_elites(
+            archive, 0, rng=np.random.default_rng(0), max_count=4
+        )
+        self.assertEqual(len(neighbors), 1)
+        self.assertEqual(neighbors[0].metadata.id, "neighbor")
+
+        captured: list[str] = []
+
+        def mock_llm(**kwargs: object) -> str:
+            captured.append(str(kwargs.get("prompt", "")))
+            return "not json"
+
+        emitter = LlmEmitter(
+            grid_resolution=10,
+            surrogate_mean=0.5,
+            surrogate_uncertainty=1.0,
+            call_llm_text=mock_llm,
+        )
+        emitter.emit(
+            target=TargetCell(
+                cell_id=0,
+                target_stability=0.5,
+                target_diversity=0.6,
+                bin_ij=(0, 0),
+            ),
+            archive=archive,
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("neighbor", captured[0])
 
 
 if __name__ == "__main__":

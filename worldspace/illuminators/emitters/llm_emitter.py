@@ -10,22 +10,18 @@ import numpy as np
 
 from worldspace.generators import RandomWalkWorldGenerator
 from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
-from worldspace.illuminators.archive import (
-    ArchiveElite,
-    GridArchive,
-    new_elite_metadata,
-)
+from worldspace.illuminators.archive import ArchiveElite, new_elite_metadata
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
     render_system_prompt,
     system_prompt_version,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
-from worldspace.illuminators.grid_neighbors import moore_neighbors_bounded
 from worldspace.illuminators.scheduler import (
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
     resolve_surrogate_stub,
 )
 from worldspace.surrogate.types import SurrogateProtocol
@@ -49,7 +45,6 @@ __all__ = [
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
-    "moore_neighbor_elites",
 ]
 
 
@@ -83,20 +78,12 @@ class LlmEmitter:
     def emit(
         self,
         *,
-        target: TargetBin,
+        target: TargetCell,
         archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
     ) -> EmitterOutput:
-        if not isinstance(archive, GridArchive):
-            return self._random.emit(
-                target=target,
-                archive=archive,
-                rng=rng,
-                grid_size=grid_size,
-                steps=steps,
-            )
         parent_spec, parent_id = self._resolve_parent_one(
             target=target,
             archive=archive,
@@ -158,13 +145,13 @@ class LlmEmitter:
     def _resolve_parent_one(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
     ) -> tuple[WorldSpec, str | None]:
-        elite = archive.get(*target.bin)
+        elite = archive.get_cell(target.cell_id)
         if elite is not None and elite.world_spec is not None:
             parent_id = elite.metadata.id if elite.metadata is not None else None
             return (
@@ -206,8 +193,8 @@ class LlmEmitter:
 
 def build_user_prompt(
     *,
-    target: TargetBin,
-    archive: GridArchive,
+    target: TargetCell,
+    archive: ArchiveProtocol,
     surrogate_mean: float,
     surrogate_uncertainty: float,
     rng: np.random.Generator,
@@ -216,10 +203,13 @@ def build_user_prompt(
     """Build the LLM user prompt for one emitter slot."""
     from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
 
-    neighbors = moore_neighbor_elites(
-        archive, target.bin, rng=rng, max_count=max_few_shot
+    neighbors = neighbor_elites(
+        archive,
+        target.cell_id,
+        rng=rng,
+        max_count=max_few_shot,
     )
-    current = archive.get(*target.bin)
+    current = archive.get_cell(target.cell_id)
     return USER_PROMPT_TEMPLATE.format(
         target_stability=target.target_stability,
         target_diversity=target.target_diversity,
@@ -229,29 +219,6 @@ def build_user_prompt(
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),
     )
-
-
-def moore_neighbor_elites(
-    archive: GridArchive,
-    bin_coord: tuple[int, int],
-    *,
-    rng: np.random.Generator,
-    max_count: int = _DEFAULT_FEW_SHOT,
-) -> list[ArchiveElite]:
-    """Return up to ``max_count`` elites from occupied Moore neighbors of ``bin_coord``."""
-    if max_count < 1:
-        return []
-    i, j = bin_coord
-    resolution = archive.resolution
-    neighbors: list[ArchiveElite] = []
-    for ni, nj in moore_neighbors_bounded(i, j, resolution):
-        elite = archive.get(ni, nj)
-        if elite is not None:
-            neighbors.append(elite)
-    if len(neighbors) <= max_count:
-        return neighbors
-    indices = rng.choice(len(neighbors), size=max_count, replace=False)
-    return [neighbors[int(idx)] for idx in sorted(indices)]
 
 
 def format_current_elite_json(elite: ArchiveElite | None) -> str:

@@ -3,12 +3,12 @@
 from .base import CandidateEmitter, EmitterOutput, MapElitesEmitter, strip_seed
 from .genetic_emitter import DEFAULT_MUTATION_SCALE, GeneticEmitter
 from .genetics import GENOME_SIZE, decode_genome, encode_world
+from .archive_neighbors import moore_neighbor_elites
 from .llm_emitter import (
     LlmEmitter,
     build_user_prompt,
     format_current_elite_json,
     format_few_shot_block,
-    moore_neighbor_elites,
 )
 from .llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
