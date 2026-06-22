@@ -96,7 +96,6 @@ class MapElitesEmitter:
                 surrogate = get_surrogate(surrogate_config_from_scheduler(scheduler))
             effective_surrogate = surrogate
             self._llm = LlmEmitter(
-                grid_resolution=scheduler.grid_resolution,
                 scheduler=scheduler,
                 surrogate=effective_surrogate,
                 fallback_scale=llm_cfg.fallback_scale,

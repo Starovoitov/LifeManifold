@@ -22,7 +22,9 @@ from worldspace.illuminators.emitters.llm_emitter import (
 )
 from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
+    DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     load_system_prompt_template,
+    render_cvt_system_prompt,
     render_system_prompt,
     system_prompt_version,
 )
@@ -85,6 +87,24 @@ class TestSystemPrompt(unittest.TestCase):
         self.assertIn("stability", text)
         self.assertIn("diversity", text)
         self.assertIn("0.45*diversity", text)
+
+    def test_cvt_render_substitutes_n_centroids(self) -> None:
+        rendered = render_cvt_system_prompt(25)
+        self.assertIn("25", rendered)
+        self.assertIn("Voronoi", rendered)
+        self.assertNotIn("{n_centroids}", rendered)
+
+    def test_cvt_system_prompt_version_is_sha256_prefix(self) -> None:
+        expected = hashlib.sha256(
+            DEFAULT_SYSTEM_PROMPT_PATH_CVT.read_bytes()
+        ).hexdigest()[:8]
+        self.assertEqual(system_prompt_version(archive_type="cvt"), expected)
+
+    def test_cvt_prompt_version_differs_from_grid(self) -> None:
+        self.assertNotEqual(
+            system_prompt_version(archive_type="grid"),
+            system_prompt_version(archive_type="cvt"),
+        )
 
 
 class TestUserPrompt(unittest.TestCase):

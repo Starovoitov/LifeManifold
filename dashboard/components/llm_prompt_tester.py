@@ -24,6 +24,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
     load_system_prompt_template,
     load_user_prompt_template,
     render_system_prompt,
+    render_system_prompt_for_archive_type,
 )
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import TargetBin, TargetCell
@@ -31,6 +32,7 @@ from worldspace.specs.world_spec_constraints import format_world_spec_constraint
 
 DEFAULT_USER_PROMPT_FILE = "map_elites_llm_emitter_user.txt"
 DEFAULT_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system.txt"
+CVT_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system_cvt.txt"
 _PLACEHOLDER_PATTERN = re.compile(r"\{(\w+)(?::[^}]*)?\}")
 PREVIEW_RNG_SEED = 0
 
@@ -215,9 +217,26 @@ def build_user_prompt_like_emitter(
 def render_system_prompt_preview(
     grid_resolution: int,
     cfg: dict[str, Any] | None = None,
+    *,
+    archive_type: str = "grid",
+    n_centroids: int | None = None,
 ) -> str:
-    """Render the system prompt with grid resolution placeholders filled in."""
-    path = resolve_prompts_dir(cfg) / DEFAULT_SYSTEM_PROMPT_FILE
+    """Render the system prompt with archive-type placeholders filled in."""
+    prompts_dir = resolve_prompts_dir(cfg)
+    if archive_type == "cvt":
+        path = prompts_dir / CVT_SYSTEM_PROMPT_FILE
+        count = (
+            n_centroids
+            if n_centroids is not None
+            else grid_resolution * grid_resolution
+        )
+        return render_system_prompt_for_archive_type(
+            "cvt",
+            grid_resolution=grid_resolution,
+            n_centroids=count,
+            path=path,
+        )
+    path = prompts_dir / DEFAULT_SYSTEM_PROMPT_FILE
     return render_system_prompt(grid_resolution, path=path)
 
 

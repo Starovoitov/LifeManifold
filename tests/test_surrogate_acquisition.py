@@ -168,5 +168,36 @@ class TestSurrogateAcquisition(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class TestSurrogateAcquisitionCvt(unittest.TestCase):
+    def test_empty_cell_forces_eval(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        decision = decide(
+            _config(),
+            _prediction(0.0, 0.0),
+            _target((3, 0)),
+            archive,
+        )
+        self.assertEqual(decision.action, "eval")
+        self.assertEqual(decision.reason, REASON_EMPTY_BIN_EXPLORE)
+
+    def test_threshold_skip_on_filled_cvt_cell(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        archive.try_insert(ArchiveElite(bin=(2, 0), fitness=0.5))
+        decision = decide(
+            _config(),
+            _prediction(0.1, 0.1),
+            _target((2, 0)),
+            archive,
+        )
+        self.assertEqual(decision.action, "skip")
+        self.assertEqual(decision.reason, REASON_BELOW_FITNESS_THRESHOLD)
+
+
 if __name__ == "__main__":
     unittest.main()

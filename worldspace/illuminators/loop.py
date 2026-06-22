@@ -12,7 +12,6 @@ import numpy as np
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
     ARCHIVE_SCHEMA_VERSION_V1_3,
-    GridArchive,
     InsertResult,
     insert_and_persist,
     insert_evaluated,
@@ -144,7 +143,7 @@ def run_iteration(
 
         if config.surrogate_enabled and surrogate is not None:
             prediction = surrogate.predict(spec)
-            if acquisition_active and isinstance(archive, GridArchive):
+            if acquisition_active:
                 decision = decide(config.acquisition, prediction, target_bin, archive)
                 runtime_action = effective_action(
                     config.acquisition.mode,

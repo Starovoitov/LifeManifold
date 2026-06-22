@@ -189,6 +189,44 @@ class TestLoopAcquisition(unittest.TestCase):
         self.assertEqual(stats.skipped, 0)
         self.assertEqual(counters.candidates_evaluated, 2)
 
+    def test_filter_skips_cvt_archive_without_eval(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        config = replace(
+            _filter_config(batch_size=2),
+            schema_version="1.3",
+            archive_type="cvt",
+            n_centroids=9,
+            cvt_seed=0,
+            lloyd_iterations=5,
+        )
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        counters = RunCounters()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "surrogate_archive.jsonl"
+            archive_writer = SurrogateArchiveWriter(
+                path=archive_path,
+                run_id="cvt-filter-run",
+                flush_every=32,
+            )
+            stats, outcomes = run_iteration(
+                config,
+                archive,
+                np.random.default_rng(3),
+                counters,
+                StubCandidateEmitter(),
+                iteration_index=1,
+                grid_size=8,
+                steps=200,
+                surrogate=_LowFitnessSurrogate(),
+                surrogate_archive=archive_writer,
+            )
+            archive_writer.close()
+            self.assertEqual(stats.evaluated, 0)
+            self.assertEqual(stats.skipped, 2)
+            self.assertTrue(all(o.skipped for o in outcomes))
+
 
 if __name__ == "__main__":
     unittest.main()

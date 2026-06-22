@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal, cast
 
 import numpy as np
 
@@ -15,7 +16,7 @@ from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
-    render_system_prompt,
+    render_system_prompt_for_archive_type,
     system_prompt_version,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
@@ -54,7 +55,7 @@ class LlmEmitter:
     def __init__(
         self,
         *,
-        grid_resolution: int,
+        grid_resolution: int | None = None,
         scheduler: SchedulerConfig | None = None,
         surrogate: SurrogateProtocol | None = None,
         surrogate_mean: float = 0.5,
@@ -64,7 +65,15 @@ class LlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         random_emitter: RandomEmitter | None = None,
     ) -> None:
-        self._grid_resolution = int(grid_resolution)
+        if scheduler is not None:
+            self._grid_resolution = scheduler.grid_resolution
+            self._n_centroids = scheduler.n_centroids
+        elif grid_resolution is not None:
+            self._grid_resolution = int(grid_resolution)
+            self._n_centroids = self._grid_resolution * self._grid_resolution
+        else:
+            self._grid_resolution = 50
+            self._n_centroids = 50 * 50
         self._scheduler = scheduler
         self._surrogate = surrogate
         self._surrogate_mean = float(surrogate_mean)
@@ -73,7 +82,6 @@ class LlmEmitter:
         self._llm_config = load_llm_config(llm_spec_path or _DEFAULT_LLM_SPEC)
         self._random = random_emitter or RandomEmitter()
         self._call_llm_text = call_llm_text
-        self._prompt_version = system_prompt_version()
 
     def emit(
         self,
@@ -95,7 +103,19 @@ class LlmEmitter:
         surrogate_mean, surrogate_uncertainty = self._resolve_surrogate_values(
             prepared_parent
         )
-        system_prompt = render_system_prompt(self._grid_resolution)
+        archive_type = cast(
+            Literal["grid", "cvt"],
+            archive.archive_type,
+        )
+        if archive_type not in {"grid", "cvt"}:
+            msg = f"unsupported archive_type for LLM emitter: {archive.archive_type!r}"
+            raise ValueError(msg)
+        system_prompt = render_system_prompt_for_archive_type(
+            archive_type,
+            grid_resolution=self._grid_resolution,
+            n_centroids=archive.n_cells,
+        )
+        prompt_version = system_prompt_version(archive_type=archive_type)
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
@@ -122,7 +142,7 @@ class LlmEmitter:
                         generated_by="llm",
                         emitter_type=_EMITTER_TYPE_LLM,
                         parent_id=parent_id,
-                        prompt_version=self._prompt_version,
+                        prompt_version=prompt_version,
                     ),
                 )
         fallback_spec = _random_walk_step(
@@ -138,7 +158,7 @@ class LlmEmitter:
                 generated_by="llm",
                 emitter_type=_EMITTER_TYPE_LLM_FALLBACK,
                 parent_id=parent_id,
-                prompt_version=self._prompt_version,
+                prompt_version=prompt_version,
             ),
         )
 

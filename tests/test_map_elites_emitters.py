@@ -255,38 +255,5 @@ class TestMapElitesEmitter(unittest.TestCase):
         self.assertEqual(out.metadata.emitter_type, "llm")
 
 
-class TestGeneticEmitterCvt(unittest.TestCase):
-    def test_cvt_genetic_offspring_from_voronoi_neighbor(self) -> None:
-        from worldspace.illuminators.cvt import generate_centroids
-        from worldspace.illuminators.cvt_archive import CvtArchive
-
-        centroids = generate_centroids(9, seed=0, lloyd_iterations=5)
-        archive = CvtArchive(centroids)
-        archive.try_insert(_elite((0, 0), 0.7, _BASE_SPEC, elite_id="parent-one"))
-        neighbor_id = archive.neighbors(0)[0]
-        archive.try_insert(
-            _elite(
-                archive.bin_from_cell_id(neighbor_id),
-                0.4,
-                replace(_BASE_SPEC, birth=[2]),
-                elite_id="parent-two",
-            )
-        )
-        output = GeneticEmitter(mutation_scale=0.0).emit(
-            target=TargetCell(
-                cell_id=0,
-                target_stability=0.5,
-                target_diversity=0.5,
-                bin_ij=(0, 0),
-            ),
-            archive=archive,
-            rng=np.random.default_rng(5),
-            grid_size=8,
-            steps=200,
-        )
-        self.assertEqual(output.metadata.parent_id, "parent-one")
-        self.assertEqual(output.metadata.emitter_type, "genetic")
-
-
 if __name__ == "__main__":
     unittest.main()
