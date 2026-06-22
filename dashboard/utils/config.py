@@ -19,8 +19,11 @@ _CHECKPOINT_FILENAMES: tuple[str, ...] = (
     "micro.pkl",
 )
 
+SURROGATE_ARCHIVE_JSONL_NAME = "surrogate_archive.jsonl"
+
 __all__ = [
     "DASHBOARD_ARCHIVE_SESSION_KEY",
+    "SURROGATE_ARCHIVE_JSONL_NAME",
     "active_archive_path",
     "checkpoint_dirs_for_archive",
     "checkpoint_paths_near_archive",
@@ -35,6 +38,7 @@ __all__ = [
     "resolve_surrogate_buffer_path",
     "resolve_surrogate_checkpoint_path",
     "sort_archive_paths_by_mtime",
+    "surrogate_archive_path_for_map_elites_archive",
 ]
 
 
@@ -124,18 +128,51 @@ def existing_archive_paths(cfg: dict[str, Any] | None = None) -> list[Path]:
     return sort_archive_paths_by_mtime(by_mtime)
 
 
-def resolve_surrogate_archive_path(cfg: dict[str, Any] | None = None) -> Path:
-    """Resolve configured SurrogateArchive JSONL path (acquisition log)."""
-    config = cfg if cfg is not None else load_config()
-    paths_section = config.get("paths")
+def surrogate_archive_path_for_map_elites_archive(archive_path: Path) -> Path:
+    """Return expected co-located SurrogateArchive path for one MAP-Elites JSONL."""
+    return archive_path.resolve().parent / SURROGATE_ARCHIVE_JSONL_NAME
+
+
+def _optional_configured_surrogate_archive_path(cfg: dict[str, Any]) -> Path | None:
+    paths_section = cfg.get("paths")
     if not isinstance(paths_section, dict):
-        msg = "config paths section missing"
-        raise KeyError(msg)
+        return None
     raw = paths_section.get("surrogate_archive")
     if not isinstance(raw, str) or not raw.strip():
+        return None
+    return resolve_repo_path(raw)
+
+
+def _configured_surrogate_archive_path(cfg: dict[str, Any]) -> Path:
+    configured = _optional_configured_surrogate_archive_path(cfg)
+    if configured is None:
         msg = "paths.surrogate_archive must be a non-empty string"
         raise KeyError(msg)
-    return resolve_repo_path(raw)
+    return configured
+
+
+def resolve_surrogate_archive_path(
+    cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
+) -> Path:
+    """Resolve SurrogateArchive JSONL: co-located with archive first, then config."""
+    config = cfg if cfg is not None else load_config()
+
+    if archive_path is not None and archive_path.is_file():
+        co_located = surrogate_archive_path_for_map_elites_archive(archive_path)
+        if co_located.is_file():
+            return co_located
+
+    configured = _optional_configured_surrogate_archive_path(config)
+    if configured is not None and configured.is_file():
+        return configured
+
+    if archive_path is not None and archive_path.is_file():
+        return surrogate_archive_path_for_map_elites_archive(archive_path)
+    if configured is not None:
+        return configured
+    raise KeyError("paths.surrogate_archive must be a non-empty string")
 
 
 def checkpoint_dirs_for_archive(archive_path: Path) -> list[Path]:

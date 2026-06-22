@@ -26,9 +26,12 @@ from dashboard.components.surrogate_archive_loader import (
     get_archive_log_bundle,
 )
 from dashboard.utils.config import (
+    DASHBOARD_ARCHIVE_SESSION_KEY,
+    existing_archive_paths,
     load_config,
     repo_root,
     resolve_surrogate_archive_path,
+    surrogate_archive_path_for_map_elites_archive,
 )
 
 st.set_page_config(page_title="Acquisition Log", layout="wide")
@@ -40,25 +43,45 @@ st.caption(
 
 cfg = load_config()
 
+archives = existing_archive_paths(cfg)
+if not archives:
+    st.error("No archive JSONL found. Run MAP-Elites smoke or update dashboard config.")
+    st.stop()
+
+
+def _archive_label(path: Path) -> str:
+    return str(path.relative_to(repo_root()))
+
+
+selected_archive = st.sidebar.selectbox(
+    "Archive JSONL",
+    archives,
+    format_func=_archive_label,
+    key=DASHBOARD_ARCHIVE_SESSION_KEY,
+)
+
 try:
-    archive_path = resolve_surrogate_archive_path(cfg)
+    log_path = resolve_surrogate_archive_path(cfg, archive_path=selected_archive)
 except KeyError as exc:
     st.error(f"Dashboard config error: {exc}")
     st.stop()
 
-if not archive_path.is_file():
-    st.error(f"Surrogate archive not found: {archive_path.relative_to(repo_root())}")
+if not log_path.is_file():
+    co_located = surrogate_archive_path_for_map_elites_archive(selected_archive)
+    st.error(f"Surrogate archive not found: {log_path.relative_to(repo_root())}")
     st.info(
-        "Run MAP-Elites with surrogate acquisition logging (shadow/filter) or set "
-        "`paths.surrogate_archive` in dashboard config. "
+        "Expected acquisition log next to the selected archive at "
+        f"`{co_located.relative_to(repo_root())}` when the illuminator run used "
+        "`acquisition.mode: shadow` or `filter`. "
+        "Otherwise set `paths.surrogate_archive` in dashboard config. "
         "Smoke data: tests/fixtures/surrogate_archive_smoke.jsonl"
     )
     st.stop()
 
-st.sidebar.caption(str(archive_path.relative_to(repo_root())))
+st.sidebar.caption(str(log_path.relative_to(repo_root())))
 
 try:
-    bundle = get_archive_log_bundle(archive_path)
+    bundle = get_archive_log_bundle(log_path)
 except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
     st.error(f"Failed to load surrogate archive: {exc}")
     st.stop()

@@ -92,6 +92,67 @@ class TestSurrogateArchiveLoader(unittest.TestCase):
         self.assertTrue(path.name.endswith(".jsonl"))
         self.assertIn("surrogate_archive", str(path))
 
+    def test_resolve_surrogate_archive_path_prefers_co_located(self) -> None:
+        import tempfile
+
+        from dashboard.utils.config import (
+            load_config,
+            resolve_surrogate_archive_path,
+            surrogate_archive_path_for_map_elites_archive,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "acq_shadow"
+            run_dir.mkdir()
+            map_archive = run_dir / "map_elites_archive.jsonl"
+            map_archive.write_text("{}\n", encoding="utf-8")
+            log_path = run_dir / "surrogate_archive.jsonl"
+            log_path.write_text(
+                json.dumps(_sample_record()) + "\n",
+                encoding="utf-8",
+            )
+            resolved = resolve_surrogate_archive_path(
+                load_config(),
+                archive_path=map_archive,
+            )
+            self.assertEqual(
+                resolved,
+                surrogate_archive_path_for_map_elites_archive(map_archive),
+            )
+            self.assertTrue(resolved.is_file())
+
+    def test_resolve_co_located_without_configured_path(self) -> None:
+        import tempfile
+
+        from dashboard.utils.config import (
+            resolve_surrogate_archive_path,
+            surrogate_archive_path_for_map_elites_archive,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "acq_shadow"
+            run_dir.mkdir()
+            map_archive = run_dir / "map_elites_archive.jsonl"
+            map_archive.write_text("{}\n", encoding="utf-8")
+            log_path = run_dir / "surrogate_archive.jsonl"
+            log_path.write_text(
+                json.dumps(_sample_record()) + "\n",
+                encoding="utf-8",
+            )
+            cfg = {"paths": {}}
+            resolved = resolve_surrogate_archive_path(cfg, archive_path=map_archive)
+            self.assertEqual(
+                resolved,
+                surrogate_archive_path_for_map_elites_archive(map_archive),
+            )
+            self.assertTrue(resolved.is_file())
+
+    def test_resolve_raises_when_config_and_archive_missing(self) -> None:
+        from dashboard.utils.config import resolve_surrogate_archive_path
+
+        with self.assertRaises(KeyError):
+            resolve_surrogate_archive_path({"paths": {}})
+
 
 class TestAcquisitionMetrics(unittest.TestCase):
     def test_acquisition_kpis_smoke_fixture(self) -> None:

@@ -63,7 +63,7 @@ Page **Surrogate Analysis** plots archive **real fitness** (simulation) vs **pre
 
 ### Acquisition log (SurrogateArchive)
 
-Page **Acquisition Log** reads `paths.surrogate_archive` (default `artifacts/surrogate/surrogate_archive.jsonl`): per-slot `decision`, `acquisition_mode`, and skip KPIs. For local UI smoke tests without a full illuminator run, point config at `tests/fixtures/surrogate_archive_smoke.jsonl`.
+Page **Acquisition Log** reads `surrogate_archive.jsonl` co-located with the sidebar **Archive JSONL** (same run directory as `map_elites_archive.jsonl`), then falls back to `paths.surrogate_archive` in config. Per-slot fields: `decision`, `acquisition_mode`, skip KPIs. Smoke fixture: `tests/fixtures/surrogate_archive_smoke.jsonl`.
 
 ## Layout
 
