@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from worldspace.illuminators.archive import DEFAULT_GRID_RESOLUTION, GridArchive
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
@@ -17,8 +17,12 @@ from worldspace.illuminators.cvt import (
 )
 from worldspace.illuminators.cvt_archive import CvtArchive
 
+if TYPE_CHECKING:
+    from worldspace.illuminators.scheduler import SchedulerConfig
+
 __all__ = [
     "ArchiveFactoryConfig",
+    "archive_factory_config_from_scheduler",
     "create_archive",
     "create_grid_archive",
 ]
@@ -26,7 +30,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ArchiveFactoryConfig:
-    """Runtime archive settings until scheduler schema 1.3 is wired in."""
+    """Runtime archive settings derived from scheduler YAML or direct construction."""
 
     archive_type: Literal["grid", "cvt"] = "grid"
     resolution: int = DEFAULT_GRID_RESOLUTION
@@ -54,6 +58,19 @@ def create_archive(
 def create_grid_archive(resolution: int = DEFAULT_GRID_RESOLUTION) -> GridArchive:
     """Convenience wrapper for the legacy grid-only call sites."""
     return GridArchive(resolution)
+
+
+def archive_factory_config_from_scheduler(
+    config: SchedulerConfig,
+) -> ArchiveFactoryConfig:
+    """Build archive factory settings from a loaded scheduler config."""
+    return ArchiveFactoryConfig(
+        archive_type=config.archive_type,
+        resolution=config.grid_resolution,
+        n_centroids=config.n_centroids,
+        cvt_seed=config.cvt_seed,
+        lloyd_iterations=config.lloyd_iterations,
+    )
 
 
 def _create_cvt_archive(

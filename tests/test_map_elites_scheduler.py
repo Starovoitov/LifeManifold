@@ -15,7 +15,14 @@ from worldspace.illuminators.archive import (
     new_elite_metadata,
 )
 from worldspace.illuminators.evaluation import bin_center
+from worldspace.illuminators.archive_factory import (
+    archive_factory_config_from_scheduler,
+    create_archive,
+)
+from worldspace.illuminators.cvt import generate_centroids
+from worldspace.illuminators.cvt_archive import CvtArchive
 from worldspace.illuminators.scheduler import (
+    DEFAULT_MINI_CVT_SCHEDULER_PATH,
     DEFAULT_MINI_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
@@ -25,6 +32,7 @@ from worldspace.illuminators.scheduler import (
     resolve_emitter_for_slot,
     resolve_emitter_kind,
     select_target_bin,
+    select_target_cell,
     slot_emitter_for_candidate,
 )
 from worldspace.specs.spec import WorldSpec
@@ -70,10 +78,54 @@ class TestLoadScheduler(unittest.TestCase):
         config = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)
         self.assertEqual(config.iterations, 20)
         self.assertEqual(config.batch_size, 4)
+        self.assertEqual(config.archive_type, "grid")
+        self.assertEqual(config.grid_resolution, 10)
+        self.assertEqual(config.n_cells, 100)
         self.assertFalse(config.llm_enabled)
         self.assertEqual(
             tuple(config.batch_emitters), ("random", "genetic", "genetic", "llm")
         )
+
+    def test_load_mini_cvt_scheduler(self) -> None:
+        config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)
+        self.assertEqual(config.schema_version, "1.3")
+        self.assertEqual(config.archive_type, "cvt")
+        self.assertEqual(config.n_centroids, 25)
+        self.assertEqual(config.n_cells, 25)
+        self.assertEqual(config.cvt_seed, 0)
+        self.assertEqual(config.lloyd_iterations, 50)
+        self.assertFalse(config.llm_enabled)
+        factory_config = archive_factory_config_from_scheduler(config)
+        self.assertEqual(factory_config.archive_type, "cvt")
+        self.assertEqual(factory_config.n_centroids, 25)
+
+    def test_load_schema_1_3_implicit_grid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "grid13.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["schema_version"] = "1.3"
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertEqual(config.schema_version, "1.3")
+            self.assertEqual(config.archive_type, "grid")
+            self.assertEqual(config.grid_resolution, 10)
+
+    def test_load_schema_1_3_explicit_grid_archive_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "grid_archive.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["schema_version"] = "1.3"
+            doc.pop("grid_resolution")
+            doc["archive"] = {"type": "grid", "resolution": 12}
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertEqual(config.archive_type, "grid")
+            self.assertEqual(config.grid_resolution, 12)
+            self.assertEqual(config.n_cells, 144)
 
     def test_load_production_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_SCHEDULER_PATH)
@@ -191,6 +243,51 @@ class TestSelectTargetBin(unittest.TestCase):
     def test_isinstance_scheduler_config_from_load(self) -> None:
         config = load_scheduler(DEFAULT_SCHEDULER_PATH)
         self.assertIsInstance(config, SchedulerConfig)
+
+
+class TestSelectTargetCell(unittest.TestCase):
+    def test_empty_archive_uniform_among_cells(self) -> None:
+        archive = GridArchive(3)
+        rng = np.random.default_rng(7)
+        cell_ids = {select_target_cell(archive, rng).cell_id for _ in range(200)}
+        self.assertTrue(all(0 <= cell_id < 9 for cell_id in cell_ids))
+        self.assertGreater(len(cell_ids), 1)
+
+    def test_grid_matches_select_target_bin(self) -> None:
+        archive = GridArchive(4)
+        for seed in (0, 1, 7, 99):
+            rng = np.random.default_rng(seed)
+            target_cell = select_target_cell(archive, rng)
+            target_bin = select_target_bin(archive, np.random.default_rng(seed))
+            self.assertEqual(target_cell.bin_ij, target_bin.bin)
+            self.assertAlmostEqual(
+                target_cell.target_stability, target_bin.target_stability
+            )
+            self.assertAlmostEqual(
+                target_cell.target_diversity, target_bin.target_diversity
+            )
+
+    def test_partial_fill_prefers_min_fitness_frontier(self) -> None:
+        archive = GridArchive(3)
+        archive.try_insert(_minimal_elite((1, 1), 0.9, elite_id="high"))
+        archive.try_insert(_minimal_elite((1, 0), 0.2, elite_id="low"))
+        target = select_target_cell(archive, np.random.default_rng(0))
+        self.assertEqual(target.bin_ij, (1, 0))
+
+    def test_cvt_frontier_prefers_min_fitness(self) -> None:
+        centroids = generate_centroids(9, seed=0, lloyd_iterations=5)
+        archive = CvtArchive(centroids)
+        archive.try_insert(_minimal_elite((0, 0), 0.9, elite_id="high"))
+        archive.try_insert(_minimal_elite((1, 0), 0.2, elite_id="low"))
+        target = select_target_cell(archive, np.random.default_rng(0))
+        self.assertEqual(target.bin_ij, (1, 0))
+        self.assertEqual(target.cell_id, 1)
+
+    def test_cvt_create_archive_from_mini_scheduler(self) -> None:
+        config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)
+        archive = create_archive(archive_factory_config_from_scheduler(config))
+        self.assertEqual(archive.archive_type, "cvt")
+        self.assertEqual(archive.n_cells, 25)
 
 
 def _mini_config(*, initial_random_candidates: int = 10) -> SchedulerConfig:
