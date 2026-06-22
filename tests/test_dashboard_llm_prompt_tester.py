@@ -206,6 +206,53 @@ class TestDashboardLlmPromptTester(unittest.TestCase):
         )
         self.assertIn("9", text)
 
+    def test_load_cvt_archive_from_smoke_fixture(self) -> None:
+
+        from dashboard.components.llm_prompt_tester import (
+            load_grid_archive,
+            occupied_cell_ids,
+            target_for_cell_id,
+            user_prompt_format_kwargs,
+        )
+        from dashboard.components.llm_prompt_tester import (
+            load_user_prompt_from_config,
+            render_user_prompt_preview,
+        )
+
+        archive_path = (
+            _REPO_ROOT
+            / "artifacts"
+            / "map_elites_smoke_cvt"
+            / "map_elites_archive.jsonl"
+        )
+        if not archive_path.is_file():
+            self.skipTest("CVT smoke archive missing; run mini_cvt illuminator first")
+        archive = load_grid_archive(archive_path, resolution=5, archive_type="cvt")
+        self.assertEqual(archive.archive_type, "cvt")
+        cells = occupied_cell_ids(archive)
+        self.assertGreater(len(cells), 0)
+        target = target_for_cell_id(archive, cells[0])
+        kwargs = user_prompt_format_kwargs(
+            archive,
+            target,
+            0.5,
+            0.5,
+            rng=np.random.default_rng(0),
+        )
+        text, err = render_user_prompt_preview(load_user_prompt_from_config(), kwargs)
+        self.assertIsNone(err)
+        self.assertIn("0.500", text)
+
+    def test_occupied_bins_rejects_cvt_archive(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        from dashboard.components.llm_prompt_tester import occupied_bins
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        with self.assertRaises(TypeError):
+            occupied_bins(archive)
+
 
 if __name__ == "__main__":
     unittest.main()

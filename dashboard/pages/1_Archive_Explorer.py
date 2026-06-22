@@ -23,9 +23,11 @@ from dashboard.components.archive_explorer import (
     render_diagnostic_panel,
     reset_explorer_session_for_archive,
     sync_selected_bin_selectbox,
+    sync_selected_cell_selectbox,
 )
 from dashboard.components.archive_loader import (
     get_archive_bundle,
+    show_centroids_warning,
     show_large_archive_warning,
 )
 from dashboard.components.filters import (
@@ -33,7 +35,10 @@ from dashboard.components.filters import (
     rebuild_pivots_from_collapsed,
     render_archive_filters,
 )
-from dashboard.components.visualizations import create_archive_heatmap
+from dashboard.components.visualizations import (
+    create_archive_heatmap,
+    create_archive_scatter,
+)
 from dashboard.utils.config import (
     DASHBOARD_ARCHIVE_SESSION_KEY,
     existing_archive_paths,
@@ -66,15 +71,23 @@ reset_explorer_session_for_archive(str(selected_path))
 
 bundle = get_archive_bundle(selected_path)
 show_large_archive_warning(bundle, cfg)
+show_centroids_warning(bundle)
 
 filter_state = render_archive_filters(bundle, selected_path)
 filtered = apply_collapsed_filters(bundle.collapsed, filter_state)
-filtered_pivots = rebuild_pivots_from_collapsed(
-    filtered,
-    list(bundle.pivots.keys()),
-    bundle.resolution,
+is_cvt = bundle.archive_type == "cvt"
+filtered_pivots = (
+    {}
+    if is_cvt
+    else rebuild_pivots_from_collapsed(
+        filtered,
+        list(bundle.pivots.keys()),
+        bundle.resolution,
+    )
 )
 
+st.metric("Archive type", bundle.archive_type)
+st.metric("Niches", bundle.n_cells)
 st.metric("Collapsed elites", len(bundle.collapsed))
 st.metric("After filters", len(filtered))
 st.metric("Raw JSONL lines", bundle.line_count_raw)
@@ -86,8 +99,11 @@ table_max = int(perf.get("table_max_rows", 500))
 display_columns = [
     column
     for column in (
+        "cell_id",
         "bin_x",
         "bin_y",
+        "centroid_s",
+        "centroid_d",
         "fitness",
         "stability",
         "diversity",
@@ -102,26 +118,39 @@ st.dataframe(
     hide_index=True,
 )
 
-st.subheader("Archive heatmap")
 metric = filter_state.heatmap_metric
-pivot = filtered_pivots.get(metric)
-if pivot is None:
-    st.info("No pivot data for the selected metric.")
-else:
-    heatmap_fig = create_archive_heatmap(
-        pivot=pivot,
+if is_cvt:
+    st.subheader("Archive scatter (CVT)")
+    scatter_fig = create_archive_scatter(
+        filtered,
+        bundle.centroids,
         metric=metric,
-        resolution=filter_state.resolution,
     )
-    st.plotly_chart(heatmap_fig, width="stretch")
+    st.plotly_chart(scatter_fig, width="stretch")
+else:
+    st.subheader("Archive heatmap")
+    pivot = filtered_pivots.get(metric)
+    if pivot is None:
+        st.info("No pivot data for the selected metric.")
+    else:
+        heatmap_fig = create_archive_heatmap(
+            pivot=pivot,
+            metric=metric,
+            resolution=filter_state.resolution,
+        )
+        st.plotly_chart(heatmap_fig, width="stretch")
 
 if filtered.empty:
     st.info("No elites match the current filters.")
 elif "world_spec" not in filtered.columns:
     st.warning("Archive rows lack world_spec; cannot run diagnostics.")
 else:
-    st.subheader("Bin selection")
-    elite_row = sync_selected_bin_selectbox(filtered)
+    st.subheader("Niche selection")
+    elite_row = (
+        sync_selected_cell_selectbox(filtered)
+        if is_cvt
+        else sync_selected_bin_selectbox(filtered)
+    )
     if elite_row is not None:
         st.subheader("Diagnostic")
         render_diagnostic_panel(elite_row)

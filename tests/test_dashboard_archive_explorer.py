@@ -65,6 +65,63 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
         self.assertIn("fitness=", label)
         self.assertIn("bin (", label)
 
+    def test_list_cells_from_cvt_frame(self) -> None:
+        from dashboard.components.archive_explorer import (
+            format_elite_cell_label,
+            list_cells_from_frame,
+        )
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.utils.config import load_config
+        from tests.test_dashboard_archive_loader import _cvt_fixture_dir
+
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+            cells = list_cells_from_frame(bundle.collapsed)
+            self.assertEqual(cells, [0, 3, 5])
+            label = format_elite_cell_label(bundle.collapsed, cells[0])
+            self.assertIn("cell 0", label)
+            self.assertIn("fitness=", label)
+
+    def test_diagnostic_chart_key_uses_bin_for_grid_schema_1_3(self) -> None:
+        from dashboard.components.archive_explorer import (
+            _diagnostic_niche_label,
+            diagnostic_chart_key,
+        )
+
+        row = {
+            "archive_type": "grid",
+            "cell_id": 23,
+            "bin_x": 2,
+            "bin_y": 3,
+            "fitness": 0.5,
+        }
+        self.assertEqual(_diagnostic_niche_label(row), "bin (2, 3)")
+        self.assertEqual(
+            diagnostic_chart_key(row, "abcdef0123456789"),
+            "explorer_diagnostic_bin_2_3_abcdef0123456789",
+        )
+
+    def test_diagnostic_chart_key_uses_cell_for_cvt(self) -> None:
+        from dashboard.components.archive_explorer import (
+            _diagnostic_niche_label,
+            diagnostic_chart_key,
+        )
+
+        row = {
+            "archive_type": "cvt",
+            "cell_id": 7,
+            "bin_x": 7,
+            "bin_y": 0,
+            "fitness": 0.5,
+        }
+        self.assertEqual(_diagnostic_niche_label(row), "cell 7")
+        self.assertEqual(
+            diagnostic_chart_key(row, "deadbeef01234567"),
+            "explorer_diagnostic_cell_7_deadbeef01234567",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from scripts.compare_acquisition_runs import (
+    _infer_grid_resolution_from_bin_cell,
     _summarize_run,
     resolve_run_archive_meta,
 )
@@ -85,6 +86,103 @@ class TestResolveRunArchiveMeta(unittest.TestCase):
             meta = resolve_run_archive_meta(root, grid_resolution=10)
         self.assertEqual(meta["archive_type"], "cvt")
         self.assertEqual(meta["n_cells"], 9)
+
+    def test_jsonl_skips_invalid_json_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            valid = json.dumps(
+                {
+                    "schema_version": "1.3",
+                    "archive_type": "cvt",
+                    "cell_id": 0,
+                    "fitness": 0.5,
+                }
+            )
+            (root / "map_elites_archive.jsonl").write_text(
+                "not valid json\n" + valid + "\n",
+                encoding="utf-8",
+            )
+            (root / "cvt_centroids.json").write_text(
+                json.dumps({"n": 4, "centroids": [[0.1, 0.2]] * 4}),
+                encoding="utf-8",
+            )
+            meta = resolve_run_archive_meta(root, grid_resolution=10)
+        self.assertEqual(meta["archive_type"], "cvt")
+        self.assertEqual(meta["n_cells"], 4)
+
+    def test_jsonl_skips_non_dict_json_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            valid = json.dumps(
+                {
+                    "schema_version": "1.3",
+                    "archive_type": "cvt",
+                    "cell_id": 1,
+                    "fitness": 0.6,
+                }
+            )
+            (root / "map_elites_archive.jsonl").write_text(
+                "[1, 2, 3]\n" + valid + "\n",
+                encoding="utf-8",
+            )
+            (root / "cvt_centroids.json").write_text(
+                json.dumps({"n": 6, "centroids": [[0.2, 0.3]] * 6}),
+                encoding="utf-8",
+            )
+            meta = resolve_run_archive_meta(root, grid_resolution=10)
+        self.assertEqual(meta["archive_type"], "cvt")
+        self.assertEqual(meta["n_cells"], 6)
+
+    def test_grid_jsonl_rejects_mismatched_cell_id_and_bin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "map_elites_archive.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.3",
+                        "archive_type": "grid",
+                        "cell_id": 23,
+                        "bin": [5, 0],
+                        "fitness": 0.5,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            meta = resolve_run_archive_meta(root, grid_resolution=10)
+        self.assertEqual(meta["archive_type"], "grid")
+        self.assertEqual(meta["n_cells"], 100)
+
+    def test_grid_jsonl_infers_resolution_when_bin_matches_cell_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "map_elites_archive.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.3",
+                        "archive_type": "grid",
+                        "cell_id": 12,
+                        "bin": [1, 2],
+                        "fitness": 0.5,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            meta = resolve_run_archive_meta(root, grid_resolution=5)
+        self.assertEqual(meta["grid_resolution"], 10)
+        self.assertEqual(meta["n_cells"], 100)
+
+
+class TestInferGridResolution(unittest.TestCase):
+    def test_mismatched_bin_returns_none(self) -> None:
+        self.assertIsNone(_infer_grid_resolution_from_bin_cell(5, 0, 23))
+
+    def test_consistent_bin_returns_resolution(self) -> None:
+        self.assertEqual(_infer_grid_resolution_from_bin_cell(1, 2, 12), 10)
+
+    def test_i_zero_is_ambiguous_returns_none(self) -> None:
+        self.assertIsNone(_infer_grid_resolution_from_bin_cell(0, 5, 5))
 
 
 class TestSummarizeRun(unittest.TestCase):

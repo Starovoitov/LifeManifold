@@ -183,6 +183,27 @@ class TestDashboardVisualizations(unittest.TestCase):
         self.assertEqual(grid.shape, (50, 50))
         self.assertEqual(grid[1, 1], 0.9)
 
+    def test_create_archive_scatter_cvt_trace_types(self) -> None:
+        import tempfile
+
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.components.visualizations import create_archive_scatter
+        from dashboard.utils.config import load_config
+        from tests.test_dashboard_archive_loader import _cvt_fixture_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+            fig = create_archive_scatter(
+                bundle.collapsed,
+                bundle.centroids,
+                metric="fitness",
+            )
+        trace_types = {trace.type for trace in _figure_traces(fig)}
+        self.assertIn("scatter", trace_types)
+        self.assertGreaterEqual(len(_figure_traces(fig)), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

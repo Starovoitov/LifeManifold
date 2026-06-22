@@ -226,10 +226,10 @@ def _meta_from_archive_jsonl(run_dir: Path) -> RunArchiveMeta | None:
         try:
             parsed = json.loads(line)
         except json.JSONDecodeError:
-            return None
+            continue
         if isinstance(parsed, dict):
             first_record = parsed
-        break
+            break
     if first_record is None:
         return None
 
@@ -264,9 +264,9 @@ def _meta_from_archive_jsonl(run_dir: Path) -> RunArchiveMeta | None:
                 j = int(bin_value[1])
             except (TypeError, ValueError):
                 return None
-            resolution = max(i, j, int(cell_id**0.5)) + 1
-            while resolution * resolution <= cell_id:
-                resolution += 1
+            resolution = _infer_grid_resolution_from_bin_cell(i, j, cell_id)
+            if resolution is None:
+                return None
             n_cells = resolution * resolution
             return {
                 "archive_type": "grid",
@@ -274,6 +274,36 @@ def _meta_from_archive_jsonl(run_dir: Path) -> RunArchiveMeta | None:
                 "grid_resolution": resolution,
             }
     return None
+
+
+def _infer_grid_resolution_from_bin_cell(
+    i: int,
+    j: int,
+    cell_id: int,
+) -> int | None:
+    """Infer grid side length only when ``cell_id == i * resolution + j`` holds uniquely."""
+    from worldspace.illuminators.archive import bin_ij_from_flat_cell_id, flat_cell_id
+
+    if i < 0 or j < 0 or cell_id < 0:
+        return None
+    min_resolution = max(i, j) + 1
+    if i == 0:
+        if cell_id != j:
+            return None
+        return None
+    if (cell_id - j) % i != 0:
+        return None
+    resolution = (cell_id - j) // i
+    if resolution < min_resolution:
+        return None
+    try:
+        if flat_cell_id((i, j), resolution=resolution) != cell_id:
+            return None
+        if bin_ij_from_flat_cell_id(cell_id, resolution=resolution) != (i, j):
+            return None
+    except (IndexError, ValueError):
+        return None
+    return resolution
 
 
 def _summarize_run(
