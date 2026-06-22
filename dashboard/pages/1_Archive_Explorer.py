@@ -22,8 +22,7 @@ ensure_repo_on_path()
 from dashboard.components.archive_explorer import (
     render_diagnostic_panel,
     reset_explorer_session_for_archive,
-    sync_selected_bin_selectbox,
-    sync_selected_cell_selectbox,
+    sync_selected_niche_selectbox,
 )
 from dashboard.components.archive_loader import (
     get_archive_bundle,
@@ -146,11 +145,7 @@ elif "world_spec" not in filtered.columns:
     st.warning("Archive rows lack world_spec; cannot run diagnostics.")
 else:
     st.subheader("Niche selection")
-    elite_row = (
-        sync_selected_cell_selectbox(filtered)
-        if is_cvt
-        else sync_selected_bin_selectbox(filtered)
-    )
+    elite_row = sync_selected_niche_selectbox(filtered, bundle.archive_type)
     if elite_row is not None:
         st.subheader("Diagnostic")
         render_diagnostic_panel(elite_row)

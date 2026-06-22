@@ -56,44 +56,65 @@ def render_run_card(run: RunInfo, *, load_stats: bool = True) -> None:
         st.caption("No nightly/smoke summary JSON next to this archive.")
 
     summary = run.summary
-    col1, col2, col3, col4 = st.columns(4)
-    filled = summary_get(summary, "filled_cells", default=None)
-    coverage = summary_get(summary, "coverage", default=None)
-    evaluations = summary_get(summary, "evaluations", default=None)
-    elapsed = summary_get(summary, "elapsed_seconds", default=None)
-
-    col1.metric("Filled cells", _format_int(filled))
-    col2.metric("Coverage", _format_percent(coverage))
-    col3.metric("Evaluations", _format_int(evaluations))
-    col4.metric("Elapsed (s)", _format_float(elapsed))
-
+    stats: dict[str, Any] = {}
     if load_stats:
         stats = archive_run_stats(
             str(run.archive_path.resolve()),
             run.archive_mtime,
         )
-        if stats.get("mean_fitness") is not None:
-            st.metric("Mean fitness (archive)", f"{stats['mean_fitness']:.4f}")
-        breakdown = stats.get("emitter_breakdown")
-        if isinstance(breakdown, dict) and breakdown:
-            st.markdown("**Emitter breakdown**")
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {"emitter_type": key, "count": value}
-                        for key, value in breakdown.items()
-                    ]
-                ),
-                width="stretch",
-                hide_index=True,
-            )
+
+    archive_type = _first_non_none(
+        summary_get(summary, "archive_type", default=None),
+        stats.get("archive_type"),
+        "grid",
+    )
+    n_cells = _first_non_none(
+        summary_get(summary, "n_cells", default=None),
+        stats.get("n_cells"),
+    )
+    filled = _first_non_none(
+        summary_get(summary, "filled_cells", default=None),
+        stats.get("filled_cells"),
+    )
+    coverage = _first_non_none(
+        summary_get(summary, "coverage", default=None),
+        stats.get("coverage"),
+    )
+    evaluations = summary_get(summary, "evaluations", default=None)
+    elapsed = summary_get(summary, "elapsed_seconds", default=None)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Archive type", str(archive_type))
+    col2.metric("Niches", _format_int(n_cells))
+    col3.metric("Filled cells", _format_int(filled))
+    col4.metric("Coverage", _format_percent(coverage))
+    col5.metric("Evaluations", _format_int(evaluations))
+    st.metric("Elapsed (s)", _format_float(elapsed))
+
+    if load_stats and stats.get("mean_fitness") is not None:
+        st.metric("Mean fitness (archive)", f"{stats['mean_fitness']:.4f}")
+    breakdown = stats.get("emitter_breakdown")
+    if isinstance(breakdown, dict) and breakdown:
+        st.markdown("**Emitter breakdown**")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"emitter_type": key, "count": value}
+                    for key, value in breakdown.items()
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
 
 
 def render_reproducibility_block(summary: dict[str, Any]) -> None:
-    """Display scheduler, seed, grid, schema, and feature flags from summary JSON."""
+    """Display scheduler, seed, archive metadata, and feature flags from summary JSON."""
     scheduler = summary_get(summary, "scheduler", default="—")
     seed = summary_get(summary, "seed", default="—")
     resolution = summary_get(summary, "grid_resolution", default="—")
+    archive_type = summary_get(summary, "archive_type", default="—")
+    n_cells = summary_get(summary, "n_cells", default="—")
     schema = summary_get(summary, "schema_version", default="—")
     llm = summary_get(summary, "llm_enabled", default="—")
     surrogate = summary_get(summary, "surrogate_enabled", default="—")
@@ -107,6 +128,8 @@ def render_reproducibility_block(summary: dict[str, Any]) -> None:
     st.markdown(
         f"- **Scheduler:** `{scheduler}`\n"
         f"- **Seed:** `{seed}`\n"
+        f"- **Archive type:** `{archive_type}`\n"
+        f"- **Niches (n_cells):** `{n_cells}`\n"
         f"- **Grid resolution:** `{resolution}`\n"
         f"- **Schema version:** `{schema}`\n"
         f"- **LLM enabled:** `{llm}`\n"
@@ -127,11 +150,17 @@ def render_page_links() -> None:
 
 @st.cache_data(show_spinner=False)
 def archive_run_stats(archive_path_str: str, mtime: float) -> dict[str, Any]:
-    """Mean fitness and emitter counts from a collapsed archive (cached)."""
+    """Archive-derived stats including dual-mode coverage (cached)."""
     del mtime
     bundle = get_archive_bundle(Path(archive_path_str))
     frame = bundle.collapsed
-    stats: dict[str, Any] = {}
+    stats: dict[str, Any] = {
+        "archive_type": bundle.archive_type,
+        "n_cells": bundle.n_cells,
+        "filled_cells": len(frame),
+    }
+    if bundle.n_cells > 0:
+        stats["coverage"] = float(len(frame)) / float(bundle.n_cells)
     if frame.empty or "fitness" not in frame.columns:
         return stats
     stats["mean_fitness"] = float(np.mean(frame["fitness"].to_numpy(dtype=np.float64)))
@@ -147,14 +176,23 @@ def _run_expander_title(run: RunInfo) -> str:
     rel = run.run_dir.relative_to(repo_root())
     filled = summary_get(run.summary, "filled_cells", default="?")
     coverage = summary_get(run.summary, "coverage", default=None)
+    archive_type = summary_get(run.summary, "archive_type", default=None)
     cov_text = f"{float(coverage) * 100:.1f}%" if coverage is not None else "n/a"
-    return f"{rel} — filled={filled}, coverage={cov_text}"
+    type_text = str(archive_type) if archive_type is not None else "?"
+    return f"{rel} — {type_text}, filled={filled}, coverage={cov_text}"
 
 
 def _first_summary(runs: list[RunInfo]) -> dict[str, Any] | None:
     for run in runs:
         if run.summary is not None:
             return run.summary
+    return None
+
+
+def _first_non_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
     return None
 
 
@@ -171,6 +209,7 @@ def _format_float(value: Any) -> str:
 
 
 def _format_percent(value: Any) -> str:
+    """Format a coverage ratio in [0, 1] as a percentage string."""
     if value is None:
         return "—"
     return f"{float(value) * 100:.2f}%"

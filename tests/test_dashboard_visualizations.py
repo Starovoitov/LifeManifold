@@ -204,6 +204,40 @@ class TestDashboardVisualizations(unittest.TestCase):
         self.assertIn("scatter", trace_types)
         self.assertGreaterEqual(len(_figure_traces(fig)), 1)
 
+    def test_create_archive_scatter_shows_empty_and_filled_traces(self) -> None:
+
+        from dashboard.components.visualizations import create_archive_scatter
+        from worldspace.illuminators.cvt import generate_centroids
+
+        centroids = generate_centroids(9, seed=0, lloyd_iterations=5)
+        collapsed = __import__("pandas").DataFrame(
+            {
+                "cell_id": [0, 3],
+                "fitness": [0.2, 0.8],
+                "measure_stability": [0.4, 0.6],
+                "measure_diversity": [0.5, 0.7],
+            }
+        )
+        fig = create_archive_scatter(collapsed, centroids, metric="fitness")
+        trace_names = {trace.name for trace in _figure_traces(fig)}
+        self.assertIn("empty niche", trace_names)
+        self.assertIn("elite", trace_names)
+
+    def test_create_archive_scatter_metric_from_measure_columns(self) -> None:
+        from dashboard.components.visualizations import create_archive_scatter
+        from worldspace.illuminators.cvt import generate_centroids
+
+        centroids = generate_centroids(4, seed=1, lloyd_iterations=5)
+        collapsed = __import__("pandas").DataFrame(
+            {
+                "cell_id": [0, 1],
+                "measure_stability": [0.3, 0.7],
+                "measure_diversity": [0.4, 0.6],
+            }
+        )
+        fig = create_archive_scatter(collapsed, centroids, metric="stability")
+        self.assertGreaterEqual(len(_figure_traces(fig)), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

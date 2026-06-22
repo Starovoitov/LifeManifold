@@ -114,6 +114,8 @@ if archives:
         archive_type,
     )
     grid_resolution = bundle.resolution
+    st.sidebar.metric("Archive type", bundle.archive_type)
+    st.sidebar.metric("Niches", bundle.n_cells)
 else:
     render_surrogate_status_banner(cfg)
     st.warning(

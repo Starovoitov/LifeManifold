@@ -39,11 +39,13 @@ __all__ = [
     "get_selected_elite_row",
     "list_bins_from_frame",
     "list_cells_from_frame",
+    "list_niches_from_frame",
     "render_diagnostic_panel",
     "reset_explorer_session_for_archive",
     "run_cached_simulation_with_ui",
     "sync_selected_bin_selectbox",
     "sync_selected_cell_selectbox",
+    "sync_selected_niche_selectbox",
 ]
 
 
@@ -99,8 +101,26 @@ def elite_row_for_bin(
     return match.iloc[0]
 
 
-def get_selected_elite_row(frame: pd.DataFrame) -> pd.Series | None:
-    """Return the elite for ``SESSION_KEY_SELECTED_BIN``, if set and present."""
+def list_niches_from_frame(
+    frame: pd.DataFrame, archive_type: str
+) -> list[int] | list[tuple[int, int]]:
+    """Return occupied niche keys for grid bins or CVT cell ids."""
+    if archive_type == "cvt":
+        return list_cells_from_frame(frame)
+    return list_bins_from_frame(frame)
+
+
+def get_selected_elite_row(
+    frame: pd.DataFrame,
+    *,
+    archive_type: str = "grid",
+) -> pd.Series | None:
+    """Return the elite for the active niche session key, if set and present."""
+    if archive_type == "cvt":
+        selected_cell = st.session_state.get(SESSION_KEY_SELECTED_CELL)
+        if isinstance(selected_cell, int):
+            return elite_row_for_cell(frame, selected_cell)
+        return None
     selected = st.session_state.get(SESSION_KEY_SELECTED_BIN)
     if not isinstance(selected, (list, tuple)) or len(selected) != 2:
         return None
@@ -126,13 +146,13 @@ def format_elite_cell_label(frame: pd.DataFrame, cell_id: int) -> str:
     if row is None:
         return f"cell {cell_id}"
     fitness = _row_float(row, "fitness") if "fitness" in row.index else float("nan")
-    parts = [f"cell {cell_id}"]
+    label = f"cell {cell_id}"
     if "centroid_s" in row.index and "centroid_d" in row.index:
         s = _row_float(row, "centroid_s")
         d = _row_float(row, "centroid_d")
         if not (pd.isna(s) or pd.isna(d)):
-            parts.append(f"s={s:.2f}, d={d:.2f}")
-    parts.append(f"fitness={fitness:.4f}")
+            label = f"cell {cell_id} (s={s:.2f}, d={d:.2f})"
+    parts = [label, f"fitness={fitness:.4f}"]
     seed = _optional_row_int(row, "seed")
     if seed is not None:
         parts.append(f"seed={seed}")
@@ -191,6 +211,18 @@ def sync_selected_cell_selectbox(
     )
     cell_id = int(chosen) if isinstance(chosen, int) else cells[0]
     return elite_row_for_cell(frame, cell_id)
+
+
+def sync_selected_niche_selectbox(
+    frame: pd.DataFrame,
+    archive_type: str,
+    *,
+    label: str = "Selected niche",
+) -> pd.Series | None:
+    """Grid bin or CVT cell picker depending on ``archive_type``."""
+    if archive_type == "cvt":
+        return sync_selected_cell_selectbox(frame, label=label)
+    return sync_selected_bin_selectbox(frame, label=label)
 
 
 def run_cached_simulation_with_ui(world_spec: dict[str, Any]) -> SimulationResult:
@@ -283,7 +315,16 @@ def _is_cvt_row(row_dict: Mapping[str, Any]) -> bool:
 def _diagnostic_niche_label(row_dict: Mapping[str, Any]) -> str | None:
     """Human-readable niche label aligned with chart key identity."""
     if _is_cvt_row(row_dict) and "cell_id" in row_dict:
-        return f"cell {int(row_dict['cell_id'])}"
+        cell_id = int(row_dict["cell_id"])
+        if "centroid_s" in row_dict and "centroid_d" in row_dict:
+            try:
+                s = float(row_dict["centroid_s"])
+                d = float(row_dict["centroid_d"])
+                if not (pd.isna(s) or pd.isna(d)):
+                    return f"cell {cell_id} (s={s:.2f}, d={d:.2f})"
+            except (TypeError, ValueError):
+                pass
+        return f"cell {cell_id}"
     if "bin_x" in row_dict and "bin_y" in row_dict:
         return f"bin ({int(row_dict['bin_x'])}, {int(row_dict['bin_y'])})"
     if "cell_id" in row_dict:
