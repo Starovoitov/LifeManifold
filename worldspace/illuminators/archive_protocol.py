@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Protocol
 
-from worldspace.illuminators.archive import ArchiveElite, InsertResult
+if TYPE_CHECKING:
+    from worldspace.illuminators.archive import ArchiveElite, InsertResult
 
 __all__ = ["ArchiveProtocol"]
 

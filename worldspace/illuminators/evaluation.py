@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.metrics import WorldMetrics
 from worldspace.simulator import run_world
 from worldspace.specs.spec import WorldSpec
@@ -26,6 +27,7 @@ __all__ = [
     "evaluate_candidate",
     "extinction_probability",
     "measures_from_metrics",
+    "assign_cell_for_archive",
     "topology_complexity",
 ]
 
@@ -130,6 +132,14 @@ def bin_index_from_measures(
 ) -> tuple[int, int]:
     """Bin from JSONL-style ``measures`` dict."""
     return bin_index(measures["stability"], measures["diversity"], resolution)
+
+
+def assign_cell_for_archive(
+    measures: dict[str, float],
+    archive: ArchiveProtocol,
+) -> int:
+    """Map measured BC to a flat niche index via archive-specific assignment."""
+    return archive.assign_cell_id(measures["stability"], measures["diversity"])
 
 
 def evaluate_candidate(
