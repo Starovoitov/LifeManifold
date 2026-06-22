@@ -15,6 +15,7 @@ from worldspace.illuminators.archive import (
     GridArchive,
     new_elite_metadata,
 )
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
     render_system_prompt,
@@ -83,11 +84,19 @@ class LlmEmitter:
         self,
         *,
         target: TargetBin,
-        archive: GridArchive,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
     ) -> EmitterOutput:
+        if not isinstance(archive, GridArchive):
+            return self._random.emit(
+                target=target,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
         parent_spec, parent_id = self._resolve_parent_one(
             target=target,
             archive=archive,

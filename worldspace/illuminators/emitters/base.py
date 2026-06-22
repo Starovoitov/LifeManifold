@@ -11,7 +11,8 @@ if TYPE_CHECKING:
 
 import numpy as np
 
-from worldspace.illuminators.archive import EliteMetadata, GridArchive
+from worldspace.illuminators.archive import EliteMetadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import (
     EmitterKind,
     SchedulerConfig,
@@ -54,7 +55,7 @@ class CandidateEmitter(Protocol):
         *,
         emitter_kind: EmitterKind,
         target: TargetBin,
-        archive: GridArchive,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
@@ -115,7 +116,7 @@ class MapElitesEmitter:
         *,
         emitter_kind: EmitterKind,
         target: TargetBin,
-        archive: GridArchive,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,

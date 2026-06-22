@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from worldspace.generators import RandomWorldGenerator
-from worldspace.illuminators.archive import GridArchive, new_elite_metadata
+from worldspace.illuminators.archive import new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.scheduler import TargetBin
 
@@ -19,7 +20,7 @@ class RandomEmitter:
         self,
         *,
         target: TargetBin,
-        archive: GridArchive,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,

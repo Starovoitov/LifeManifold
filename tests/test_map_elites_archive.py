@@ -319,6 +319,27 @@ class TestArchiveJsonl(unittest.TestCase):
         self.assertEqual(record["cell_id"], 7)
         self.assertNotIn("bin", record)
 
+    def test_count_archive_jsonl_lines_uses_grid_resolution_for_schema_1_3(
+        self,
+    ) -> None:
+        resolution = 100
+        record = elite_to_archive_record(
+            _minimal_elite((60, 40), 0.55, elite_id="large-grid"),
+            archive_type="grid",
+            schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+            resolution=resolution,
+        )
+        record.pop("bin")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            _write_jsonl(path, [record])
+            with self.assertRaises(IndexError):
+                count_archive_jsonl_lines(path, resolution=DEFAULT_GRID_RESOLUTION)
+            self.assertEqual(
+                count_archive_jsonl_lines(path, resolution=resolution),
+                1,
+            )
+
     def test_insert_and_persist_rejected_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "archive.jsonl"

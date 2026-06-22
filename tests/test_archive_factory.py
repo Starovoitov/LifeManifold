@@ -10,9 +10,26 @@ import numpy as np
 
 from worldspace.illuminators.archive import GridArchive
 from worldspace.illuminators.archive_factory import ArchiveFactoryConfig, create_archive
-from worldspace.illuminators.cvt import load_centroids
+from worldspace.illuminators.cvt import generate_centroids, load_centroids
 from worldspace.illuminators.cvt_archive import CvtArchive
-from worldspace.illuminators.evaluation import assign_cell_for_archive, bin_index
+from worldspace.illuminators.evaluation import (
+    assign_cell_for_archive,
+    bin_index,
+    evaluate_candidate,
+)
+from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
+
+_BASE_SPEC = WorldSpec(
+    birth=[1],
+    survival=[2, 3],
+    noise=0.02,
+    resource_regen=0.05,
+    predation=0.1,
+    cell_types=CANONICAL_CELL_TYPES.copy(),
+    grid_size=4,
+    steps=200,
+    seed=0,
+)
 
 
 class TestArchiveFactory(unittest.TestCase):
@@ -58,6 +75,24 @@ class TestAssignCellForArchive(unittest.TestCase):
         archive = CvtArchive(centroids)
         measures = {"stability": 0.26, "diversity": 0.74}
         self.assertEqual(assign_cell_for_archive(measures, archive), 2)
+
+
+class TestEvaluateCandidateForArchive(unittest.TestCase):
+    def test_evaluate_candidate_uses_grid_archive_bin(self) -> None:
+        archive = GridArchive(10)
+        result = evaluate_candidate(_BASE_SPEC, archive=archive)
+        i, j = bin_index(
+            result.measures["stability"],
+            result.measures["diversity"],
+            archive.resolution,
+        )
+        self.assertEqual(result.bin, (i, j))
+
+    def test_evaluate_candidate_uses_cvt_archive_bin(self) -> None:
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        result = evaluate_candidate(_BASE_SPEC, archive=archive)
+        cell_id = assign_cell_for_archive(result.measures, archive)
+        self.assertEqual(result.bin, (cell_id, 0))
 
 
 if __name__ == "__main__":
