@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+NIGHTLY_SUMMARY_FILENAME = "nightly_run_summary.json"
+MAP_ELITES_ARCHIVE_FILENAME = "map_elites_archive.jsonl"
+CVT_CENTROIDS_FILENAME = "cvt_centroids.json"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -31,12 +35,26 @@ def parse_args() -> argparse.Namespace:
         "--grid-resolution",
         type=int,
         default=10,
-        help="Archive resolution for filled-cell percentage",
+        help="Grid resolution fallback when run metadata is missing",
+    )
+    parser.add_argument(
+        "--n-cells",
+        type=int,
+        default=None,
+        help="Override archive niche count when summary/JSONL metadata is missing",
     )
     return parser.parse_args()
 
 
+class RunArchiveMeta(TypedDict):
+    archive_type: str
+    n_cells: int
+    grid_resolution: int | None
+
+
 class _RunSummary(TypedDict):
+    archive_type: str
+    n_cells: int
     evaluations: float
     filled_cells: float
     filled_cells_pct: float
@@ -49,11 +67,21 @@ def main() -> None:
     baseline = _summarize_run(
         Path(args.baseline_dir),
         grid_resolution=args.grid_resolution,
+        n_cells_override=args.n_cells,
     )
     candidate = _summarize_run(
         Path(args.candidate_dir),
         grid_resolution=args.grid_resolution,
+        n_cells_override=args.n_cells,
     )
+    if baseline["archive_type"] != candidate["archive_type"]:
+        print(
+            "WARNING: archive_type mismatch "
+            f"(baseline={baseline['archive_type']}, "
+            f"candidate={candidate['archive_type']}); "
+            "filled-cell coverage is not directly comparable.",
+            file=sys.stderr,
+        )
     eval_reduction_pct = 0.0
     if baseline["evaluations"] > 0:
         eval_reduction_pct = (
@@ -76,6 +104,14 @@ def main() -> None:
             / baseline["mean_best_fitness"]
         )
     print("=== Acquisition A/B ===")
+    print(
+        f"baseline archive: {baseline['archive_type']} "
+        f"({baseline['n_cells']} niches)"
+    )
+    print(
+        f"candidate archive: {candidate['archive_type']} "
+        f"({candidate['n_cells']} niches)"
+    )
     print(f"baseline evaluations: {baseline['evaluations']}")
     print(f"candidate evaluations: {candidate['evaluations']}")
     print(f"eval reduction: {eval_reduction_pct:.1f}%")
@@ -96,8 +132,162 @@ def main() -> None:
         )
 
 
-def _summarize_run(path: Path, *, grid_resolution: int) -> _RunSummary:
-    archive_path = path / "map_elites_archive.jsonl"
+def resolve_run_archive_meta(
+    run_dir: Path,
+    *,
+    grid_resolution: int,
+    n_cells_override: int | None = None,
+) -> RunArchiveMeta:
+    """Resolve archive type and niche count for coverage denominators."""
+    if n_cells_override is not None:
+        if n_cells_override < 1:
+            msg = f"n_cells must be >= 1, got {n_cells_override}"
+            raise ValueError(msg)
+        summary_meta = _meta_from_nightly_summary(run_dir)
+        archive_type = (
+            summary_meta["archive_type"] if summary_meta is not None else "grid"
+        )
+        grid_res = (
+            summary_meta["grid_resolution"]
+            if summary_meta is not None
+            else grid_resolution
+        )
+        return {
+            "archive_type": archive_type,
+            "n_cells": int(n_cells_override),
+            "grid_resolution": grid_res,
+        }
+
+    summary_meta = _meta_from_nightly_summary(run_dir)
+    if summary_meta is not None:
+        return summary_meta
+
+    jsonl_meta = _meta_from_archive_jsonl(run_dir)
+    if jsonl_meta is not None:
+        return jsonl_meta
+
+    if grid_resolution < 1:
+        msg = f"grid_resolution must be >= 1, got {grid_resolution}"
+        raise ValueError(msg)
+    return {
+        "archive_type": "grid",
+        "n_cells": grid_resolution * grid_resolution,
+        "grid_resolution": grid_resolution,
+    }
+
+
+def _meta_from_nightly_summary(run_dir: Path) -> RunArchiveMeta | None:
+    summary_path = run_dir / NIGHTLY_SUMMARY_FILENAME
+    if not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw_n_cells = payload.get("n_cells")
+    if raw_n_cells is None:
+        raw_resolution = payload.get("grid_resolution")
+        if raw_resolution is None:
+            return None
+        try:
+            resolution = int(raw_resolution)
+        except (TypeError, ValueError):
+            return None
+        if resolution < 1:
+            return None
+        n_cells = resolution * resolution
+    else:
+        try:
+            n_cells = int(raw_n_cells)
+        except (TypeError, ValueError):
+            return None
+        if n_cells < 1:
+            return None
+        resolution_raw = payload.get("grid_resolution")
+        resolution = int(resolution_raw) if resolution_raw is not None else None
+    archive_type = str(payload.get("archive_type", "grid"))
+    return {
+        "archive_type": archive_type,
+        "n_cells": n_cells,
+        "grid_resolution": resolution,
+    }
+
+
+def _meta_from_archive_jsonl(run_dir: Path) -> RunArchiveMeta | None:
+    archive_path = run_dir / MAP_ELITES_ARCHIVE_FILENAME
+    if not archive_path.is_file():
+        return None
+    first_record: dict | None = None
+    for line in archive_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            first_record = parsed
+        break
+    if first_record is None:
+        return None
+
+    schema_version = str(first_record.get("schema_version", "1.2"))
+    if schema_version == "1.2":
+        return None
+
+    archive_type = str(first_record.get("archive_type", "grid"))
+    if archive_type == "cvt":
+        centroids_path = run_dir / CVT_CENTROIDS_FILENAME
+        if centroids_path.is_file():
+            try:
+                payload = json.loads(centroids_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return None
+            if isinstance(payload, dict):
+                centroids = payload.get("centroids")
+                if isinstance(centroids, list) and centroids:
+                    return {
+                        "archive_type": "cvt",
+                        "n_cells": len(centroids),
+                        "grid_resolution": None,
+                    }
+        return None
+
+    cell_id = first_record.get("cell_id")
+    if isinstance(cell_id, int) and cell_id >= 0:
+        bin_value = first_record.get("bin")
+        if isinstance(bin_value, list) and len(bin_value) == 2:
+            try:
+                i = int(bin_value[0])
+                j = int(bin_value[1])
+            except (TypeError, ValueError):
+                return None
+            resolution = max(i, j, int(cell_id**0.5)) + 1
+            while resolution * resolution <= cell_id:
+                resolution += 1
+            n_cells = resolution * resolution
+            return {
+                "archive_type": "grid",
+                "n_cells": n_cells,
+                "grid_resolution": resolution,
+            }
+    return None
+
+
+def _summarize_run(
+    path: Path,
+    *,
+    grid_resolution: int,
+    n_cells_override: int | None = None,
+) -> _RunSummary:
+    meta = resolve_run_archive_meta(
+        path,
+        grid_resolution=grid_resolution,
+        n_cells_override=n_cells_override,
+    )
+    archive_path = path / MAP_ELITES_ARCHIVE_FILENAME
     surrogate_path = path / "surrogate_archive.jsonl"
     evaluations = 0
     best_fitness_values: list[float] = []
@@ -109,7 +299,7 @@ def _summarize_run(path: Path, *, grid_resolution: int) -> _RunSummary:
             evaluations += 1
             best_fitness_values.append(float(record.get("fitness", 0.0)))
     filled_cells = len(best_fitness_values)
-    total_cells = max(1, grid_resolution * grid_resolution)
+    total_cells = max(1, meta["n_cells"])
     skip_count = 0
     slot_count = 0
     if surrogate_path.is_file():
@@ -121,6 +311,8 @@ def _summarize_run(path: Path, *, grid_resolution: int) -> _RunSummary:
             if record.get("decision") == "skip":
                 skip_count += 1
     return {
+        "archive_type": meta["archive_type"],
+        "n_cells": meta["n_cells"],
         "evaluations": float(evaluations),
         "filled_cells": float(filled_cells),
         "filled_cells_pct": 100.0 * filled_cells / total_cells,
