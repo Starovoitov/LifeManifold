@@ -130,6 +130,44 @@ class TestLlmEmitter(unittest.TestCase):
         self.assertEqual(output.metadata.emitter_type, "llm_fallback")
         self.assertEqual(output.world_spec.seed, 0)
 
+    def test_llm_config_value_error_uses_fallback(self) -> None:
+        def raise_value_error(**_: object) -> str:
+            raise ValueError("Unknown provider in llm config: 'missing'")
+
+        emitter = LlmEmitter(
+            grid_resolution=10,
+            surrogate_mean=0.5,
+            surrogate_uncertainty=1.0,
+            call_llm_text=raise_value_error,
+        )
+        output = emitter.emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(3),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(output.metadata.emitter_type, "llm_fallback")
+
+    def test_llm_runtime_error_uses_fallback(self) -> None:
+        def raise_runtime_error(**_: object) -> str:
+            raise RuntimeError("LLM request failed: SSL handshake timeout")
+
+        emitter = LlmEmitter(
+            grid_resolution=10,
+            surrogate_mean=0.5,
+            surrogate_uncertainty=1.0,
+            call_llm_text=raise_runtime_error,
+        )
+        output = emitter.emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(4),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(output.metadata.emitter_type, "llm_fallback")
+
     def test_fallback_differs_from_parent(self) -> None:
         archive = GridArchive(5)
         parent = replace(_BASE, birth=[1], noise=0.02)

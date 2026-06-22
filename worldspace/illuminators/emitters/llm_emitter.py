@@ -107,7 +107,10 @@ class LlmEmitter:
             surrogate_uncertainty=surrogate_uncertainty,
             rng=rng,
         )
-        response = self._request_llm(system_prompt, user_prompt)
+        try:
+            response = self._request_llm(system_prompt, user_prompt)
+        except (RuntimeError, ValueError):
+            response = ""
         parsed = extract_json_object_from_text(response)
         if parsed is not None:
             spec = world_spec_from_llm_payload(
