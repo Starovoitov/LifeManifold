@@ -49,8 +49,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         import scripts.run_github_llm_map_elites as mod
 
         scheduler = (
-            _REPO_ROOT
-            / "worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
+            _REPO_ROOT / "worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "map_elites_nightly"

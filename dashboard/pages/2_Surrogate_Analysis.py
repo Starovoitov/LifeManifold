@@ -47,8 +47,10 @@ from dashboard.utils.config import (
 )
 from dashboard.utils.surrogate_analysis import (
     build_prediction_frame,
+    load_checkpoint_training_summary,
     regression_metrics,
     sample_collapsed_rows,
+    training_summary_holdout_metrics,
 )
 
 
@@ -129,6 +131,57 @@ st.metric("Elites after filters", len(filtered))
 if status.is_stub:
     st.stop()
 
+training_summary = (
+    load_checkpoint_training_summary(selected_checkpoint)
+    if selected_checkpoint is not None
+    else None
+)
+if training_summary is not None:
+    holdout_meta = training_summary_holdout_metrics(training_summary)
+    st.subheader("Training hold-out (checkpoint summary)")
+    st.caption(
+        "Metrics from the surrogate training run (hold-out split on the training "
+        "buffer). Distinct from archive eval below."
+    )
+    train_col_a, train_col_b, train_col_c, train_col_d = st.columns(4)
+    train_col_a.metric(
+        "Hold-out R² (fitness)",
+        (
+            f"{holdout_meta['r2_fitness']:.4f}"
+            if isinstance(holdout_meta["r2_fitness"], float)
+            else "—"
+        ),
+    )
+    train_col_b.metric(
+        "Hold-out MAE (fitness)",
+        (
+            f"{holdout_meta['mae_fitness']:.4f}"
+            if isinstance(holdout_meta["mae_fitness"], float)
+            else "—"
+        ),
+    )
+    train_col_c.metric(
+        "Training samples",
+        (
+            holdout_meta["sample_count"]
+            if holdout_meta["sample_count"] is not None
+            else "—"
+        ),
+    )
+    train_col_d.metric(
+        "Quality gate",
+        (
+            "pass"
+            if holdout_meta["quality_passed"] is True
+            else ("fail" if holdout_meta["quality_passed"] is False else "—")
+        ),
+    )
+else:
+    st.info(
+        "No training summary JSON found beside the selected checkpoint "
+        "(expected `*.summary.json`)."
+    )
+
 prediction_frame = _cached_prediction_frame(
     str(selected_path.resolve()),
     float(selected_path.stat().st_mtime),
@@ -148,6 +201,10 @@ y_pred = prediction_frame["pred_fitness"].to_numpy(dtype=np.float64)
 uncertainty = prediction_frame["pred_uncertainty"].to_numpy(dtype=np.float64)
 
 mae, r2 = regression_metrics(y_true, y_pred)
+st.subheader("Archive eval (simulated vs predicted)")
+st.caption(
+    "Compares simulated archive fitness to surrogate predictions on filtered elites."
+)
 col_mae, col_r2, col_n = st.columns(3)
 col_mae.metric("MAE", f"{mae:.4f}")
 col_r2.metric("R²", f"{r2:.4f}" if np.isfinite(r2) else "—")
