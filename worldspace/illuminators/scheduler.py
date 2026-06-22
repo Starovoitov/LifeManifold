@@ -42,6 +42,12 @@ DEFAULT_MINI_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini.ya
 DEFAULT_MINI_CVT_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini_cvt.yaml"
 )
+DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_cvt.yaml"
+)
+DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate_cvt.yaml"
+)
 DEFAULT_NIGHTLY_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly.yaml"
 )
@@ -49,6 +55,9 @@ DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate.yaml"
 )
 DEFAULT_GITHUB_LLM_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_github_llm_cvt.yaml"
+)
+DEFAULT_GITHUB_LLM_GRID_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_github_llm.yaml"
 )
 DEFAULT_QWEN_LLM_SPEC_PATH = _DEFAULT_SPECS_DIR / "llm_world_generator_qwen.yaml"
@@ -57,8 +66,11 @@ __all__ = [
     "AcquisitionConfig",
     "DEFAULT_MINI_CVT_SCHEDULER_PATH",
     "DEFAULT_MINI_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SCHEDULER_PATH",
+    "DEFAULT_GITHUB_LLM_GRID_SCHEDULER_PATH",
     "DEFAULT_GITHUB_LLM_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH",
     "DEFAULT_QWEN_LLM_SPEC_PATH",
     "DEFAULT_SCHEDULER_PATH",

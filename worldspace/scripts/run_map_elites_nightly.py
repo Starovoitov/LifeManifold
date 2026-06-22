@@ -10,7 +10,9 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from worldspace.illuminators.illuminator import MapElitesIlluminator
 from worldspace.illuminators.nightly_report import (
@@ -20,16 +22,18 @@ from worldspace.illuminators.nightly_report import (
     write_nightly_summary,
 )
 from worldspace.illuminators.scheduler import (
+    DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH,
     DEFAULT_NIGHTLY_SCHEDULER_PATH,
+    DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH,
     DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     load_scheduler,
 )
 
+ArchiveTypeName = Literal["grid", "cvt"]
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_nightly"
-_BASELINE_SUBDIR = "baseline"
-_SURROGATE_SUBDIR = "surrogate"
 _NIGHTLY_BUFFER_PATH = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_nightly.jsonl"
 _NIGHTLY_CHECKPOINT_PATH = (
     _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v2.pkl"
@@ -46,10 +50,50 @@ __all__ = [
     "NightlyPipelineResult",
     "ensure_nightly_buffer_backfill",
     "main",
+    "nightly_baseline_dir",
+    "nightly_scheduler_paths",
+    "nightly_surrogate_dir",
+    "resolve_nightly_archive_type",
     "run_map_elites_nightly",
     "run_nightly_pipeline",
     "train_nightly_surrogate",
 ]
+
+
+def resolve_nightly_archive_type(
+    *,
+    force: ArchiveTypeName | None = None,
+    day_of_month: int | None = None,
+) -> ArchiveTypeName:
+    """Pick archive type from UTC calendar day: odd → grid, even → cvt."""
+    if force is not None:
+        return force
+    day = day_of_month
+    if day is None:
+        day = datetime.now(timezone.utc).day
+    return "grid" if day % 2 == 1 else "cvt"
+
+
+def nightly_baseline_dir(root: Path, archive_type: ArchiveTypeName) -> Path:
+    return root / archive_type / "baseline"
+
+
+def nightly_surrogate_dir(root: Path, archive_type: ArchiveTypeName) -> Path:
+    return root / archive_type / "surrogate"
+
+
+def nightly_scheduler_paths(
+    archive_type: ArchiveTypeName,
+) -> tuple[Path, Path]:
+    if archive_type == "cvt":
+        return (
+            DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH,
+            DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH,
+        )
+    return (
+        DEFAULT_NIGHTLY_SCHEDULER_PATH,
+        DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -59,6 +103,7 @@ logger = logging.getLogger(__name__)
 class NightlyPipelineResult:
     """Artifacts from the default two-phase nightly job."""
 
+    archive_type: str
     baseline: NightlyRunReport
     surrogate: NightlyRunReport
     training_summary_path: Path
@@ -143,6 +188,10 @@ def train_nightly_surrogate(
 
 def _nightly_surrogate_model_type() -> str:
     """Read surrogate.model_type from the nightly surrogate scheduler YAML."""
+    from worldspace.illuminators.scheduler import (
+        DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
+    )
+
     config = load_scheduler(DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH)
     model_type = str(config.surrogate_model_type).strip().lower()
     if model_type in {"lightgbm", "mlp"}:
@@ -209,6 +258,7 @@ def ensure_nightly_buffer_backfill(
 def _write_pipeline_summary(
     path: Path,
     *,
+    archive_type: str,
     baseline: NightlyRunReport,
     surrogate: NightlyRunReport,
     training_summary_path: Path,
@@ -220,6 +270,7 @@ def _write_pipeline_summary(
         training_payload = json.loads(training_summary_path.read_text(encoding="utf-8"))
     payload = {
         "schema_version": baseline.schema_version,
+        "archive_type": archive_type,
         "seed": baseline.seed,
         "buffer_path": str(_NIGHTLY_BUFFER_PATH.resolve()),
         "checkpoint_path": str(checkpoint_path.resolve()),
@@ -270,18 +321,26 @@ def run_nightly_pipeline(
     iterations: int | None = None,
     skip_training: bool = False,
     overwrite_buffer: bool = False,
+    archive_type: Literal["grid", "cvt"] | None = None,
 ) -> NightlyPipelineResult:
     """Baseline MAP-Elites → backfill buffer → surrogate run → train surrogate."""
     root = Path(output_dir or _DEFAULT_OUTPUT_DIR)
-    baseline_dir = root / _BASELINE_SUBDIR
-    surrogate_dir = root / _SURROGATE_SUBDIR
+    resolved_archive_type = resolve_nightly_archive_type(force=archive_type)
+    baseline_scheduler, surrogate_scheduler = nightly_scheduler_paths(
+        resolved_archive_type,
+    )
+    baseline_dir = nightly_baseline_dir(root, resolved_archive_type)
+    surrogate_dir = nightly_surrogate_dir(root, resolved_archive_type)
 
-    logger.info("Nightly step 1/4: baseline (surrogate disabled)")
+    logger.info(
+        "Nightly archive_type=%s (step 1/4: baseline, surrogate disabled)",
+        resolved_archive_type,
+    )
     baseline = run_map_elites_nightly(
-        scheduler_path=DEFAULT_NIGHTLY_SCHEDULER_PATH,
+        scheduler_path=baseline_scheduler,
         output_dir=baseline_dir,
         seed=seed,
-        grid_resolution=grid_resolution,
+        grid_resolution=grid_resolution if resolved_archive_type == "grid" else None,
         grid_size=grid_size,
         steps=steps,
         iterations=iterations,
@@ -295,10 +354,10 @@ def run_nightly_pipeline(
 
     logger.info("Nightly step 3/4: surrogate-enabled run (resume baseline archive)")
     surrogate = run_map_elites_nightly(
-        scheduler_path=DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH,
+        scheduler_path=surrogate_scheduler,
         output_dir=surrogate_dir,
         seed=seed,
-        grid_resolution=grid_resolution,
+        grid_resolution=grid_resolution if resolved_archive_type == "grid" else None,
         grid_size=grid_size,
         steps=steps,
         iterations=iterations,
@@ -318,13 +377,19 @@ def run_nightly_pipeline(
     pipeline_summary = root / "nightly_pipeline_summary.json"
     _write_pipeline_summary(
         pipeline_summary,
+        archive_type=resolved_archive_type,
         baseline=baseline,
         surrogate=surrogate,
         training_summary_path=training_summary,
         checkpoint_path=_NIGHTLY_CHECKPOINT_PATH,
     )
-    logger.info("Wrote pipeline summary: %s", pipeline_summary)
+    logger.info(
+        "Wrote pipeline summary: %s (archive_type=%s)",
+        pipeline_summary,
+        resolved_archive_type,
+    )
     return NightlyPipelineResult(
+        archive_type=resolved_archive_type,
         baseline=baseline,
         surrogate=surrogate,
         training_summary_path=training_summary,
@@ -394,6 +459,12 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Rebuild nightly surrogate buffer from baseline archive (drops existing rows).",
     )
+    parser.add_argument(
+        "--archive-type",
+        choices=["grid", "cvt"],
+        default=None,
+        help="Force archive type for this pipeline run (default: odd UTC day=grid, even=cvt).",
+    )
     args = parser.parse_args(argv)
 
     if args.single_run:
@@ -419,6 +490,7 @@ def main(argv: list[str] | None = None) -> None:
         iterations=args.iterations,
         skip_training=args.skip_training,
         overwrite_buffer=args.overwrite_buffer,
+        archive_type=args.archive_type,
     )
 
 

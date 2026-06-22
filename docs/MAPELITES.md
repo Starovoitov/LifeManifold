@@ -110,6 +110,8 @@ python -m worldspace --illuminator mapelites \
 | `EvalResult` | `illuminators/evaluation.py` | Result of one simulation |
 | `ArchiveElite` | `illuminators/archive.py` | In-memory elite |
 | `GridArchive` | `archive.py` | `resolution²` cell grid |
+| `CvtArchive` | `cvt_archive.py` | `n_centroids` Voronoi niches in BC `[0,1]²` |
+| `ArchiveProtocol` | `archive_protocol.py` | Shared API for grid and CVT |
 | `InsertResult` | `archive.py` | `accepted` / `improved` / `rejected` |
 | `RunCounters` | `scheduler.py` | `candidates_evaluated` — total simulations so far |
 | BC | — | Behavioral characteristics: here `stability`, `diversity` |
@@ -187,6 +189,51 @@ stateDiagram-v2
 | Occupied, not better | otherwise | `rejected` | No |
 
 Comparison is **strict** (`>`). Equal fitness in one iteration keeps the **first** accepted entry (fixed slot order `candidate_id` 0…`batch_size-1`).
+
+### 4.4 CVT archive (schema 1.3)
+
+Dual-mode archives: **`grid`** (default, schema 1.2) or **`cvt`** (schema 1.3). CVT replaces uniform bin edges with **Voronoi niches** around fixed centroids in `(stability, diversity)` space.
+
+| | Grid | CVT |
+| --- | --- | --- |
+| Scheduler | `grid_resolution` (root or `archive.resolution`) | `archive.n_centroids`, `cvt_seed`, `lloyd_iterations` |
+| Cell ID | `(i, j)` → flat `cell_id = i * resolution + j` | `cell_id ∈ [0, n_centroids)` |
+| Assign BC | `bin_index(stability, diversity, resolution)` | nearest centroid (`assign_cell_id`) |
+| Neighbors | Cardinal / Moore on grid | Voronoi adjacency graph |
+| Extra artifact | — | `cvt_centroids.json` next to JSONL |
+
+```mermaid
+flowchart LR
+  BC["measures: stability, diversity"]
+  subgraph grid["Grid archive"]
+    BIN["bin_index → (i, j)"]
+  end
+  subgraph cvt["CVT archive"]
+    NC["nearest centroid → cell_id"]
+  end
+  BC --> BIN
+  BC --> NC
+  BIN --> INS["try_insert (strict >)"]
+  NC --> INS
+```
+
+Scheduler example (`worldspace/specs/map_elites_scheduler_mini_cvt.yaml`):
+
+```yaml
+schema_version: "1.3"
+
+archive:
+  type: cvt
+  n_centroids: 25
+  cvt_seed: 0
+  lloyd_iterations: 50
+```
+
+**Backward compatibility:** `schema_version: "1.2"` without an `archive` block behaves exactly as before (`grid`, `grid_resolution` on YAML root). Schema **1.3** may use either `archive.type: grid` or `archive.type: cvt`.
+
+**Resume (CVT):** load collapsed JSONL **and** reuse `cvt_centroids.json` from the same output directory; centroids are fixed at run start from `cvt_seed`.
+
+**Coverage:** `filled_cells / n_cells` where `n_cells = resolution²` (grid) or `n_centroids` (CVT).
 
 ---
 
@@ -380,6 +427,7 @@ See [`WORLDSPACE.md` §3](WORLDSPACE.md). For MAP-Elites additionally:
 | `--grid-resolution` | 50 | Archive size |
 | `--iterations` | from YAML | Override |
 | `--load-archive` | — | Resume JSONL |
+| `--archive-type` | — | Override `archive.type` (schema 1.3 only) |
 | `--grid`, `--steps` | shared with legacy CLI | Field size and run length |
 
 ---
@@ -388,7 +436,9 @@ See [`WORLDSPACE.md` §3](WORLDSPACE.md). For MAP-Elites additionally:
 
 ### 10.1 `map_elites_archive.jsonl`
 
-Path: `{output_dir}/map_elites_archive.jsonl`. Schema **`1.2`**. One JSON line = one **accepted** insert (improvement or first in cell).
+Path: `{output_dir}/map_elites_archive.jsonl`. Schema **`1.2`** (grid, default) or **`1.3`** (grid or CVT). One JSON line = one **accepted** insert (improvement or first in cell).
+
+#### Schema 1.2 (grid)
 
 Example record:
 
@@ -442,14 +492,50 @@ Example record:
 
 | Field | Required | Purpose |
 | --- | --- | --- |
-| `bin` | yes | `[i, j]` — cell from **actual** measures |
+| `bin` | yes (1.2 grid) | `[i, j]` — cell from **actual** measures |
 | `world_spec` | yes | Elite; `seed` is already canonical |
 | `fitness` | yes | Archive fitness |
 | `measures` | yes | BC for visualization / resume |
 | `metrics` | no | Full 12D vector if present |
 | `metadata` | yes | Lineage, UUID, timestamp |
 
-**Collapse on resume:** `load_and_collapse_jsonl` — max fitness per bin; on tie — first line in file.
+#### Schema 1.3 (grid or CVT)
+
+Grid records add `archive_type: "grid"`, `cell_id`, and keep `bin: [i, j]` for compatibility. CVT records use `archive_type: "cvt"` and `cell_id` only (no `bin`).
+
+```json
+{
+  "schema_version": "1.3",
+  "archive_type": "cvt",
+  "cell_id": 42,
+  "world_spec": { "...": "..." },
+  "fitness": 0.71,
+  "measures": { "stability": 0.55, "diversity": 0.68 },
+  "metadata": { "...": "..." }
+}
+```
+
+#### `cvt_centroids.json` (CVT runs only)
+
+Written at run start to `{output_dir}/cvt_centroids.json`:
+
+```json
+{
+  "n": 25,
+  "centroids": [[0.12, 0.34], [0.56, 0.78]]
+}
+```
+
+Dashboard and resume logic join elites on `cell_id` using this file.
+
+| Field | Required | Purpose |
+| --- | --- | --- |
+| `schema_version` | yes | `"1.2"` or `"1.3"` |
+| `archive_type` | 1.3 | `"grid"` or `"cvt"` |
+| `cell_id` | 1.3 | Flat niche index |
+| `bin` | grid | `[i, j]` from **actual** measures |
+
+**Collapse on resume:** `load_and_collapse_jsonl` — max fitness per niche (`bin` for grid, `cell_id` for CVT); on tie — first line in file.
 
 ### 10.2 `EvalResult` (in-process, not a file)
 
@@ -470,7 +556,9 @@ Written by `illuminators/nightly_report.py` next to the archive after a nightly 
 | --- | --- |
 | `evaluations` | `iterations × batch_size` |
 | `filled_cells` | Occupied cells after collapse |
-| `coverage` | `filled_cells / (resolution²)` |
+| `archive_type` | `"grid"` or `"cvt"` |
+| `n_cells` | `resolution²` or `n_centroids` |
+| `coverage` | `filled_cells / n_cells` |
 | `jsonl_raw_lines` | Lines in JSONL (≥ collapsed cells) |
 | `llm_enabled`, `surrogate_enabled` | Scheduler flags |
 | `archive_jsonl` | Absolute path to archive |
@@ -562,13 +650,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  P1["Phase 1: nightly.yaml\nsurrogate off\nbuffer_nightly.jsonl"]
+  P1["Phase 1: baseline scheduler\ngrid or CVT (alternating)\nsurrogate off"]
   TR["train_surrogate.py\n→ nightly_v2.pkl"]
-  SUR["Step 3: nightly_surrogate.yaml\nresume archive\nsurrogate on"]
+  SUR["Phase 3: surrogate scheduler\nresume same archive type\nsurrogate on"]
   P1 --> TR --> SUR
 ```
 
-Artifacts: `artifacts/map_elites_nightly/baseline/`, `.../surrogate/`, `nightly_pipeline_summary.json`.
+Each `make nightly-map-elites` run picks **grid** or **CVT** from the **UTC calendar day** (cron `0 3 * * *`): odd days (1, 3, 5, …) → grid; even days (2, 4, 6, …) → CVT. Both use `n_cells=2500`.
+
+Artifacts per run: `artifacts/map_elites_nightly/{grid,cvt}/baseline/`, `.../surrogate/`, plus `nightly_pipeline_summary.json`. Override: `--archive-type grid|cvt`.
 
 ---
 

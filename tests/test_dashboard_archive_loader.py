@@ -277,6 +277,22 @@ class TestDashboardArchiveLoader(unittest.TestCase):
         self.assertTrue(bundle.centroids_missing)
         self.assertIsNone(bundle.centroids)
 
+    def test_cvt_n_cells_hint_ignores_nan_cell_id(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_loader import _cvt_n_cells_hint
+
+        frame = pd.DataFrame({"cell_id": [float("nan"), 3.0, 5.0]})
+        self.assertEqual(_cvt_n_cells_hint(frame), 6)
+
+    def test_cvt_n_cells_hint_all_nan_returns_one(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_loader import _cvt_n_cells_hint
+
+        frame = pd.DataFrame({"cell_id": [float("nan"), float("nan")]})
+        self.assertEqual(_cvt_n_cells_hint(frame), 1)
+
     def test_worldspace_fallback_marks_cvt_archive_type(self) -> None:
         from dashboard.components.archive_loader import _read_jsonl_via_worldspace
 

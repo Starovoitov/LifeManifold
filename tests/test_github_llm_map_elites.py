@@ -16,6 +16,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         )
 
         config = load_scheduler(DEFAULT_GITHUB_LLM_SCHEDULER_PATH)
+        self.assertEqual(config.archive_type, "cvt")
         self.assertTrue(config.llm_enabled)
         self.assertTrue(config.surrogate_enabled)
         self.assertIn("nightly_v2.pkl", config.surrogate_checkpoint or "")
@@ -72,7 +73,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         import tempfile
 
         import scripts.run_github_llm_map_elites as mod
-        from scripts.run_github_llm_map_elites import _BASELINE_SUBDIR
+        from scripts.run_github_llm_map_elites import _CVT_BASELINE_SUBDIR
 
         baseline = _REPO_ROOT / "artifacts" / "baseline" / "map_elites_archive.jsonl"
         if not baseline.is_file():
@@ -83,9 +84,11 @@ class TestGithubLlmMapElites(unittest.TestCase):
             orig_buffer = mod._NIGHTLY_BUFFER_PATH
             try:
                 mod._NIGHTLY_ROOT = Path(tmp) / "map_elites_nightly"
-                (mod._NIGHTLY_ROOT / _BASELINE_SUBDIR).mkdir(parents=True)
+                (mod._NIGHTLY_ROOT / _CVT_BASELINE_SUBDIR).mkdir(parents=True)
                 archive = (
-                    mod._NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+                    mod._NIGHTLY_ROOT
+                    / _CVT_BASELINE_SUBDIR
+                    / "map_elites_archive.jsonl"
                 )
                 archive.write_text(
                     baseline.read_text(encoding="utf-8"), encoding="utf-8"
@@ -101,7 +104,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         import tempfile
 
         import scripts.run_github_llm_map_elites as mod
-        from scripts.run_github_llm_map_elites import _BASELINE_SUBDIR
+        from scripts.run_github_llm_map_elites import _CVT_BASELINE_SUBDIR
 
         baseline = _REPO_ROOT / "artifacts" / "baseline" / "map_elites_archive.jsonl"
         if not baseline.is_file():
@@ -113,9 +116,11 @@ class TestGithubLlmMapElites(unittest.TestCase):
             orig_buffer = mod._NIGHTLY_BUFFER_PATH
             try:
                 mod._NIGHTLY_ROOT = Path(tmp) / "map_elites_nightly"
-                (mod._NIGHTLY_ROOT / _BASELINE_SUBDIR).mkdir(parents=True)
+                (mod._NIGHTLY_ROOT / _CVT_BASELINE_SUBDIR).mkdir(parents=True)
                 archive = (
-                    mod._NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+                    mod._NIGHTLY_ROOT
+                    / _CVT_BASELINE_SUBDIR
+                    / "map_elites_archive.jsonl"
                 )
                 archive.write_text(
                     baseline.read_text(encoding="utf-8"), encoding="utf-8"

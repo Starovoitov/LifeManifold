@@ -71,6 +71,7 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             out = Path(tmp) / "nightly_pipeline_summary.json"
             _write_pipeline_summary(
                 out,
+                archive_type="grid",
                 baseline=baseline,
                 surrogate=surrogate,
                 training_summary_path=training_path,

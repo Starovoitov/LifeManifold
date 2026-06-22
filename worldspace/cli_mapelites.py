@@ -53,6 +53,12 @@ def add_mapelites_arguments(parser: argparse.ArgumentParser) -> None:
         default=_DEFAULT_OUTPUT,
         help="Directory for map_elites_archive.jsonl.",
     )
+    parser.add_argument(
+        "--archive-type",
+        choices=["grid", "cvt"],
+        default=None,
+        help="Override scheduler archive.type (requires schema_version 1.3).",
+    )
 
 
 def run_mapelites_cli(args: argparse.Namespace) -> None:

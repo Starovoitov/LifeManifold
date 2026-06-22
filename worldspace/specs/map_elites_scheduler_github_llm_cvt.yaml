@@ -1,0 +1,80 @@
+schema_version: "1.3"
+# GitHub LLM special (CVT): nightly batch shape, 20 LLM slots, 2500 Voronoi niches.
+iterations: 120
+batch_size: 50
+early_extinction_step: 200
+min_steps: 200
+
+archive:
+  type: cvt
+  n_centroids: 2500
+  cvt_seed: 0
+  lloyd_iterations: 50
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  buffer_path: artifacts/surrogate/buffer_github_llm.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0

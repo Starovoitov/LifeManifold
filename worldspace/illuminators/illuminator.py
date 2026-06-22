@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 
@@ -53,6 +54,7 @@ class MapElitesIlluminator:
         steps: int = 300,
         iterations: int | None = None,
         load_archive_path: str | Path | None = None,
+        archive_type: Literal["grid", "cvt"] | None = None,
         emitter: CandidateEmitter | None = None,
         llm_spec_path: str | Path | None = None,
         require_surrogate_quality_gate: bool = False,
@@ -63,6 +65,14 @@ class MapElitesIlluminator:
             scheduler_path or DEFAULT_SCHEDULER_PATH,
             iterations_override=iterations,
         )
+        if archive_type is not None:
+            if config.schema_version != "1.3":
+                msg = (
+                    "--archive-type override requires scheduler schema_version 1.3, "
+                    f"got {config.schema_version!r}"
+                )
+                raise ValueError(msg)
+            config = replace(config, archive_type=archive_type)
         if grid_resolution is not None and config.archive_type == "grid":
             config = replace(config, grid_resolution=grid_resolution)
         if surrogate_checkpoint_override is not None:

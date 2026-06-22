@@ -137,7 +137,8 @@ flowchart LR
 | Metrics vector | 12 floats | `run_world` | [WORLDSPACE.md §5](WORLDSPACE.md) |
 | `--metrics-trace` JSONL | 1 line / world | `pipeline.py` | [WORLDSPACE.md §6.1](WORLDSPACE.md) |
 | `--ca-step-trace` JSONL | 1 line / CA step | `pipeline` only | [WORLDSPACE.md §8](WORLDSPACE.md) |
-| `map_elites_archive.jsonl` | schema 1.2 | `illuminators/archive.py` | [MAPELITES.md §10](MAPELITES.md) |
+| `map_elites_archive.jsonl` | schema 1.2 / 1.3 | `illuminators/archive.py` | [MAPELITES.md §10](MAPELITES.md) |
+| `cvt_centroids.json` | CVT only | `illuminators/cvt.py` | [MAPELITES.md §10.1](MAPELITES.md) |
 | Surrogate buffer JSONL | `features` + `targets` | `surrogate/buffer.py` | [SURROGATE_MODEL.md](SURROGATE_MODEL.md) |
 | SurrogateArchive JSONL | acquisition decisions schema 1.0 | dashboard loader | Surrogate Acquisition |
 | `nightly_run_summary.json` | JSON | `nightly_report.py` | [MAPELITES.md §10.3](MAPELITES.md) |
@@ -225,7 +226,8 @@ flowchart TD
 | `specs/hybrid_world_generator.yaml` | `--generator hybrid` |
 | `specs/neural_world_generator.yaml` | `--generator neural` |
 | `specs/map_elites_scheduler.yaml` | Production MAP-Elites (10k iter) |
-| `specs/map_elites_scheduler_mini.yaml` | CI smoke |
+| `specs/map_elites_scheduler_mini.yaml` | CI smoke (grid) |
+| `specs/map_elites_scheduler_mini_cvt.yaml` | CI smoke (CVT) |
 | `specs/map_elites_scheduler_nightly.yaml` | Nightly baseline |
 | `specs/map_elites_scheduler_nightly_surrogate.yaml` | Nightly + surrogate |
 
@@ -237,7 +239,7 @@ Override: `--generator-spec PATH` (legacy) or `--scheduler PATH` (MAP-Elites).
 
 | Target | What runs |
 | --- | --- |
-| `make smoke-map-elites` | Mini scheduler, `artifacts/map_elites_smoke/` |
+| `make smoke-map-elites` | Mini scheduler (grid + CVT), `artifacts/map_elites_smoke/` and `artifacts/map_elites_smoke_cvt/` |
 | `make nightly-map-elites` | Baseline → train surrogate → surrogate phase ([MAPELITES.md §12](MAPELITES.md)) |
 | `.github/workflows/map_elites_smoke.yml` | CI smoke |
 

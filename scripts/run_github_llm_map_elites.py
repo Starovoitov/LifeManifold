@@ -32,7 +32,7 @@ from worldspace.scripts.run_map_elites_nightly import (
 from worldspace.surrogate.checkpoint_quality import checkpoint_quality_allows_hints
 
 _NIGHTLY_ROOT = _REPO_ROOT / "artifacts" / "map_elites_nightly"
-_BASELINE_SUBDIR = "baseline"
+_CVT_BASELINE_SUBDIR = Path("cvt") / "baseline"
 
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_github_llm"
 _DEFAULT_GRID_RESOLUTION = 50
@@ -71,8 +71,8 @@ def resolve_llm_spec_path(provider: str) -> Path:
 
 
 def resolve_nightly_resume_archive() -> Path | None:
-    """Baseline archive from a downloaded or local nightly pipeline."""
-    baseline = _NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+    """CVT baseline archive from a downloaded or local nightly pipeline."""
+    baseline = _NIGHTLY_ROOT / _CVT_BASELINE_SUBDIR / "map_elites_archive.jsonl"
     if baseline.is_file():
         return baseline
     return None
@@ -139,7 +139,7 @@ def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
         )
         raise FileNotFoundError(msg)
     if not _ensure_nightly_buffer_from_baseline():
-        baseline = _NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+        baseline = _NIGHTLY_ROOT / _CVT_BASELINE_SUBDIR / "map_elites_archive.jsonl"
         if _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size == 0:
             detail = f"buffer is empty at {_NIGHTLY_BUFFER_PATH}"
         elif not baseline.is_file():
@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--no-resume-nightly",
         action="store_true",
-        help="Do not resume from artifacts/map_elites_nightly/baseline/.",
+        help="Do not resume from artifacts/map_elites_nightly/cvt/baseline/.",
     )
     parser.add_argument(
         "--train-surrogate-if-missing",
@@ -279,12 +279,16 @@ def main(argv: list[str] | None = None) -> None:
 
     import time
 
+    grid_resolution = args.grid_resolution
+    if config.archive_type == "cvt":
+        grid_resolution = None
+
     started = time.perf_counter()
     result = MapElitesIlluminator().run(
         scheduler_path=sched_path,
         output_dir=out_dir,
         seed=args.seed,
-        grid_resolution=args.grid_resolution,
+        grid_resolution=grid_resolution,
         grid_size=args.grid,
         steps=args.steps,
         iterations=args.iterations,

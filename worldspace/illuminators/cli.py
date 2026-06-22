@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Literal
 
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS
 from worldspace.illuminators.illuminator import MapElitesIlluminator, MapElitesRunResult
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=_DEFAULT_OUTPUT,
         help="Directory for map_elites_archive.jsonl and surrogate_archive.jsonl.",
     )
+    parser.add_argument(
+        "--archive-type",
+        choices=["grid", "cvt"],
+        default=None,
+        help="Override scheduler archive.type (requires schema_version 1.3).",
+    )
     return parser
 
 
@@ -76,6 +83,7 @@ def run_illuminator_cli(args: argparse.Namespace) -> MapElitesRunResult:
         )
     scheduler_path = args.scheduler.strip() or DEFAULT_SCHEDULER_PATH
     load_path = args.load_archive.strip()
+    archive_type: Literal["grid", "cvt"] | None = getattr(args, "archive_type", None)
     return MapElitesIlluminator().run(
         scheduler_path=scheduler_path,
         output_dir=args.output_dir,
@@ -85,6 +93,7 @@ def run_illuminator_cli(args: argparse.Namespace) -> MapElitesRunResult:
         steps=args.steps,
         iterations=args.iterations,
         load_archive_path=load_path or None,
+        archive_type=archive_type,
     )
 
 

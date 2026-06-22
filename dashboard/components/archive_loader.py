@@ -346,7 +346,10 @@ def _attach_centroid_columns(
 def _cvt_n_cells_hint(collapsed: pd.DataFrame) -> int:
     if collapsed.empty or "cell_id" not in collapsed.columns:
         return 1
-    cell_max = int(collapsed["cell_id"].to_numpy(dtype=np.int64, copy=False).max())
+    cell_ids = collapsed["cell_id"].dropna()
+    if cell_ids.empty:
+        return 1
+    cell_max = int(cell_ids.to_numpy(dtype=np.int64, copy=False).max())
     return max(1, cell_max + 1)
 
 

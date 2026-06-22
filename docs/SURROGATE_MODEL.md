@@ -452,7 +452,7 @@ python scripts/train_surrogate.py \
 
 ```bash
 python scripts/migrate_surrogate_buffer.py \
-  --archive artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl \
+  --archive artifacts/map_elites_nightly/cvt/baseline/map_elites_archive.jsonl \
   --output artifacts/surrogate/buffer_nightly.jsonl \
   --overwrite
 ```
