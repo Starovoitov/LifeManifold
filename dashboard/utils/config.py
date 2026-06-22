@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -11,32 +11,37 @@ _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 _DEFAULT_CONFIG_PATH = _CONFIG_DIR / "config.yaml"
 
 DASHBOARD_ARCHIVE_SESSION_KEY = "dashboard_archive_select"
+DASHBOARD_SURROGATE_CHECKPOINT_SESSION_KEY = "dashboard_surrogate_checkpoint_select"
 
-_CHECKPOINT_FILENAMES: tuple[str, ...] = (
-    "nightly_v2.pkl",
-    "nightly.pkl",
-    "latest.pkl",
-    "micro.pkl",
-)
+MAP_ELITES_ARCHIVE_JSONL = "map_elites_archive.jsonl"
 
 SURROGATE_ARCHIVE_JSONL_NAME = "surrogate_archive.jsonl"
 
+_UNSET = object()
+CHECKPOINT_STUB_VALUE = ""
+
 __all__ = [
+    "CHECKPOINT_STUB_VALUE",
     "DASHBOARD_ARCHIVE_SESSION_KEY",
+    "DASHBOARD_SURROGATE_CHECKPOINT_SESSION_KEY",
     "SURROGATE_ARCHIVE_JSONL_NAME",
+    "archive_adjacent_surrogate_checkpoint",
     "active_archive_path",
-    "checkpoint_dirs_for_archive",
+    "checkpoint_search_roots",
     "checkpoint_paths_near_archive",
+    "checkpoint_session_key",
     "config_path",
     "configured_archive_paths",
     "configured_checkpoint_candidates",
     "existing_archive_paths",
+    "list_surrogate_checkpoint_candidates",
     "load_config",
     "repo_root",
     "resolve_repo_path",
     "resolve_surrogate_archive_path",
     "resolve_surrogate_buffer_path",
     "resolve_surrogate_checkpoint_path",
+    "session_surrogate_checkpoint_override",
     "sort_archive_paths_by_mtime",
     "surrogate_archive_path_for_map_elites_archive",
 ]
@@ -175,61 +180,73 @@ def resolve_surrogate_archive_path(
     raise KeyError("paths.surrogate_archive must be a non-empty string")
 
 
-def checkpoint_dirs_for_archive(archive_path: Path) -> list[Path]:
-    """Return ``checkpoints/`` directories to search relative to an archive JSONL."""
-    parent = archive_path.resolve().parent
-    dirs: list[Path] = [parent / "checkpoints"]
-    if parent.name in ("baseline", "surrogate"):
-        run_root = parent.parent
-        dirs.append(run_root / "checkpoints")
-    dirs.extend(_artifact_bundle_checkpoint_dirs(archive_path))
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for directory in dirs:
-        key = str(directory.resolve())
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(directory)
-    return unique
+def checkpoint_search_roots(archive_path: Path) -> list[Path]:
+    """Directories to scan recursively for ``.pkl`` near an archive JSONL."""
+    archive_path = archive_path.resolve()
+    run_dir = archive_path.parent
+    roots: list[Path] = [run_dir]
+    if (run_dir / "nightly_run_summary.json").is_file():
+        return roots
+    parent = run_dir.parent
+    if parent != run_dir and (
+        (parent / "nightly_run_summary.json").is_file()
+        or (parent / "checkpoints").is_dir()
+    ):
+        roots.append(parent)
+    return roots
 
 
-def _artifact_bundle_checkpoint_dirs(archive_path: Path) -> list[Path]:
-    """Also search ``artifacts/*/checkpoints`` (e.g. downloaded GHA surrogate bundle)."""
-    resolved = archive_path.resolve()
-    parts = resolved.parts
-    if "artifacts" not in parts:
-        return []
-    artifacts_root = Path(*parts[: parts.index("artifacts") + 1])
-    if not artifacts_root.is_dir():
-        return []
-    dirs: list[Path] = []
-    for child in sorted(artifacts_root.iterdir()):
-        if child.is_dir():
-            dirs.append(child / "checkpoints")
-    return dirs
+def _checkpoint_sort_key(
+    pkl_path: Path,
+    *,
+    root_index: int,
+) -> tuple[int, float, str]:
+    try:
+        mtime = float(pkl_path.stat().st_mtime)
+    except OSError:
+        mtime = 0.0
+    return (root_index, -mtime, str(pkl_path.resolve()))
 
 
 def checkpoint_paths_near_archive(archive_path: Path) -> list[Path]:
-    """List checkpoint pickle paths beside the archive run (nearest dirs first)."""
+    """List loadable ``SurrogateModel`` pickles under run dirs that contain the archive."""
+    from dashboard.utils.surrogate_checkpoint import filter_surrogate_model_checkpoints
+
     seen: set[str] = set()
-    found: list[Path] = []
-    for directory in checkpoint_dirs_for_archive(archive_path):
-        if not directory.is_dir():
+    ranked: list[tuple[tuple[int, float, str], Path]] = []
+    for root_index, root in enumerate(checkpoint_search_roots(archive_path)):
+        if not root.is_dir():
             continue
-        for name in _CHECKPOINT_FILENAMES:
-            candidate = directory / name
-            resolved = str(candidate.resolve())
-            if candidate.is_file() and resolved not in seen:
+        try:
+            iterator = root.rglob("*.pkl")
+            while True:
+                try:
+                    candidate = next(iterator)
+                except StopIteration:
+                    break
+                except OSError:
+                    continue
+                try:
+                    if not candidate.is_file():
+                        continue
+                except OSError:
+                    continue
+                resolved = str(candidate.resolve())
+                if resolved in seen:
+                    continue
                 seen.add(resolved)
-                found.append(candidate)
-        for candidate in sorted(directory.glob("*.pkl")):
-            resolved = str(candidate.resolve())
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            found.append(candidate)
-    return found
+                ranked.append(
+                    (_checkpoint_sort_key(candidate, root_index=root_index), candidate)
+                )
+        except OSError:
+            continue
+    ranked.sort(key=lambda item: item[0])
+    return filter_surrogate_model_checkpoints([path for _, path in ranked])
+
+
+def checkpoint_session_key(archive_path: Path) -> str:
+    """Streamlit session key for per-archive surrogate checkpoint override."""
+    return f"{DASHBOARD_SURROGATE_CHECKPOINT_SESSION_KEY}:{archive_path.resolve()}"
 
 
 def configured_checkpoint_candidates(cfg: dict[str, Any] | None = None) -> list[Path]:
@@ -261,29 +278,82 @@ def configured_checkpoint_candidates(cfg: dict[str, Any] | None = None) -> list[
     return resolved
 
 
+def archive_adjacent_surrogate_checkpoint(archive_path: Path) -> Path | None:
+    """First loadable ``SurrogateModel`` checkpoint beside the archive run directory."""
+    for candidate in checkpoint_paths_near_archive(archive_path):
+        return candidate
+    return None
+
+
+def list_surrogate_checkpoint_candidates(
+    cfg: dict[str, Any] | None = None,
+    *,
+    archive_path: Path | None = None,
+) -> list[Path]:
+    """Loadable ``SurrogateModel`` checkpoints: beside archive first, then configured paths."""
+    from dashboard.utils.surrogate_checkpoint import filter_surrogate_model_checkpoints
+
+    config = cfg if cfg is not None else load_config()
+    archive = archive_path
+    if archive is None:
+        archive = active_archive_path(config)
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    if archive is not None and archive.is_file():
+        for candidate in checkpoint_paths_near_archive(archive):
+            key = str(candidate.resolve())
+            if key not in seen:
+                seen.add(key)
+                ordered.append(candidate)
+    for candidate in configured_checkpoint_candidates(config):
+        key = str(candidate.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return filter_surrogate_model_checkpoints(ordered)
+
+
+def session_surrogate_checkpoint_override(
+    archive_path: Path,
+) -> Path | None | Literal["stub"]:
+    """Return user-selected checkpoint path, explicit stub, or unset (``None``)."""
+    try:
+        import streamlit as st
+
+        raw = st.session_state.get(checkpoint_session_key(archive_path), _UNSET)
+    except (ImportError, RuntimeError, AttributeError):
+        return None
+    if raw is _UNSET:
+        return None
+    if raw == CHECKPOINT_STUB_VALUE:
+        return "stub"
+    if not isinstance(raw, str) or not raw.strip():
+        return "stub"
+    candidate = Path(raw)
+    from dashboard.utils.surrogate_checkpoint import is_surrogate_model_checkpoint
+
+    return candidate if is_surrogate_model_checkpoint(candidate) else None
+
+
 def resolve_surrogate_checkpoint_path(
     cfg: dict[str, Any] | None = None,
     *,
     archive_path: Path | None = None,
 ) -> Path | None:
-    """Resolve surrogate checkpoint: archive-adjacent ``checkpoints/`` first, then config."""
+    """Resolve surrogate checkpoint beside the archive only (no global auto-fallback)."""
     config = cfg if cfg is not None else load_config()
-    candidates: list[Path] = []
     archive = archive_path
     if archive is None:
         archive = active_archive_path(config)
-    if archive is not None and archive.is_file():
-        candidates.extend(checkpoint_paths_near_archive(archive))
-    candidates.extend(configured_checkpoint_candidates(config))
-    seen: set[str] = set()
-    for candidate in candidates:
-        resolved_key = str(candidate.resolve())
-        if resolved_key in seen:
-            continue
-        seen.add(resolved_key)
-        if candidate.is_file():
-            return candidate
-    return None
+    if archive is None or not archive.is_file():
+        return None
+    override = session_surrogate_checkpoint_override(archive)
+    if override == "stub":
+        return None
+    if isinstance(override, Path):
+        return override
+    return archive_adjacent_surrogate_checkpoint(archive)
 
 
 def active_archive_path(cfg: dict[str, Any] | None = None) -> Path | None:

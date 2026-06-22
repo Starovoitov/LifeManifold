@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from pathlib import Path
 
 _dashboard_dir = Path(__file__).resolve().parent.parent
@@ -30,8 +31,8 @@ from dashboard.components.surrogate_widget import (
     feature_importance_from_model,
     load_surrogate,
     predict_world_spec_dict,
+    render_surrogate_checkpoint_selector,
     render_surrogate_status_banner,
-    resolve_checkpoint_path,
     surrogate_model_from_handle,
 )
 from dashboard.components.visualizations import (
@@ -61,7 +62,8 @@ def _cached_prediction_frame(
     max_rows: int,
     checkpoint_key: str,
 ) -> pd.DataFrame:
-    del mtime, checkpoint_key
+    del mtime
+    cfg = load_config()
     bundle = get_archive_bundle(Path(archive_path_str))
     frame = bundle.collapsed
     mask = frame["fitness"] >= min_fitness
@@ -71,7 +73,14 @@ def _cached_prediction_frame(
         mask &= frame["emitter_type"] == emitter_type
     filtered = frame.loc[mask].reset_index(drop=True)
     sample = sample_collapsed_rows(filtered, max_rows=max_rows, seed=0)
-    return build_prediction_frame(sample, predict_world_spec_dict)
+    checkpoint_path = Path(checkpoint_key) if checkpoint_key else None
+    predict_fn = partial(
+        predict_world_spec_dict,
+        cfg=cfg,
+        archive_path=Path(archive_path_str),
+        checkpoint_path=checkpoint_path,
+    )
+    return build_prediction_frame(sample, predict_fn)
 
 
 st.set_page_config(page_title="Surrogate Analysis", layout="wide")
@@ -96,7 +105,15 @@ selected_path = st.sidebar.selectbox(
     key=DASHBOARD_ARCHIVE_SESSION_KEY,
 )
 
-status = render_surrogate_status_banner(cfg, archive_path=selected_path)
+selected_checkpoint = render_surrogate_checkpoint_selector(
+    cfg,
+    archive_path=selected_path,
+)
+status = render_surrogate_status_banner(
+    cfg,
+    archive_path=selected_path,
+    checkpoint_path=selected_checkpoint,
+)
 
 bundle = get_archive_bundle(selected_path)
 show_large_archive_warning(bundle, cfg)
@@ -119,7 +136,7 @@ prediction_frame = _cached_prediction_frame(
     filter_state.seed,
     filter_state.emitter_type,
     max_rows,
-    str(resolve_checkpoint_path(cfg, archive_path=selected_path) or ""),
+    str(selected_checkpoint.resolve()) if selected_checkpoint is not None else "",
 )
 
 if prediction_frame.empty:
@@ -161,7 +178,13 @@ else:
     )
     st.plotly_chart(calibration_fig, width="stretch")
 
-model = surrogate_model_from_handle(load_surrogate(cfg, archive_path=selected_path))
+model = surrogate_model_from_handle(
+    load_surrogate(
+        cfg,
+        archive_path=selected_path,
+        checkpoint_path=selected_checkpoint,
+    )
+)
 importances = feature_importance_from_model(model) if model is not None else None
 if importances:
     st.subheader("Feature importance (LightGBM)")

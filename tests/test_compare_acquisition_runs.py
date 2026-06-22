@@ -9,6 +9,7 @@ from pathlib import Path
 
 from scripts.compare_acquisition_runs import (
     _infer_grid_resolution_from_bin_cell,
+    _meta_from_nightly_summary,
     _summarize_run,
     resolve_run_archive_meta,
 )
@@ -48,6 +49,26 @@ class TestResolveRunArchiveMeta(unittest.TestCase):
             meta = resolve_run_archive_meta(root, grid_resolution=10)
         self.assertEqual(meta["archive_type"], "cvt")
         self.assertEqual(meta["n_cells"], 25)
+
+    def test_nightly_summary_invalid_grid_resolution_with_n_cells_returns_none(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "nightly_run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "archive_type": "grid",
+                        "n_cells": 100,
+                        "grid_resolution": "invalid",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(_meta_from_nightly_summary(root))
+            meta = resolve_run_archive_meta(root, grid_resolution=10)
+        self.assertEqual(meta["archive_type"], "grid")
+        self.assertEqual(meta["n_cells"], 100)
 
     def test_legacy_fallback_uses_grid_resolution_squared(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

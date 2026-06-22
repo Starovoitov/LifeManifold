@@ -24,6 +24,47 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertEqual(config.batch_size, 50)
         self.assertEqual(config.batch_emitters.count("llm"), 20)
 
+    def test_resolve_nightly_baseline_archive_grid_legacy(self) -> None:
+        import tempfile
+
+        import scripts.run_github_llm_map_elites as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "map_elites_nightly"
+            legacy = root / "baseline" / "map_elites_archive.jsonl"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("{}\n", encoding="utf-8")
+            orig_root = mod._NIGHTLY_ROOT
+            try:
+                mod._NIGHTLY_ROOT = root
+                resolved = mod.resolve_nightly_baseline_archive("grid")
+                self.assertEqual(resolved, legacy)
+                self.assertIsNone(mod.resolve_nightly_baseline_archive("cvt"))
+            finally:
+                mod._NIGHTLY_ROOT = orig_root
+
+    def test_resolve_baseline_archive_for_scheduler_grid(self) -> None:
+        import tempfile
+
+        import scripts.run_github_llm_map_elites as mod
+
+        scheduler = (
+            _REPO_ROOT
+            / "worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "map_elites_nightly"
+            legacy = root / "baseline" / "map_elites_archive.jsonl"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("{}\n", encoding="utf-8")
+            orig_root = mod._NIGHTLY_ROOT
+            try:
+                mod._NIGHTLY_ROOT = root
+                resolved = mod.resolve_baseline_archive_for_scheduler(scheduler)
+                self.assertEqual(resolved, legacy)
+            finally:
+                mod._NIGHTLY_ROOT = orig_root
+
     def test_resolve_nightly_grid_resolution_from_summary(self) -> None:
         import json
         import tempfile

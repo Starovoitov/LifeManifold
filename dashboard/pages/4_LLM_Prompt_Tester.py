@@ -39,6 +39,7 @@ from dashboard.components.llm_prompt_tester import (
 )
 from dashboard.components.surrogate_widget import (
     predict_world_spec_dict,
+    render_surrogate_checkpoint_selector,
     render_surrogate_status_banner,
 )
 from dashboard.utils.config import (
@@ -90,6 +91,7 @@ with st.sidebar:
 archives = existing_archive_paths(cfg)
 loaded_archive: ArchiveProtocol | None = None
 selected_path: Path | None = None
+selected_checkpoint: Path | None = None
 chosen_cell_id: int | None = None
 
 if archives:
@@ -103,7 +105,15 @@ if archives:
         format_func=_archive_label,
         key=DASHBOARD_ARCHIVE_SESSION_KEY,
     )
-    render_surrogate_status_banner(cfg, archive_path=selected_path)
+    selected_checkpoint = render_surrogate_checkpoint_selector(
+        cfg,
+        archive_path=selected_path,
+    )
+    render_surrogate_status_banner(
+        cfg,
+        archive_path=selected_path,
+        checkpoint_path=selected_checkpoint,
+    )
     bundle = get_archive_bundle(selected_path)
     archive_type = bundle.archive_type
     n_centroids = bundle.n_cells if archive_type == "cvt" else None
@@ -175,7 +185,12 @@ if loaded_archive is not None:
     elite = archive.get_cell(chosen_cell_id) if chosen_cell_id is not None else None
     parent_spec = parent_world_spec_dict(elite)
     if parent_spec is not None:
-        prediction = predict_world_spec_dict(parent_spec)
+        prediction = predict_world_spec_dict(
+            parent_spec,
+            cfg=cfg,
+            archive_path=selected_path,
+            checkpoint_path=selected_checkpoint,
+        )
         if prediction is not None:
             surrogate_mean = float(prediction["fitness"])
             surrogate_uncertainty = float(prediction["uncertainty"])
@@ -193,7 +208,12 @@ else:
             st.error("Invalid JSON for world_spec.")
         else:
             if isinstance(parsed, dict):
-                prediction = predict_world_spec_dict(parsed)
+                prediction = predict_world_spec_dict(
+                    parsed,
+                    cfg=cfg,
+                    archive_path=selected_path,
+                    checkpoint_path=selected_checkpoint,
+                )
                 if prediction is not None:
                     surrogate_mean = float(prediction["fitness"])
                     surrogate_uncertainty = float(prediction["uncertainty"])

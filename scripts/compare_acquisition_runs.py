@@ -206,7 +206,13 @@ def _meta_from_nightly_summary(run_dir: Path) -> RunArchiveMeta | None:
         if n_cells < 1:
             return None
         resolution_raw = payload.get("grid_resolution")
-        resolution = int(resolution_raw) if resolution_raw is not None else None
+        if resolution_raw is None:
+            resolution = None
+        else:
+            try:
+                resolution = int(resolution_raw)
+            except (TypeError, ValueError):
+                return None
     archive_type = str(payload.get("archive_type", "grid"))
     return {
         "archive_type": archive_type,

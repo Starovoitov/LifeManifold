@@ -2,29 +2,134 @@
 
 from __future__ import annotations
 
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
 
+from worldspace.surrogate.calibration import (
+    CALIBRATION_METHOD_ISOTONIC,
+    CALIBRATION_SCHEMA_VERSION,
+    UncertaintyCalibrator,
+)
+from worldspace.surrogate.checkpoint_io import save_surrogate_checkpoint
+from worldspace.surrogate.model import SurrogateModel
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_model_checkpoint(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_surrogate_checkpoint(SurrogateModel(), path)
+
+
+def _write_calibration_checkpoint(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    calibrator = UncertaintyCalibrator(
+        schema_version=CALIBRATION_SCHEMA_VERSION,
+        method=CALIBRATION_METHOD_ISOTONIC,
+        x_thresholds=(0.0, 1.0),
+        y_thresholds=(0.0, 1.0),
+    )
+    with path.open("wb") as handle:
+        pickle.dump(calibrator, handle)
+
+
 class TestDashboardSurrogateWidget(unittest.TestCase):
-    def test_resolve_checkpoint_prefers_existing_file(self) -> None:
+    def test_resolve_checkpoint_explicit_none_skips_archive_local(self) -> None:
         from dashboard.components.surrogate_widget import resolve_checkpoint_path
 
         with tempfile.TemporaryDirectory() as tmp:
-            primary = Path(tmp) / "latest.pkl"
-            fallback = Path(tmp) / "micro.pkl"
-            primary.write_bytes(b"not-a-real-pickle")
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            local = archive.parent / "models" / "local.pkl"
+            _write_model_checkpoint(local)
+            cfg: dict[str, object] = {"paths": {}, "surrogate": {}}
+            resolved = resolve_checkpoint_path(cfg, archive_path=archive)
+            self.assertEqual(resolved, local.resolve())
+            self.assertIsNone(
+                resolve_checkpoint_path(
+                    cfg,
+                    archive_path=archive,
+                    checkpoint_path=None,
+                )
+            )
+
+    def test_checkpoint_paths_found_recursively_under_run_dir(self) -> None:
+        from dashboard.utils.config import checkpoint_paths_near_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "experiments" / "cond" / "0" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            nested = archive.parent / "artifacts" / "model.pkl"
+            _write_model_checkpoint(nested)
+            found = checkpoint_paths_near_archive(archive)
+            self.assertEqual(found, [nested.resolve()])
+
+    def test_checkpoint_paths_exclude_calibration_pickle(self) -> None:
+        from dashboard.utils.config import checkpoint_paths_near_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            _write_calibration_checkpoint(archive.parent / "calibration.pkl")
+            model = archive.parent / "model.pkl"
+            _write_model_checkpoint(model)
+            found = checkpoint_paths_near_archive(archive)
+            self.assertEqual(found, [model.resolve()])
+
+    def test_checkpoint_paths_include_valid_symlink(self) -> None:
+        from dashboard.utils.config import checkpoint_paths_near_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            target = root / "bundle" / "model.pkl"
+            _write_model_checkpoint(target)
+            link = archive.parent / "checkpoints" / "linked.pkl"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target)
+            found = checkpoint_paths_near_archive(archive)
+            self.assertEqual(len(found), 1)
+            self.assertEqual(found[0].resolve(), target.resolve())
+            self.assertTrue(found[0].is_symlink())
+
+    def test_resolve_checkpoint_uses_config_only_when_session_override_set(
+        self,
+    ) -> None:
+        from dashboard.components.surrogate_widget import resolve_checkpoint_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            primary = Path(tmp) / "configured" / "latest.pkl"
+            fallback = Path(tmp) / "configured" / "micro.pkl"
+            archive = Path(tmp) / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            primary.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            _write_model_checkpoint(primary)
+            _write_model_checkpoint(fallback)
             cfg = {
                 "paths": {"surrogate_checkpoint": str(primary)},
                 "surrogate": {"micro_checkpoint_fallback": str(fallback)},
             }
-            resolved = resolve_checkpoint_path(cfg)
-            self.assertEqual(resolved, primary.resolve())
+            resolved = resolve_checkpoint_path(cfg, archive_path=archive)
+            self.assertIsNone(resolved)
+            resolved_explicit = resolve_checkpoint_path(
+                cfg,
+                archive_path=archive,
+                checkpoint_path=primary,
+            )
+            self.assertEqual(resolved_explicit, primary.resolve())
 
     def test_resolve_checkpoint_prefers_archive_adjacent_checkpoints(self) -> None:
         from dashboard.utils.config import resolve_surrogate_checkpoint_path
@@ -34,10 +139,9 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             archive = root / "baseline" / "map_elites_archive.jsonl"
             archive.parent.mkdir(parents=True)
             archive.write_text("{}\n", encoding="utf-8")
-            checkpoint = root / "checkpoints" / "nightly_v2.pkl"
-            checkpoint.parent.mkdir(parents=True)
-            checkpoint.write_bytes(b"not-a-real-pickle")
-            config_path = root / "missing" / "nightly_v2.pkl"
+            checkpoint = root / "checkpoints" / "model.pkl"
+            _write_model_checkpoint(checkpoint)
+            config_path = root / "missing" / "model.pkl"
             cfg = {
                 "paths": {"surrogate_checkpoint": str(config_path)},
                 "surrogate": {"checkpoint_fallbacks": []},
@@ -48,9 +152,102 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             )
             self.assertEqual(resolved, checkpoint.resolve())
 
+    def test_experiment_archive_does_not_auto_pick_global_checkpoint(self) -> None:
+        from dashboard.utils.config import (
+            checkpoint_paths_near_archive,
+            list_surrogate_checkpoint_candidates,
+        )
+
+        repo = _REPO_ROOT
+        global_ckpt = (
+            repo
+            / "artifacts"
+            / "map-elites-nightly-surrogate"
+            / "checkpoints"
+            / "nightly_v2.pkl"
+        )
+        if not global_ckpt.is_file():
+            self.skipTest("surrogate checkpoint missing")
+        experiment_archive = (
+            repo
+            / "artifacts"
+            / "experiments"
+            / "q1-min"
+            / "stub"
+            / "seed_0"
+            / "map_elites_archive.jsonl"
+        )
+        if not experiment_archive.is_file():
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                experiment_archive = (
+                    root
+                    / "artifacts"
+                    / "experiments"
+                    / "q1-min"
+                    / "stub"
+                    / "seed_0"
+                    / "map_elites_archive.jsonl"
+                )
+                experiment_archive.parent.mkdir(parents=True)
+                experiment_archive.write_text("{}\n", encoding="utf-8")
+                global_dir = (
+                    root / "artifacts" / "map-elites-nightly-surrogate" / "checkpoints"
+                )
+                _write_model_checkpoint(global_dir / "model.pkl")
+                cfg = {
+                    "paths": {"surrogate_checkpoint": str(global_dir / "model.pkl")},
+                    "surrogate": {"checkpoint_fallbacks": []},
+                }
+                near = {
+                    str(path.resolve())
+                    for path in checkpoint_paths_near_archive(experiment_archive)
+                }
+                self.assertNotIn(str((global_dir / "model.pkl").resolve()), near)
+                manual = list_surrogate_checkpoint_candidates(
+                    cfg,
+                    archive_path=experiment_archive,
+                )
+                self.assertEqual(manual, [(global_dir / "model.pkl").resolve()])
+        else:
+            cfg = {
+                "paths": {"surrogate_checkpoint": str(global_ckpt)},
+                "surrogate": {"checkpoint_fallbacks": []},
+            }
+            near = checkpoint_paths_near_archive(experiment_archive)
+            resolved_near = {path.resolve() for path in near}
+            self.assertIn(global_ckpt.resolve(), resolved_near)
+            self.assertTrue(
+                all("calibration.pkl" not in path.name for path in near),
+                msg=f"calibration.pkl must not appear: {near}",
+            )
+            manual = list_surrogate_checkpoint_candidates(
+                cfg,
+                archive_path=experiment_archive,
+            )
+            self.assertIn(global_ckpt.resolve(), {path.resolve() for path in manual})
+
+    def test_list_surrogate_checkpoint_candidates_includes_configured_paths(
+        self,
+    ) -> None:
+        from dashboard.utils.config import list_surrogate_checkpoint_candidates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            configured = root / "configured.pkl"
+            _write_model_checkpoint(configured)
+            cfg = {
+                "paths": {"surrogate_checkpoint": str(configured)},
+                "surrogate": {"checkpoint_fallbacks": []},
+            }
+            candidates = list_surrogate_checkpoint_candidates(cfg, archive_path=archive)
+            self.assertEqual(candidates, [configured.resolve()])
+
     def test_feature_importance_none_for_untrained_model(self) -> None:
         from dashboard.components.surrogate_widget import feature_importance_from_model
-        from worldspace.surrogate.model import SurrogateModel
 
         model = SurrogateModel(model_type="lightgbm")
         self.assertIsNone(feature_importance_from_model(model))
@@ -81,14 +278,19 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
     def test_surrogate_status_stub_without_checkpoint(self) -> None:
         from dashboard.components.surrogate_widget import surrogate_status
 
-        cfg = {
-            "paths": {"surrogate_checkpoint": "nonexistent/checkpoints/missing.pkl"},
-            "surrogate": {
-                "enabled": True,
-                "micro_checkpoint_fallback": "also/missing.pkl",
-            },
-        }
-        status = surrogate_status(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "map_elites_archive.jsonl"
+            archive.write_text("{}\n", encoding="utf-8")
+            cfg = {
+                "paths": {
+                    "surrogate_checkpoint": "nonexistent/checkpoints/missing.pkl"
+                },
+                "surrogate": {
+                    "enabled": True,
+                    "micro_checkpoint_fallback": "also/missing.pkl",
+                },
+            }
+            status = surrogate_status(cfg, archive_path=archive, checkpoint_path=None)
         self.assertTrue(status.is_stub)
 
     def test_feature_importance_returns_21_v2_labels(self) -> None:
