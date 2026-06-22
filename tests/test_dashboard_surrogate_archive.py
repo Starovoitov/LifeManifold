@@ -45,6 +45,12 @@ class TestSurrogateArchiveLoader(unittest.TestCase):
         self.assertEqual(row["target_bin_label"], "2,3")
         self.assertFalse(row["has_eval"])
 
+    def test_flatten_archive_record_includes_target_cell_id(self) -> None:
+        from dashboard.components.surrogate_archive_loader import flatten_archive_record
+
+        row = flatten_archive_record(_sample_record(target_cell_id=17))
+        self.assertEqual(row["target_cell_id"], 17)
+
     def test_load_smoke_fixture(self) -> None:
         from dashboard.components.surrogate_archive_loader import (
             load_surrogate_archive,

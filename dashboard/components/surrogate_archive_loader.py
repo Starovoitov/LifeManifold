@@ -130,6 +130,7 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
     candidate_id = record.get("candidate_id")
     emitter_type = record.get("emitter_type")
     target_bin = record.get("target_bin")
+    raw_target_cell_id = record.get("target_cell_id")
     decision = record.get("decision")
     decision_reason = record.get("decision_reason")
     acquisition_mode = record.get("acquisition_mode")
@@ -144,13 +145,24 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not isinstance(emitter_type, str) or not emitter_type.strip():
         return None
-    if not isinstance(target_bin, list) or len(target_bin) != 2:
+    has_target_bin = isinstance(target_bin, list) and len(target_bin) == 2
+    if not has_target_bin and raw_target_cell_id is None:
         return None
-    try:
-        bin_i = int(target_bin[0])
-        bin_j = int(target_bin[1])
-    except (TypeError, ValueError):
-        return None
+    bin_i: int | None = None
+    bin_j: int | None = None
+    if has_target_bin:
+        assert isinstance(target_bin, list)
+        try:
+            bin_i = int(target_bin[0])
+            bin_j = int(target_bin[1])
+        except (TypeError, ValueError):
+            return None
+    target_cell_id: int | None = None
+    if raw_target_cell_id is not None:
+        try:
+            target_cell_id = int(raw_target_cell_id)
+        except (TypeError, ValueError):
+            return None
     if decision not in ("eval", "skip"):
         return None
     if not isinstance(decision_reason, str):
@@ -174,9 +186,6 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "iteration": iteration,
         "candidate_id": candidate_id,
         "emitter_type": emitter_type,
-        "target_bin_i": bin_i,
-        "target_bin_j": bin_j,
-        "target_bin_label": f"{bin_i},{bin_j}",
         "world_spec_hash": world_spec_hash,
         "pred_fitness": pred_fitness,
         "pred_uncertainty": pred_uncertainty,
@@ -184,6 +193,12 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "decision_reason": decision_reason,
         "acquisition_mode": acquisition_mode,
     }
+    if bin_i is not None and bin_j is not None:
+        row["target_bin_i"] = bin_i
+        row["target_bin_j"] = bin_j
+        row["target_bin_label"] = f"{bin_i},{bin_j}"
+    if target_cell_id is not None:
+        row["target_cell_id"] = target_cell_id
 
     outcome = record.get("eval_outcome")
     if outcome is None:

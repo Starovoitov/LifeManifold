@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -226,6 +227,12 @@ class TestLoopAcquisition(unittest.TestCase):
             self.assertEqual(stats.evaluated, 0)
             self.assertEqual(stats.skipped, 2)
             self.assertTrue(all(o.skipped for o in outcomes))
+            lines = archive_path.read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(lines), 2)
+            for line in lines:
+                record = json.loads(line)
+                self.assertIn("target_cell_id", record)
+                self.assertIsInstance(record["target_cell_id"], int)
 
 
 if __name__ == "__main__":

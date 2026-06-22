@@ -178,6 +178,34 @@ class TestDashboardLlmPromptTester(unittest.TestCase):
         )
         self.assertEqual(actual, expected)
 
+    def test_render_system_prompt_preview_cvt_requires_n_centroids(self) -> None:
+        from dashboard.components.llm_prompt_tester import render_system_prompt_preview
+
+        with self.assertRaises(ValueError):
+            render_system_prompt_preview(10, archive_type="cvt")
+
+    def test_render_system_prompt_preview_cvt_uses_explicit_n_centroids(self) -> None:
+        from dashboard.components.llm_prompt_tester import render_system_prompt_preview
+
+        text = render_system_prompt_preview(
+            10,
+            archive_type="cvt",
+            n_centroids=25,
+        )
+        self.assertIn("25", text)
+        self.assertIn("Voronoi", text)
+        self.assertNotIn("10×10", text)
+
+    def test_render_system_prompt_preview_cvt_reads_defaults_from_config(self) -> None:
+        from dashboard.components.llm_prompt_tester import render_system_prompt_preview
+
+        text = render_system_prompt_preview(
+            10,
+            {"defaults": {"n_centroids": 9}},
+            archive_type="cvt",
+        )
+        self.assertIn("9", text)
+
 
 if __name__ == "__main__":
     unittest.main()

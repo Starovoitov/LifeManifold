@@ -180,6 +180,30 @@ class TestSurrogateReporting(unittest.TestCase):
         self.assertAlmostEqual(acquisition["calibration_ece"], 0.03)
         self.assertEqual(acquisition["calibration_holdout_samples"], 100)
 
+    def test_cvt_replay_uses_n_cells_denominator(self) -> None:
+        n = 3
+        feature_matrix = np.tile(np.linspace(0.1, 0.9, len(FEATURE_NAMES)), (n, 1))
+        targets = {key: np.full(n, 0.1, dtype=float) for key in TARGET_KEYS}
+        model = SurrogateModel()
+        model.set_component_defaults(0.05)
+        policy = AcquisitionConfig(
+            mode="filter",
+            min_predicted_fitness=0.25,
+            max_uncertainty_to_skip=0.40,
+            never_skip_empty_bin=False,
+        )
+        metrics = evaluate_acquisition_replay(
+            model,
+            feature_matrix,
+            targets,
+            policy,
+            n_cells=9,
+            archive_type="cvt",
+            cvt_seed=0,
+            lloyd_iterations=5,
+        )
+        self.assertEqual(metrics.row_count, n)
+
 
 if __name__ == "__main__":
     unittest.main()

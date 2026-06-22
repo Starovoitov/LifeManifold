@@ -225,11 +225,7 @@ def render_system_prompt_preview(
     prompts_dir = resolve_prompts_dir(cfg)
     if archive_type == "cvt":
         path = prompts_dir / CVT_SYSTEM_PROMPT_FILE
-        count = (
-            n_centroids
-            if n_centroids is not None
-            else grid_resolution * grid_resolution
-        )
+        count = _resolve_cvt_n_centroids(n_centroids=n_centroids, cfg=cfg)
         return render_system_prompt_for_archive_type(
             "cvt",
             grid_resolution=grid_resolution,
@@ -238,6 +234,32 @@ def render_system_prompt_preview(
         )
     path = prompts_dir / DEFAULT_SYSTEM_PROMPT_FILE
     return render_system_prompt(grid_resolution, path=path)
+
+
+def _resolve_cvt_n_centroids(
+    *,
+    n_centroids: int | None,
+    cfg: dict[str, Any] | None,
+) -> int:
+    """Return CVT niche count for prompt preview; never infer from grid resolution."""
+    if n_centroids is not None:
+        if n_centroids < 1:
+            msg = f"n_centroids must be >= 1, got {n_centroids}"
+            raise ValueError(msg)
+        return int(n_centroids)
+    if cfg is not None:
+        defaults = cfg.get("defaults")
+        if isinstance(defaults, dict) and defaults.get("n_centroids") is not None:
+            resolved = int(defaults["n_centroids"])
+            if resolved < 1:
+                msg = f"defaults.n_centroids must be >= 1, got {resolved}"
+                raise ValueError(msg)
+            return resolved
+    msg = (
+        "n_centroids is required when archive_type is 'cvt' "
+        "(grid_resolution is not a valid fallback for CVT prompts)"
+    )
+    raise ValueError(msg)
 
 
 def parent_world_spec_dict(elite: ArchiveElite | None) -> dict[str, Any] | None:

@@ -79,6 +79,7 @@ class TestSurrogateArchive(unittest.TestCase):
                 candidate_id=0,
                 emitter_type="random",
                 target=target,
+                target_cell_id=7,
                 world_spec_hash=world_spec_canonical_hash(_SPEC),
                 prediction=prediction,
                 decision=decision,
@@ -89,6 +90,7 @@ class TestSurrogateArchive(unittest.TestCase):
             self.assertEqual(len(lines), 1)
             parsed = json.loads(lines[0])
             self.assertIsNone(parsed["eval_outcome"])
+            self.assertEqual(parsed["target_cell_id"], 7)
 
     def test_no_op_writer_creates_no_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -102,6 +104,7 @@ class TestSurrogateArchive(unittest.TestCase):
                 target=TargetBin(
                     bin=(0, 0), target_stability=0.5, target_diversity=0.5
                 ),
+                target_cell_id=0,
                 world_spec_hash="abc",
                 prediction=StubSurrogate(0.5, 0.5).predict(_SPEC),
                 decision=AcquisitionDecision(
@@ -165,6 +168,7 @@ class TestSurrogateArchive(unittest.TestCase):
             candidate_id=0,
             emitter_type="random",
             target=TargetBin(bin=(0, 0), target_stability=0.5, target_diversity=0.5),
+            target_cell_id=0,
             world_spec_hash="h",
             prediction=SurrogatePrediction(
                 components={},
