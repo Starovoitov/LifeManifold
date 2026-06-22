@@ -51,6 +51,33 @@ class TestDashboardHomeOverview(unittest.TestCase):
         self.assertEqual(_format_percent(1.0), "100.00%")
         self.assertEqual(_format_percent(1.5), "150.00%")
 
+    def test_run_expander_title_uses_archive_stats_without_summary(self) -> None:
+        from dashboard.components.home_overview import _run_expander_title
+        from dashboard.utils.config import repo_root
+        from dashboard.utils.run_discovery import RunInfo
+
+        run_dir = (
+            repo_root() / "artifacts" / "experiments" / "q1-min" / "stub" / "seed_0"
+        )
+        run = RunInfo(
+            run_dir=run_dir,
+            archive_path=run_dir / "map_elites_archive.jsonl",
+            summary_path=None,
+            summary=None,
+            archive_mtime=0.0,
+        )
+        title = _run_expander_title(
+            run,
+            stats={
+                "archive_type": "grid",
+                "filled_cells": 743,
+                "coverage": 0.02972,
+            },
+        )
+        self.assertIn("grid", title)
+        self.assertIn("filled=743", title)
+        self.assertIn("coverage=3.0%", title)
+
     def test_list_niches_from_frame_grid_and_cvt(self) -> None:
         import pandas as pd
 
