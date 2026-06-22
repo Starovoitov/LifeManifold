@@ -1,0 +1,76 @@
+schema_version: "1.2"
+# Full nightly budget with LLM emitter (650 × 10 LLM = 6_500 API calls per seed).
+# Control arm for surrogate hints A/B: map_elites_scheduler_nightly_llm_stub.yaml
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0

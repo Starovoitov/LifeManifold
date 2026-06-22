@@ -1,0 +1,85 @@
+schema_version: "1.2"
+# Surrogate hints + acquisition filter (650 × 10 LLM; sims reduced by skip policy).
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_filter.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  calibration: artifacts/surrogate/checkpoints/calibration.pkl
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment.jsonl
+  acquisition:
+    mode: filter
+    policy: threshold_gate
+    min_predicted_fitness: 0.15
+    max_uncertainty_to_skip: 0.40
+    never_skip_empty_bin: true
+  retrain:
+    enabled: false
