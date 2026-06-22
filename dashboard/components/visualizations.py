@@ -388,7 +388,12 @@ def plot_real_vs_predicted(
     if uncertainty is not None:
         marker_kwargs["color"] = np.asarray(uncertainty, dtype=np.float64)
         marker_kwargs["colorscale"] = "Turbo"
-        marker_kwargs["colorbar"] = dict(title="uncertainty")
+        marker_kwargs["colorbar"] = dict(
+            title="uncertainty",
+            x=1.12,
+            xanchor="left",
+            xpad=12,
+        )
 
     fig = go.Figure()
     fig.add_trace(
@@ -422,6 +427,7 @@ def plot_real_vs_predicted(
         xaxis_title=f"Real {label}",
         yaxis_title=f"Predicted {label}",
         height=default_figure_height(),
+        margin=dict(r=110),
     )
     return apply_dark_theme(fig)
 
