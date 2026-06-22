@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from worldspace.illuminators.evaluation import EvalResult
+from worldspace.illuminators.evaluation import EvalResult, bin_center, bin_index
+from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
 from worldspace.metrics import METRIC_KEYS, WorldMetrics, metrics_vector_to_dict
 from worldspace.specs.spec import WorldSpec
 
@@ -38,7 +39,10 @@ __all__ = [
     "InvalidLineMode",
     "append_archive_line",
     "archive_record_to_elite",
+    "bin_ij_from_flat_cell_id",
     "count_archive_jsonl_lines",
+    "cvt_cell_id",
+    "flat_cell_id",
     "elite_from_eval",
     "elite_to_archive_record",
     "insert_and_persist",
@@ -75,6 +79,11 @@ class ArchiveElite:
     metrics: WorldMetrics | None = None
     metadata: EliteMetadata | None = None
 
+    @property
+    def bin_ij(self) -> tuple[int, int]:
+        """Grid ``(i, j)`` or CVT ``(cell_id, 0)`` niche coordinates."""
+        return self.bin
+
 
 @dataclass(frozen=True)
 class InsertResult:
@@ -107,12 +116,28 @@ class GridArchive:
     def bc_max(self) -> float:
         return BC_MAX
 
+    @property
+    def archive_type(self) -> str:
+        return "grid"
+
+    @property
+    def n_cells(self) -> int:
+        return self._resolution * self._resolution
+
     def get(self, i: int, j: int) -> ArchiveElite | None:
         """Return the elite at ``(i, j)`` or ``None`` if the cell is empty."""
         return self._cells[self._cell_index(i, j)]
 
     def is_empty(self, i: int, j: int) -> bool:
         return self.get(i, j) is None
+
+    def get_cell(self, cell_id: int) -> ArchiveElite | None:
+        """Return the elite for a flat niche index."""
+        i, j = self.bin_from_cell_id(cell_id)
+        return self.get(i, j)
+
+    def is_empty_cell(self, cell_id: int) -> bool:
+        return self.get_cell(cell_id) is None
 
     def filled_count(self) -> int:
         return sum(1 for cell in self._cells if cell is not None)
@@ -133,9 +158,49 @@ class GridArchive:
             return InsertResult(accepted=True, improved=True, rejected=False)
         return InsertResult(accepted=False, improved=False, rejected=True)
 
+    def cell_center(self, cell_id: int) -> tuple[float, float]:
+        i, j = self.bin_from_cell_id(cell_id)
+        return bin_center(i, j, self._resolution)
+
+    def neighbors(self, cell_id: int) -> tuple[int, ...]:
+        i, j = self.bin_from_cell_id(cell_id)
+        adjacent = cardinal_neighbors_bounded(i, j, self._resolution)
+        return tuple(sorted(self.cell_id_from_bin(neighbor) for neighbor in adjacent))
+
+    def assign_cell_id(self, stability: float, diversity: float) -> int:
+        i, j = bin_index(stability, diversity, self._resolution)
+        return self.cell_id_from_bin((i, j))
+
+    def cell_id_from_bin(self, bin_ij: tuple[int, int]) -> int:
+        i, j = bin_ij
+        return self._cell_index(i, j)
+
+    def bin_from_cell_id(self, cell_id: int) -> tuple[int, int]:
+        _validate_flat_cell_id(cell_id, self.n_cells, self._resolution)
+        return divmod(cell_id, self._resolution)
+
     def _cell_index(self, i: int, j: int) -> int:
         _validate_bin(i, j, self._resolution)
         return i * self._resolution + j
+
+
+def flat_cell_id(bin_ij: tuple[int, int], *, resolution: int) -> int:
+    """Map a grid ``(i, j)`` bin to a flat niche index."""
+    i, j = bin_ij
+    _validate_bin(i, j, resolution)
+    return i * resolution + j
+
+
+def bin_ij_from_flat_cell_id(cell_id: int, *, resolution: int) -> tuple[int, int]:
+    """Map a flat grid niche index back to ``(i, j)``."""
+    n_cells = resolution * resolution
+    _validate_flat_cell_id(cell_id, n_cells, resolution)
+    return divmod(cell_id, resolution)
+
+
+def cvt_cell_id(bin_ij: tuple[int, int]) -> int:
+    """Return the CVT niche index stored in ``bin_ij[0]``."""
+    return bin_ij[0]
 
 
 def prompt_version_for_json(value: str | None) -> str:
@@ -427,4 +492,14 @@ def _world_metrics_from_dict(data: dict) -> WorldMetrics:
 def _validate_bin(i: int, j: int, resolution: int) -> None:
     if i < 0 or i >= resolution or j < 0 or j >= resolution:
         msg = f"bin ({i}, {j}) out of range for resolution {resolution}"
+        raise IndexError(msg)
+
+
+def _validate_flat_cell_id(cell_id: int, n_cells: int, resolution: int) -> None:
+    if cell_id < 0 or cell_id >= n_cells:
+        msg = f"cell_id {cell_id} out of range for {n_cells} niches"
+        raise IndexError(msg)
+    i, j = divmod(cell_id, resolution)
+    if j < 0 or j >= resolution:
+        msg = f"cell_id {cell_id} is not a valid flat index for resolution {resolution}"
         raise IndexError(msg)

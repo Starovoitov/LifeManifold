@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from worldspace.illuminators.archive import ArchiveElite, InsertResult
+from worldspace.illuminators.archive import ArchiveElite, InsertResult, cvt_cell_id
 from worldspace.illuminators.cvt import assign_cell_id, voronoi_neighbors
 
 __all__ = ["CvtArchive"]
@@ -46,8 +46,15 @@ class CvtArchive:
         """Return the elite at ``cell_id`` or ``None`` if the niche is empty."""
         return self._cells[self._cell_index(cell_id)]
 
+    def get_cell(self, cell_id: int) -> ArchiveElite | None:
+        """Return the elite at ``cell_id`` or ``None`` if the niche is empty."""
+        return self.get(cell_id)
+
     def is_empty(self, cell_id: int) -> bool:
         return self.get(cell_id) is None
+
+    def is_empty_cell(self, cell_id: int) -> bool:
+        return self.is_empty(cell_id)
 
     def filled_count(self) -> int:
         return sum(1 for cell in self._cells if cell is not None)
@@ -69,9 +76,20 @@ class CvtArchive:
         """Map measured BC to the nearest archive niche."""
         return assign_cell_id(stability, diversity, self._centroids)
 
+    def cell_id_from_bin(self, bin_ij: tuple[int, int]) -> int:
+        """Convert a CVT elite bin ``(cell_id, 0)`` to a flat niche index."""
+        cell_id = cvt_cell_id(bin_ij)
+        _validate_cell_id(cell_id, self.n_cells)
+        return cell_id
+
+    def bin_from_cell_id(self, cell_id: int) -> tuple[int, int]:
+        """Convert a flat niche index to a CVT elite bin tuple."""
+        self._cell_index(cell_id)
+        return (cell_id, 0)
+
     def try_insert(self, elite: ArchiveElite) -> InsertResult:
-        """Insert or replace at ``elite.bin[0]``; replace only on strict fitness gain."""
-        cell_id = elite.bin[0]
+        """Insert or replace at the elite niche; replace only on strict fitness gain."""
+        cell_id = self.cell_id_from_bin(elite.bin)
         index = self._cell_index(cell_id)
         current = self._cells[index]
         if current is None:
