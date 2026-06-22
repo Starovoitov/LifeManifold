@@ -953,7 +953,7 @@ def _create_cvt_centroid_scatter(
                     size=11,
                     color=filled_values,
                     colorscale=colorscale,
-                    colorbar=dict(title=metric),
+                    colorbar=_scatter_metric_colorbar(metric),
                     cmin=float(np.nanmin(filled_values)),
                     cmax=float(np.nanmax(filled_values)),
                     line=dict(width=0.5, color="rgba(255, 255, 255, 0.35)"),
@@ -983,6 +983,7 @@ def _create_cvt_centroid_scatter(
         title=title,
         height=default_figure_height(heatmap=True),
         width=680,
+        margin=dict(r=110),
         xaxis=dict(title="Diversity (niche center)", range=[0.0, 1.0]),
         yaxis=dict(title="Stability (niche center)", range=[0.0, 1.0]),
     )
@@ -1045,7 +1046,7 @@ def _create_cvt_elite_only_scatter(
                 size=11,
                 color=color_values,
                 colorscale=colorscale,
-                colorbar=dict(title=metric),
+                colorbar=_scatter_metric_colorbar(metric),
                 cmin=float(np.nanmin(color_values)),
                 cmax=float(np.nanmax(color_values)),
             ),
@@ -1062,10 +1063,21 @@ def _create_cvt_elite_only_scatter(
         title=title,
         height=default_figure_height(heatmap=True),
         width=680,
+        margin=dict(r=110),
         xaxis=dict(title="Diversity", range=[0.0, 1.0]),
         yaxis=dict(title="Stability", range=[0.0, 1.0]),
     )
     return apply_dark_theme(fig)
+
+
+def _scatter_metric_colorbar(metric: str) -> dict[str, Any]:
+    """Colorbar layout for CVT archive scatter plots."""
+    return dict(
+        title=metric,
+        x=1.12,
+        xanchor="left",
+        xpad=12,
+    )
 
 
 def _scatter_metric_column(frame: pd.DataFrame, metric: str) -> str | None:

@@ -39,12 +39,8 @@ from dashboard.components.visualizations import (
     plot_calibration_by_uncertainty,
     plot_real_vs_predicted,
 )
-from dashboard.utils.config import (
-    DASHBOARD_ARCHIVE_SESSION_KEY,
-    existing_archive_paths,
-    load_config,
-    repo_root,
-)
+from dashboard.components.artifact_selectors import render_archive_selector
+from dashboard.utils.config import load_config
 from dashboard.utils.surrogate_analysis import (
     build_prediction_frame,
     load_checkpoint_training_summary,
@@ -90,22 +86,10 @@ st.title("Surrogate Analysis")
 
 cfg = load_config()
 
-archives = existing_archive_paths(cfg)
-if not archives:
-    st.error("No archive JSONL found. Update dashboard config or run MAP-Elites.")
+selected_path = render_archive_selector(cfg)
+if selected_path is None:
+    st.error("No archive JSONL found under scan roots.")
     st.stop()
-
-
-def _archive_label(path: Path) -> str:
-    return str(path.relative_to(repo_root()))
-
-
-selected_path = st.sidebar.selectbox(
-    "Archive JSONL",
-    archives,
-    format_func=_archive_label,
-    key=DASHBOARD_ARCHIVE_SESSION_KEY,
-)
 
 selected_checkpoint = render_surrogate_checkpoint_selector(
     cfg,

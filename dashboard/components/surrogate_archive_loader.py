@@ -10,7 +10,11 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from dashboard.utils.config import load_config, resolve_surrogate_archive_path
+from dashboard.utils.config import (
+    active_archive_path,
+    load_config,
+    resolve_surrogate_archive_path,
+)
 
 SURROGATE_ARCHIVE_SCHEMA_VERSION = "1.0"
 
@@ -44,13 +48,17 @@ def load_surrogate_archive(path: Path) -> pd.DataFrame:
 
 def get_archive_log_bundle(path: Path | None = None) -> ArchiveLogBundle:
     """Load acquisition log with Streamlit disk cache (path + mtime)."""
-    cfg = load_config()
-    target = path if path is not None else resolve_surrogate_archive_path(cfg)
-    if not target.is_file():
-        msg = f"surrogate archive file not found: {target}"
+    if path is None:
+        archive = active_archive_path()
+        if archive is None or not archive.is_file():
+            msg = "Select a MAP-Elites archive JSONL first"
+            raise FileNotFoundError(msg)
+        path = resolve_surrogate_archive_path(archive_path=archive)
+    if not path.is_file():
+        msg = f"Surrogate archive not found: {path}"
         raise FileNotFoundError(msg)
-    mtime = float(target.stat().st_mtime)
-    return _cached_load_archive_log_bundle(str(target.resolve()), mtime)
+    mtime = float(path.stat().st_mtime)
+    return _cached_load_archive_log_bundle(str(path.resolve()), mtime)
 
 
 @st.cache_data(show_spinner=False)

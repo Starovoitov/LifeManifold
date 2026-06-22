@@ -288,7 +288,7 @@ def _resolve_archive_path(path: Path | None, cfg: dict[str, Any]) -> Path:
         return target
     candidates = existing_archive_paths(cfg)
     if not candidates:
-        msg = "no archive JSONL found; check dashboard config paths"
+        msg = "no archive JSONL found under scan roots"
         raise FileNotFoundError(msg)
     return candidates[0]
 

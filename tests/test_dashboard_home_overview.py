@@ -56,12 +56,24 @@ class TestDashboardHomeOverview(unittest.TestCase):
 
         from dashboard.components.archive_explorer import list_niches_from_frame
 
-        grid_frame = pd.DataFrame({"bin_x": [0, 1], "bin_y": [0, 1], "cell_id": [0, 1]})
-        cvt_frame = pd.DataFrame(
-            {"cell_id": [0, 3, 5], "bin_x": [0, 3, 5], "bin_y": [0, 0, 0]}
+        grid_frame = pd.DataFrame(
+            {
+                "bin_x": [0, 1],
+                "bin_y": [0, 1],
+                "cell_id": [0, 1],
+                "fitness": [0.2, 0.8],
+            }
         )
-        self.assertEqual(list_niches_from_frame(grid_frame, "grid"), [(0, 0), (1, 1)])
-        self.assertEqual(list_niches_from_frame(cvt_frame, "cvt"), [0, 3, 5])
+        cvt_frame = pd.DataFrame(
+            {
+                "cell_id": [0, 3, 5],
+                "bin_x": [0, 3, 5],
+                "bin_y": [0, 0, 0],
+                "fitness": [0.3, 0.6, 0.9],
+            }
+        )
+        self.assertEqual(list_niches_from_frame(grid_frame, "grid"), [(1, 1), (0, 0)])
+        self.assertEqual(list_niches_from_frame(cvt_frame, "cvt"), [5, 3, 0])
 
 
 if __name__ == "__main__":

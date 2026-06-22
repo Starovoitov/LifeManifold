@@ -208,28 +208,22 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
                     cfg,
                     archive_path=experiment_archive,
                 )
-                self.assertEqual(manual, [(global_dir / "model.pkl").resolve()])
+                self.assertEqual(manual, [])
         else:
-            cfg = {
-                "paths": {"surrogate_checkpoint": str(global_ckpt)},
-                "surrogate": {"checkpoint_fallbacks": []},
-            }
             near = checkpoint_paths_near_archive(experiment_archive)
             resolved_near = {path.resolve() for path in near}
-            self.assertIn(global_ckpt.resolve(), resolved_near)
+            self.assertNotIn(global_ckpt.resolve(), resolved_near)
             self.assertTrue(
                 all("calibration.pkl" not in path.name for path in near),
                 msg=f"calibration.pkl must not appear: {near}",
             )
             manual = list_surrogate_checkpoint_candidates(
-                cfg,
+                {},
                 archive_path=experiment_archive,
             )
-            self.assertIn(global_ckpt.resolve(), {path.resolve() for path in manual})
+            self.assertEqual({path.resolve() for path in manual}, resolved_near)
 
-    def test_list_surrogate_checkpoint_candidates_includes_configured_paths(
-        self,
-    ) -> None:
+    def test_list_surrogate_checkpoint_candidates_only_archive_local(self) -> None:
         from dashboard.utils.config import list_surrogate_checkpoint_candidates
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -237,20 +231,64 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             archive = root / "run" / "map_elites_archive.jsonl"
             archive.parent.mkdir(parents=True)
             archive.write_text("{}\n", encoding="utf-8")
+            local = archive.parent / "checkpoints" / "model.pkl"
+            _write_model_checkpoint(local)
             configured = root / "configured.pkl"
             _write_model_checkpoint(configured)
-            cfg = {
-                "paths": {"surrogate_checkpoint": str(configured)},
-                "surrogate": {"checkpoint_fallbacks": []},
-            }
+            cfg = {"paths": {"surrogate_checkpoint": str(configured)}}
             candidates = list_surrogate_checkpoint_candidates(cfg, archive_path=archive)
-            self.assertEqual(candidates, [configured.resolve()])
+            self.assertEqual(candidates, [local.resolve()])
 
     def test_feature_importance_none_for_untrained_model(self) -> None:
         from dashboard.components.surrogate_widget import feature_importance_from_model
 
         model = SurrogateModel(model_type="lightgbm")
         self.assertIsNone(feature_importance_from_model(model))
+
+    def test_predict_world_spec_dict_default_preserves_checkpoint_auto_discovery(
+        self,
+    ) -> None:
+        from unittest import mock
+
+        from dashboard.components.surrogate_widget import (
+            _CHECKPOINT_UNSET,
+            predict_world_spec_dict,
+        )
+
+        world_spec = {
+            "birth": [3, 7, 8],
+            "survival": [3, 4, 5, 8],
+            "noise": 0.0,
+            "resource_regen": 0.15,
+            "predation": 0.1,
+            "cell_types": ["life", "food"],
+            "neighborhood": "moore",
+            "grid_size": 50,
+            "steps": 200,
+            "seed": 1,
+        }
+        archive = Path("/tmp/run/map_elites_archive.jsonl")
+        with mock.patch(
+            "dashboard.components.surrogate_widget.load_surrogate"
+        ) as load_mock:
+            load_mock.return_value.predict.return_value.fitness = 0.42
+            load_mock.return_value.predict.return_value.uncertainty = 0.1
+            result = predict_world_spec_dict(world_spec, archive_path=archive)
+            self.assertIsNotNone(result)
+            self.assertIs(
+                load_mock.call_args.kwargs["checkpoint_path"],
+                _CHECKPOINT_UNSET,
+            )
+
+            load_mock.reset_mock()
+            load_mock.return_value.predict.return_value.fitness = 0.5
+            load_mock.return_value.predict.return_value.uncertainty = 0.85
+            predict_world_spec_dict(
+                world_spec,
+                archive_path=archive,
+                checkpoint_path=None,
+            )
+            self.assertIsNone(load_mock.call_args.kwargs["checkpoint_path"])
 
     def test_predict_world_spec_dict_returns_keys(self) -> None:
         from dashboard.components.surrogate_widget import predict_world_spec_dict

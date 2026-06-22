@@ -64,7 +64,38 @@ def list_cells_from_frame(frame: pd.DataFrame) -> list[int]:
     """Return ``cell_id`` values present in a collapsed CVT archive frame."""
     if frame.empty or "cell_id" not in frame.columns:
         return []
-    return sorted({int(value) for value in frame["cell_id"].dropna().unique()})
+    cell_ids = [int(value) for value in frame["cell_id"].dropna().unique()]
+    return sorted(
+        cell_ids,
+        key=lambda cell_id: _niche_sort_key(frame, cell_id=cell_id),
+        reverse=True,
+    )
+
+
+def _niche_sort_key(
+    frame: pd.DataFrame,
+    *,
+    cell_id: int | None = None,
+    bin_xy: tuple[int, int] | None = None,
+) -> tuple[float, int, int]:
+    """Sort niches by fitness descending, then stable tie-breakers."""
+    row: pd.Series | None
+    if cell_id is not None:
+        row = elite_row_for_cell(frame, cell_id)
+        tie_a = cell_id
+        tie_b = 0
+    elif bin_xy is not None:
+        row = elite_row_for_bin(frame, bin_xy[0], bin_xy[1])
+        tie_a = bin_xy[0]
+        tie_b = bin_xy[1]
+    else:
+        return (float("-inf"), 0, 0)
+    fitness = (
+        _row_float(row, "fitness")
+        if row is not None and "fitness" in row.index
+        else float("-inf")
+    )
+    return (fitness, tie_a, tie_b)
 
 
 def elite_row_for_cell(frame: pd.DataFrame, cell_id: int) -> pd.Series | None:
@@ -82,9 +113,18 @@ def list_bins_from_frame(frame: pd.DataFrame) -> list[tuple[int, int]]:
     if frame.empty or "bin_x" not in frame.columns or "bin_y" not in frame.columns:
         return []
     bins: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
     for _, row in frame.iterrows():
-        bins.append((_row_int(row, "bin_x"), _row_int(row, "bin_y")))
-    return bins
+        bin_xy = (_row_int(row, "bin_x"), _row_int(row, "bin_y"))
+        if bin_xy in seen:
+            continue
+        seen.add(bin_xy)
+        bins.append(bin_xy)
+    return sorted(
+        bins,
+        key=lambda bin_xy: _niche_sort_key(frame, bin_xy=bin_xy),
+        reverse=True,
+    )
 
 
 def elite_row_for_bin(

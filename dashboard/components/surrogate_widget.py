@@ -246,7 +246,7 @@ def predict_world_spec_dict(
     *,
     cfg: dict[str, Any] | None = None,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None = None,
+    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
 ) -> dict[str, float] | None:
     """Predict fitness and uncertainty for one JSON-like world spec.
 

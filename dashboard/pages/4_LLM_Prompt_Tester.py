@@ -42,12 +42,8 @@ from dashboard.components.surrogate_widget import (
     render_surrogate_checkpoint_selector,
     render_surrogate_status_banner,
 )
-from dashboard.utils.config import (
-    DASHBOARD_ARCHIVE_SESSION_KEY,
-    existing_archive_paths,
-    load_config,
-    repo_root,
-)
+from dashboard.components.artifact_selectors import render_archive_selector
+from dashboard.utils.config import load_config
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
 
 _TEMPLATE_SESSION_KEY = "llm_user_prompt_template"
@@ -88,23 +84,12 @@ with st.sidebar:
         st.session_state[_TEMPLATE_SESSION_KEY] = file_template
         st.rerun()
 
-archives = existing_archive_paths(cfg)
+selected_path = render_archive_selector(cfg)
 loaded_archive: ArchiveProtocol | None = None
-selected_path: Path | None = None
 selected_checkpoint: Path | None = None
 chosen_cell_id: int | None = None
 
-if archives:
-
-    def _archive_label(path: Path) -> str:
-        return str(path.relative_to(repo_root()))
-
-    selected_path = st.sidebar.selectbox(
-        "Archive JSONL",
-        archives,
-        format_func=_archive_label,
-        key=DASHBOARD_ARCHIVE_SESSION_KEY,
-    )
+if selected_path is not None:
     selected_checkpoint = render_surrogate_checkpoint_selector(
         cfg,
         archive_path=selected_path,
@@ -129,7 +114,8 @@ if archives:
 else:
     render_surrogate_status_banner(cfg)
     st.warning(
-        "No archive JSONL found. Few-shot and current-elite blocks use placeholders."
+        "No archive JSONL found under scan roots. "
+        "Few-shot and current-elite blocks use placeholders."
     )
 
 st.subheader("Prompt template")

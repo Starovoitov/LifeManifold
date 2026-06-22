@@ -51,8 +51,8 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
         frame = self._smoke_collapsed()
         bins = list_bins_from_frame(frame)
         self.assertEqual(len(bins), len(frame))
-        first = frame.iloc[0]
-        self.assertEqual(bins[0], (int(first.at["bin_x"]), int(first.at["bin_y"])))
+        best = frame.loc[frame["fitness"].idxmax()]
+        self.assertEqual(bins[0], (int(best.at["bin_x"]), int(best.at["bin_y"])))
 
     def test_format_elite_bin_label_contains_fitness(self) -> None:
         from dashboard.components.archive_explorer import format_elite_bin_label
@@ -80,9 +80,9 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
             cfg = load_config()
             bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
             cells = list_cells_from_frame(bundle.collapsed)
-            self.assertEqual(cells, [0, 3, 5])
+            self.assertEqual(cells, [5, 3, 0])
             label = format_elite_cell_label(bundle.collapsed, cells[0])
-            self.assertIn("cell 0", label)
+            self.assertIn("cell 5", label)
             self.assertIn("(s=", label)
             self.assertIn("fitness=", label)
 
@@ -112,8 +112,15 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
             sync_selected_niche_selectbox,
         )
 
-        frame = pd.DataFrame({"cell_id": [1, 2], "bin_x": [1, 2], "bin_y": [0, 0]})
-        self.assertEqual(list_niches_from_frame(frame, "cvt"), [1, 2])
+        frame = pd.DataFrame(
+            {
+                "cell_id": [1, 2],
+                "bin_x": [1, 2],
+                "bin_y": [0, 0],
+                "fitness": [0.4, 0.9],
+            }
+        )
+        self.assertEqual(list_niches_from_frame(frame, "cvt"), [2, 1])
         with patch(
             "dashboard.components.archive_explorer.sync_selected_cell_selectbox"
         ) as mock_cell:
