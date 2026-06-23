@@ -72,6 +72,7 @@ def oscillation(series: np.ndarray, max_lag: int = 10) -> float:
     if max_lag_eff < 1:
         return 0.0
     ac = np.correlate(centered, centered, mode="full")
+    # ac[n-1+k] = lag-k correlation; slice lags 1..max_lag_eff
     scores = np.abs(ac[n : n + max_lag_eff] / denom)
     return float(np.max(scores))
 
@@ -247,7 +248,10 @@ _MOORE_OFFSETS: tuple[tuple[int, int], ...] = (
 
 
 def _moore_stencil_views(grid: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Eight toroidal Moore neighbor views aligned with ``grid`` (center excluded)."""
+    """Eight toroidal Moore neighbor views aligned with ``grid`` (center excluded).
+
+    Views share the padded buffer; do not modify ``grid`` between call and consumption.
+    """
     padded = np.pad(grid, 1, mode="wrap")
     n = int(grid.shape[0])
     return tuple(

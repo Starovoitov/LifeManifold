@@ -22,12 +22,16 @@ METRICS_VERIFY_ATOL = 1e-12
 
 @dataclass(frozen=True)
 class SimulatorPerformanceOptions:
-    """Optional fast paths for ``run_world`` (numba, parallel eval). Defaults use numpy."""
+    """Optional fast paths for ``run_world`` (numba, parallel eval). Defaults use numpy.
+
+    ``parallel_workers``: ``0`` selects ``os.cpu_count()`` (auto), capped by batch size
+    when ``parallel_eval`` is enabled. Set an explicit positive integer to cap workers.
+    """
 
     numba_simulator: bool = False
     numba_cache: bool = True
     parallel_eval: bool = False
-    parallel_workers: int = 0
+    parallel_workers: int = 0  # 0 = auto (os.cpu_count())
     verify_against_reference: bool = False
 
 
@@ -50,7 +54,10 @@ def effective_parallel_workers(
     *,
     batch_size: int,
 ) -> int:
-    """Return worker count for parallel eval (at least 1, capped by ``batch_size``)."""
+    """Return worker count for parallel eval (at least 1, capped by ``batch_size``).
+
+    When ``parallel_workers`` is ``0``, uses ``os.cpu_count()`` (auto).
+    """
     if performance.parallel_workers > 0:
         requested = performance.parallel_workers
     else:

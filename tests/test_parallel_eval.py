@@ -12,7 +12,10 @@ from worldspace.illuminators.evaluation import (
     eval_result_from_simulation,
     simulate_candidate,
 )
-from worldspace.illuminators.parallel_eval import evaluate_batch_parallel
+from worldspace.illuminators.parallel_eval import (
+    ParallelEvalPool,
+    evaluate_batch_parallel,
+)
 from worldspace.simulator_perf import SimulatorPerformanceOptions
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
@@ -44,28 +47,40 @@ def _eval_tuple(result) -> tuple:
 class TestParallelEval(unittest.TestCase):
     def test_evaluate_batch_parallel_empty(self) -> None:
         perf = SimulatorPerformanceOptions(parallel_eval=True)
-        self.assertEqual(
-            evaluate_batch_parallel(
+        pool = ParallelEvalPool(2)
+        try:
+            self.assertEqual(
+                evaluate_batch_parallel(
+                    [],
+                    early_extinction_step=200,
+                    enforce_min_steps=True,
+                    performance=perf,
+                    workers=2,
+                    eval_pool=pool,
+                ),
                 [],
-                early_extinction_step=200,
-                enforce_min_steps=True,
-                performance=perf,
-                workers=2,
-            ),
-            [],
-        )
+            )
+        finally:
+            pool.terminate()
+            pool.join()
 
     def test_evaluate_batch_parallel_matches_sequential(self) -> None:
         specs = [_sample_spec(seed=index) for index in range(3)]
         archive = GridArchive(5)
         perf = SimulatorPerformanceOptions(parallel_eval=True, parallel_workers=2)
-        parallel_outcomes = evaluate_batch_parallel(
-            specs,
-            early_extinction_step=200,
-            enforce_min_steps=True,
-            performance=perf,
-            workers=2,
-        )
+        pool = ParallelEvalPool(2)
+        try:
+            parallel_outcomes = evaluate_batch_parallel(
+                specs,
+                early_extinction_step=200,
+                enforce_min_steps=True,
+                performance=perf,
+                workers=2,
+                eval_pool=pool,
+            )
+        finally:
+            pool.terminate()
+            pool.join()
         self.assertEqual(len(parallel_outcomes), 3)
         for spec, outcome in zip(specs, parallel_outcomes):
             sequential = evaluate_candidate(
@@ -84,13 +99,19 @@ class TestParallelEval(unittest.TestCase):
     def test_parallel_workers_one_matches_simulate_candidate(self) -> None:
         spec = _sample_spec()
         perf = SimulatorPerformanceOptions(parallel_eval=True, parallel_workers=1)
-        outcomes = evaluate_batch_parallel(
-            [spec],
-            early_extinction_step=200,
-            enforce_min_steps=True,
-            performance=perf,
-            workers=1,
-        )
+        pool = ParallelEvalPool(1)
+        try:
+            outcomes = evaluate_batch_parallel(
+                [spec],
+                early_extinction_step=200,
+                enforce_min_steps=True,
+                performance=perf,
+                workers=1,
+                eval_pool=pool,
+            )
+        finally:
+            pool.terminate()
+            pool.join()
         expected = simulate_candidate(spec, early_extinction_step=200)
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].fitness, expected.fitness)
