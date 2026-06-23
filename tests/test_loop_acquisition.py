@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -33,13 +34,19 @@ _LOW_COMPONENTS = {
 
 class _LowFitnessSurrogate:
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
-        _ = world_spec
-        return SurrogatePrediction(
+        return self.predict_batch([world_spec])[0]
+
+    def predict_batch(
+        self, world_specs: Sequence[WorldSpec]
+    ) -> list[SurrogatePrediction]:
+        _ = world_specs
+        prediction = SurrogatePrediction(
             components=dict(_LOW_COMPONENTS),
             measures={"stability": 0.1, "diversity": 0.1},
             fitness=0.1,
             uncertainty=0.1,
         )
+        return [prediction for _ in world_specs]
 
 
 def _filter_config(*, batch_size: int = 4) -> SchedulerConfig:

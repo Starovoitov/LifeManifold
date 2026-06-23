@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 
 from worldspace.specs.spec import WorldSpec
@@ -46,6 +48,7 @@ __all__ = [
     "SCHEMA_FEATURE_DIMS",
     "SUPPORTED_FEATURE_SCHEMA_VERSIONS",
     "extract",
+    "extract_batch",
     "feature_dim_for_schema",
     "feature_names_for_dim",
     "feature_names_for_schema",
@@ -101,6 +104,18 @@ def extract(
         return encode_world_spec_features_v21(spec)
     msg = f"Unsupported feature_schema_version: {schema_version!r}"
     raise ValueError(msg)
+
+
+def extract_batch(
+    specs: Sequence[WorldSpec],
+    *,
+    schema_version: str = FEATURE_SCHEMA_VERSION,
+) -> np.ndarray:
+    """Stack ``extract`` rows for many canonicalized specs; shape ``(N, D)``."""
+    if len(specs) == 0:
+        return np.empty((0, feature_dim_for_schema(schema_version)), dtype=float)
+    rows = [extract(spec, schema_version=schema_version) for spec in specs]
+    return np.stack(rows, axis=0)
 
 
 def _require_canonical_seed(spec: WorldSpec) -> None:

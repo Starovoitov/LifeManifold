@@ -197,25 +197,34 @@ def _run_world_impl(
                 tail_buf, tail_len, tail_start
             )
         else:
-            life, food, ages, density_mean, density_m2, density_n, death_age_sum, death_count, density_tail, early_extinct = (
-                _run_ca_loop_numpy(
-                    rng,
-                    life,
-                    food,
-                    ages,
-                    birth_mask,
-                    survival_mask,
-                    world,
-                    early_extinction_step=early_extinction_step,
-                    ca_step_trace_file=ca_step_trace_file,
-                    ca_step_trace_yield_index=ca_step_trace_yield_index,
-                    density_mean=density_mean,
-                    density_m2=density_m2,
-                    density_n=density_n,
-                    death_age_sum=death_age_sum,
-                    death_count=death_count,
-                    density_tail=density_tail,
-                )
+            (
+                life,
+                food,
+                ages,
+                density_mean,
+                density_m2,
+                density_n,
+                death_age_sum,
+                death_count,
+                density_tail,
+                early_extinct,
+            ) = _run_ca_loop_numpy(
+                rng,
+                life,
+                food,
+                ages,
+                birth_mask,
+                survival_mask,
+                world,
+                early_extinction_step=early_extinction_step,
+                ca_step_trace_file=ca_step_trace_file,
+                ca_step_trace_yield_index=ca_step_trace_yield_index,
+                density_mean=density_mean,
+                density_m2=density_m2,
+                density_n=density_n,
+                death_age_sum=death_age_sum,
+                death_count=death_count,
+                density_tail=density_tail,
             )
 
     metrics = _metrics_from_final_state(

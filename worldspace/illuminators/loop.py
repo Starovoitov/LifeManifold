@@ -12,6 +12,7 @@ import numpy as np
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
     ARCHIVE_SCHEMA_VERSION_V1_3,
+    EliteMetadata,
     InsertResult,
     insert_and_persist,
     insert_evaluated,
@@ -28,6 +29,7 @@ from worldspace.illuminators.scheduler import (
     RunCounters,
     SchedulerConfig,
     TargetBin,
+    TargetCell,
     resolve_emitter_for_slot,
     select_target_cell,
 )
@@ -89,6 +91,18 @@ class SlotOutcome:
     decision: AcquisitionDecision | None = None
 
 
+@dataclass(frozen=True)
+class _SlotDraft:
+    """Emitted candidate before acquisition / simulation."""
+
+    candidate_id: int
+    emitter_kind: EmitterKind
+    target_cell: TargetCell
+    target_bin: TargetBin
+    spec: WorldSpec
+    metadata: EliteMetadata
+
+
 def run_iteration(
     config: SchedulerConfig,
     archive: ArchiveProtocol,
@@ -109,6 +123,9 @@ def run_iteration(
     Candidates are processed in ascending ``candidate_id``. Together with strict
     ``fitness_new > fitness_old`` in ``GridArchive.try_insert``, equal fitness in the
     same bin within one iteration leaves the first accepted elite in place.
+
+    Emission uses the archive state at iteration start (no intra-iteration inserts
+    during the emit phase). Evaluations and archive updates run in the process phase.
     """
     outcomes: list[SlotOutcome] = []
     evaluated = 0
@@ -125,32 +142,33 @@ def run_iteration(
             "yet — running sequential"
         )
 
-    for candidate_id in range(config.batch_size):
-        emitter_kind = resolve_emitter_for_slot(
-            config,
-            candidate_id=candidate_id,
-            candidates_evaluated=counters.candidates_evaluated,
-        )
-        target_cell = select_target_cell(archive, rng)
-        target_bin = TargetBin.from_target_cell(target_cell)
-        output = emitter.emit(
-            emitter_kind=emitter_kind,
-            target=target_cell,
-            archive=archive,
-            rng=rng,
-            grid_size=grid_size,
-            steps=steps,
-        )
-        spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
+    drafts = _emit_iteration_drafts(
+        config,
+        archive,
+        rng,
+        emitter,
+        grid_size=grid_size,
+        steps=steps,
+        counters=counters,
+    )
 
-        prediction: SurrogatePrediction | None = None
+    predictions: list[SurrogatePrediction | None]
+    if config.surrogate_enabled and surrogate is not None:
+        batch_predictions = surrogate.predict_batch([draft.spec for draft in drafts])
+        predictions = list(batch_predictions)
+    else:
+        predictions = [None] * len(drafts)
+
+    for draft, prediction in zip(drafts, predictions):
         decision: AcquisitionDecision | None = None
         runtime_action = "eval"
 
         if config.surrogate_enabled and surrogate is not None:
-            prediction = surrogate.predict(spec)
+            assert prediction is not None
             if acquisition_active:
-                decision = decide(config.acquisition, prediction, target_bin, archive)
+                decision = decide(
+                    config.acquisition, prediction, draft.target_bin, archive
+                )
                 runtime_action = effective_action(
                     config.acquisition.mode,
                     decision,
@@ -164,20 +182,20 @@ def run_iteration(
             if surrogate_archive is not None:
                 surrogate_archive.append_slot(
                     iteration=iteration_index,
-                    candidate_id=candidate_id,
-                    emitter_type=output.metadata.emitter_type,
-                    target=target_bin,
-                    target_cell_id=target_cell.cell_id,
-                    world_spec_hash=world_spec_canonical_hash(spec),
+                    candidate_id=draft.candidate_id,
+                    emitter_type=draft.metadata.emitter_type,
+                    target=draft.target_bin,
+                    target_cell_id=draft.target_cell.cell_id,
+                    world_spec_hash=world_spec_canonical_hash(draft.spec),
                     prediction=prediction,
                     decision=decision,
                     acquisition_mode=config.acquisition.mode,
                 )
             outcomes.append(
                 SlotOutcome(
-                    candidate_id=candidate_id,
-                    emitter_kind=emitter_kind,
-                    target_bin=target_bin,
+                    candidate_id=draft.candidate_id,
+                    emitter_kind=draft.emitter_kind,
+                    target_bin=draft.target_bin,
                     skipped=True,
                     eval_result=None,
                     insert=None,
@@ -188,7 +206,7 @@ def run_iteration(
             continue
 
         eval_result = evaluate_candidate(
-            spec,
+            draft.spec,
             resolution=config.grid_resolution,
             archive=archive,
             early_extinction_step=config.early_extinction_step,
@@ -201,19 +219,19 @@ def run_iteration(
             append_eval_to_buffer(
                 surrogate_buffer,
                 eval_result,
-                emitter_type=output.metadata.emitter_type,
+                emitter_type=draft.metadata.emitter_type,
             )
         jsonl_schema_version = _jsonl_schema_version_for_archive(archive)
         if jsonl_path is not None:
             insert = insert_and_persist(
                 archive,
                 eval_result,
-                output.metadata,
+                draft.metadata,
                 jsonl_path,
                 schema_version=jsonl_schema_version,
             )
         else:
-            insert = insert_evaluated(archive, eval_result, output.metadata)
+            insert = insert_evaluated(archive, eval_result, draft.metadata)
         counters.record_evaluation()
         evaluated += 1
 
@@ -232,11 +250,11 @@ def run_iteration(
         ):
             surrogate_archive.append_slot(
                 iteration=iteration_index,
-                candidate_id=candidate_id,
-                emitter_type=output.metadata.emitter_type,
-                target=target_bin,
-                target_cell_id=target_cell.cell_id,
-                world_spec_hash=world_spec_canonical_hash(spec),
+                candidate_id=draft.candidate_id,
+                emitter_type=draft.metadata.emitter_type,
+                target=draft.target_bin,
+                target_cell_id=draft.target_cell.cell_id,
+                world_spec_hash=world_spec_canonical_hash(draft.spec),
                 prediction=prediction,
                 decision=decision,
                 acquisition_mode=config.acquisition.mode,
@@ -246,9 +264,9 @@ def run_iteration(
 
         outcomes.append(
             SlotOutcome(
-                candidate_id=candidate_id,
-                emitter_kind=emitter_kind,
-                target_bin=target_bin,
+                candidate_id=draft.candidate_id,
+                emitter_kind=draft.emitter_kind,
+                target_bin=draft.target_bin,
                 skipped=False,
                 eval_result=eval_result,
                 insert=insert,
@@ -274,6 +292,47 @@ def run_iteration(
         shadow_would_skip,
     )
     return stats, outcomes
+
+
+def _emit_iteration_drafts(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+) -> list[_SlotDraft]:
+    drafts: list[_SlotDraft] = []
+    for candidate_id in range(config.batch_size):
+        emitter_kind = resolve_emitter_for_slot(
+            config,
+            candidate_id=candidate_id,
+            candidates_evaluated=counters.candidates_evaluated,
+        )
+        target_cell = select_target_cell(archive, rng)
+        target_bin = TargetBin.from_target_cell(target_cell)
+        output = emitter.emit(
+            emitter_kind=emitter_kind,
+            target=target_cell,
+            archive=archive,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
+        drafts.append(
+            _SlotDraft(
+                candidate_id=candidate_id,
+                emitter_kind=emitter_kind,
+                target_cell=target_cell,
+                target_bin=target_bin,
+                spec=spec,
+                metadata=output.metadata,
+            )
+        )
+    return drafts
 
 
 def run_scheduler(

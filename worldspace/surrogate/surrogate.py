@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Sequence
 
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.calibration import (
@@ -14,7 +15,9 @@ from worldspace.surrogate.calibration import (
 )
 from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint
-from worldspace.surrogate.feature_extractor import extract as extract_features
+from worldspace.surrogate.feature_extractor import (
+    extract_batch as extract_features_batch,
+)
 from worldspace.surrogate.model import (
     EXPECTED_FEATURE_DIM,
     SurrogateModel,
@@ -41,6 +44,16 @@ class StubSurrogate:
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         """Return deterministic placeholder prediction for prompt enrichment."""
         _ = world_spec
+        return self._placeholder_prediction()
+
+    def predict_batch(
+        self, world_specs: Sequence[WorldSpec]
+    ) -> list[SurrogatePrediction]:
+        """Return one placeholder prediction per spec."""
+        placeholder = self._placeholder_prediction()
+        return [placeholder for _ in world_specs]
+
+    def _placeholder_prediction(self) -> SurrogatePrediction:
         components = _stub_components(self.mean)
         measures = {"stability": self.mean, "diversity": self.mean}
         return SurrogatePrediction(
@@ -66,51 +79,78 @@ class SurrogateFacade:
 
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         """Canonicalize spec, then return cached or newly computed prediction."""
+        predictions = self.predict_batch([world_spec])
+        return predictions[0]
+
+    def predict_batch(
+        self, world_specs: Sequence[WorldSpec]
+    ) -> list[SurrogatePrediction]:
+        """Canonicalize specs, batch model inference for cache misses, preserve order."""
         from worldspace.illuminators.evaluation import apply_canonical_seed
 
-        if not isinstance(world_spec, WorldSpec):
-            msg = "surrogate.predict expects WorldSpec"
-            raise TypeError(msg)
-        apply_canonical_seed(world_spec)
-        key = self._cache_key(world_spec)
-        cached = self._cache.get(key)
-        if cached is not None:
-            self._cache.move_to_end(key)
-            self._cache_hits += 1
-            return cached
+        if not world_specs:
+            return []
 
-        features = extract_features(world_spec)
-        components = self.model.predict_components(features)
-        raw_uncertainty = self.model.predict_uncertainty(features)
-        if raw_uncertainty <= 0.0:
-            raw_uncertainty = self.uncertainty_fallback
-        uncertainty = apply_calibrated_uncertainty(
-            self.calibrator,
-            float(raw_uncertainty),
-            calibration_configured=self.calibration_configured,
-        )
-        prediction = SurrogatePrediction(
-            components=components,
-            measures={
-                "stability": float(components["stability"]),
-                "diversity": float(components["diversity"]),
-            },
-            fitness=0.0,
-            uncertainty=uncertainty,
-        )
-        resolved = SurrogatePrediction(
-            components=prediction.components,
-            measures=prediction.measures,
-            fitness=resolve_surrogate_fitness(
-                self.model,
-                features,
-                prediction,
-                use_soft_extinction=self.use_soft_extinction,
-            ),
-            uncertainty=prediction.uncertainty,
-        )
-        self._cache_set(key, resolved)
-        return resolved
+        keys: list[str] = []
+        cached_by_index: dict[int, SurrogatePrediction] = {}
+        miss_indices: list[int] = []
+        miss_specs: list[WorldSpec] = []
+
+        for index, world_spec in enumerate(world_specs):
+            if not isinstance(world_spec, WorldSpec):
+                msg = "surrogate.predict_batch expects WorldSpec items"
+                raise TypeError(msg)
+            apply_canonical_seed(world_spec)
+            key = self._cache_key(world_spec)
+            keys.append(key)
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._cache.move_to_end(key)
+                self._cache_hits += 1
+                cached_by_index[index] = cached
+            else:
+                miss_indices.append(index)
+                miss_specs.append(world_spec)
+
+        if miss_specs:
+            feature_matrix = extract_features_batch(miss_specs)
+            component_rows = self.model.predict_components_batch(feature_matrix)
+            uncertainty_rows = self.model.predict_uncertainty_batch(feature_matrix)
+            for miss_offset, row_index in enumerate(miss_indices):
+                features = feature_matrix[miss_offset]
+                components = component_rows[miss_offset]
+                raw_uncertainty = float(uncertainty_rows[miss_offset])
+                if raw_uncertainty <= 0.0:
+                    raw_uncertainty = self.uncertainty_fallback
+                uncertainty = apply_calibrated_uncertainty(
+                    self.calibrator,
+                    raw_uncertainty,
+                    calibration_configured=self.calibration_configured,
+                )
+                prediction = SurrogatePrediction(
+                    components=components,
+                    measures={
+                        "stability": float(components["stability"]),
+                        "diversity": float(components["diversity"]),
+                    },
+                    fitness=0.0,
+                    uncertainty=uncertainty,
+                )
+                resolved = SurrogatePrediction(
+                    components=prediction.components,
+                    measures=prediction.measures,
+                    fitness=resolve_surrogate_fitness(
+                        self.model,
+                        features,
+                        prediction,
+                        use_soft_extinction=self.use_soft_extinction,
+                    ),
+                    uncertainty=prediction.uncertainty,
+                )
+                cached_by_index[row_index] = resolved
+                self._cache_set(keys[row_index], resolved)
+
+        return [cached_by_index[index] for index in range(len(world_specs))]
 
     def cache_hits(self) -> int:
         """Return number of successful cache hits."""
