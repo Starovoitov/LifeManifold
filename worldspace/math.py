@@ -13,11 +13,8 @@ OSCILLATION_DENSITY_WINDOW = 512
 def neighbor_count(grid: np.ndarray) -> np.ndarray:
     """Compute Moore-neighborhood live-neighbor counts with wrap-around edges."""
     total = np.zeros_like(grid, dtype=np.int16)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            total += np.roll(np.roll(grid, dx, axis=0), dy, axis=1)
+    for view in _moore_stencil_views(grid):
+        total += view.astype(np.int16, copy=False)
     return total
 
 
@@ -103,12 +100,8 @@ def topology_interface_index(life: np.ndarray) -> float:
         return 0.0
     g = life.astype(np.float32)
     diff_sum = np.zeros_like(g, dtype=np.float32)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
-            diff_sum += (nb != g).astype(np.float32)
+    for nb in _moore_stencil_views(g):
+        diff_sum += (nb != g).astype(np.float32)
     return float(np.clip(diff_sum.mean() / 8.0, 0.0, 1.0))
 
 
@@ -183,12 +176,8 @@ def topology_interface_strength_map(life: np.ndarray) -> np.ndarray:
         return np.zeros((0, 0), dtype=np.float64)
     g = life.astype(np.float32)
     diff_sum = np.zeros_like(g, dtype=np.float32)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
-            diff_sum += (nb != g).astype(np.float32)
+    for nb in _moore_stencil_views(g):
+        diff_sum += (nb != g).astype(np.float32)
     return np.clip(diff_sum / 8.0, 0.0, 1.0).astype(np.float64)
 
 
@@ -229,3 +218,25 @@ def ecology_resource_adjacency(life: np.ndarray, food: np.ndarray) -> float:
         return 0.0
     fsum = neighbor_count(food.astype(np.int16)).astype(np.float64)
     return float(np.clip((fsum[live] / 8.0).mean(), 0.0, 1.0))
+
+
+_MOORE_OFFSETS: tuple[tuple[int, int], ...] = (
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+)
+
+
+def _moore_stencil_views(grid: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Eight toroidal Moore neighbor views aligned with ``grid`` (center excluded)."""
+    padded = np.pad(grid, 1, mode="wrap")
+    n = int(grid.shape[0])
+    return tuple(
+        padded[1 + dx : 1 + dx + n, 1 + dy : 1 + dy + n]
+        for dx, dy in _MOORE_OFFSETS
+    )
