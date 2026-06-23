@@ -574,6 +574,11 @@ def _run_parallel_simulations(
     use_parallel = config.performance.parallel_eval and len(to_eval) > 1 and workers > 1
 
     if use_parallel:
+        if eval_pool is None:
+            raise ValueError(
+                "eval_pool is required for parallel eval batches; "
+                "create via parallel_eval_context (see run_scheduler)."
+            )
         outcomes = evaluate_batch_parallel(
             [item.draft.spec for item in to_eval],
             early_extinction_step=config.early_extinction_step,

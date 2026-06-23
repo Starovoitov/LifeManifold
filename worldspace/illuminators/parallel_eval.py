@@ -84,9 +84,13 @@ def evaluate_batch_parallel(
     enforce_min_steps: bool,
     performance: SimulatorPerformanceOptions,
     workers: int,
-    eval_pool: ParallelEvalPool | None = None,
+    eval_pool: ParallelEvalPool,
 ) -> list[SimulationOutcome]:
-    """Run simulations in parallel; binning stays in the main process."""
+    """Run simulations in parallel; binning stays in the main process.
+
+    ``eval_pool`` must be a persistent pool (e.g. from ``parallel_eval_context``).
+    Creating a forkserver pool per call costs ~1s+ per batch.
+    """
     if not specs:
         return []
     jobs = [
@@ -101,14 +105,7 @@ def evaluate_batch_parallel(
     if workers <= 1 or len(jobs) <= 1:
         return [_parallel_eval_worker(job) for job in jobs]
     validate_simulator_performance(performance)
-    if eval_pool is not None:
-        return eval_pool.map_simulations(jobs)
-    pool_holder = ParallelEvalPool(workers)
-    try:
-        return pool_holder.map_simulations(jobs)
-    finally:
-        pool_holder.terminate()
-        pool_holder.join()
+    return eval_pool.map_simulations(jobs)
 
 
 def _parallel_eval_worker(job: _ParallelEvalJob) -> SimulationOutcome:

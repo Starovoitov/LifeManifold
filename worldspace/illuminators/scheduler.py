@@ -438,7 +438,11 @@ class _PerformanceYamlBlock(BaseModel):
     numba_simulator: bool = False
     numba_cache: bool = True
     parallel_eval: bool = False
-    parallel_workers: int = Field(default=0, ge=0)
+    parallel_workers: int = Field(
+        default=0,
+        ge=0,
+        description="0 = os.cpu_count() (auto), capped by batch_size when parallel_eval is on",
+    )
     verify_against_reference: bool = False
 
 
