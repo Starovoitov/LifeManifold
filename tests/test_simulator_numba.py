@@ -50,12 +50,20 @@ class TestSimulatorNumba(unittest.TestCase):
                 )
 
     def test_verify_against_reference(self) -> None:
-        result = run_world(
-            _BASE_SMOKE,
-            early_extinction_step=200,
-            performance=_VERIFY_PERF,
-        )
-        self.assertEqual(METRICS_VECTOR_DIM, result.metrics.as_vector().shape[0])
+        for case in _GOLDEN_CASES:
+            with self.subTest(case=case.name):
+                result = run_world(
+                    case.spec,
+                    early_extinction_step=case.early_extinction_step,
+                    performance=_VERIFY_PERF,
+                )
+                self.assertEqual(METRICS_VECTOR_DIM, result.metrics.as_vector().shape[0])
+                np.testing.assert_allclose(
+                    result.metrics.as_vector(),
+                    case.expected,
+                    rtol=0.0,
+                    atol=0.0,
+                )
 
     def test_trace_forces_numpy_path(self) -> None:
         buf = io.StringIO()

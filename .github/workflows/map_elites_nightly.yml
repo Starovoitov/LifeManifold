@@ -26,6 +26,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --all-groups
 
+      - name: Run numba verify (numpy reference parity)
+        run: uv run python -m unittest tests.test_simulator_numba -v
+
+      - name: Run parallel eval reproducibility
+        run: |
+          uv run python -m unittest \
+            tests.test_parallel_eval \
+            tests.test_map_elites_reproducibility.TestColdStartReproducibility.test_parallel_eval_matches_sequential \
+            -v
+
       - name: Run MAP-Elites nightly
         run: |
           # UTC day: odd → grid, even → CVT (see run_map_elites_nightly.resolve_nightly_archive_type)
