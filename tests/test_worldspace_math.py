@@ -218,9 +218,7 @@ def _pattern_diversity_from_frame_loop_reference(
     return float(len(signatures) / sample_size)
 
 
-def _oscillation_dot_loop_reference(
-    series: np.ndarray, max_lag: int = 10
-) -> float:
+def _oscillation_dot_loop_reference(series: np.ndarray, max_lag: int = 10) -> float:
     if len(series) < 3:
         return 0.0
     centered = series - series.mean()
@@ -238,9 +236,7 @@ class TestRuleCountMasks(unittest.TestCase):
         survival = [2, 3, 8]
         birth_mask, survival_mask = ws_math.rule_count_masks(birth, survival)
         neighbors = np.arange(9, dtype=np.int16).reshape(3, 3)
-        np.testing.assert_array_equal(
-            birth_mask[neighbors], np.isin(neighbors, birth)
-        )
+        np.testing.assert_array_equal(birth_mask[neighbors], np.isin(neighbors, birth))
         np.testing.assert_array_equal(
             survival_mask[neighbors], np.isin(neighbors, survival)
         )

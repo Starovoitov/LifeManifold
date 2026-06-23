@@ -1,4 +1,4 @@
-"""Golden metrics vectors for ``run_world`` (Epic A / L1 perf baseline).
+"""Golden metrics vectors for ``run_world`` (simulator performance baseline).
 
 Captured from the pre-optimization simulator. Future numpy micro-opts must keep
 ``metrics.as_vector()`` bit-identical on this set.

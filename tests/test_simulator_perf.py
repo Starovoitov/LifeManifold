@@ -1,0 +1,58 @@
+"""Unit tests for simulator performance options."""
+
+from __future__ import annotations
+
+import os
+import unittest
+from unittest import mock
+
+from worldspace.simulator_perf import (
+    DEFAULT_SIMULATOR_PERFORMANCE,
+    SimulatorPerformanceOptions,
+    effective_numba_enabled,
+    resolve_simulator_performance,
+)
+
+
+class TestSimulatorPerformanceOptions(unittest.TestCase):
+    def test_defaults_are_safe(self) -> None:
+        self.assertEqual(DEFAULT_SIMULATOR_PERFORMANCE, SimulatorPerformanceOptions())
+        self.assertFalse(DEFAULT_SIMULATOR_PERFORMANCE.numba_simulator)
+        self.assertFalse(DEFAULT_SIMULATOR_PERFORMANCE.parallel_eval)
+        self.assertFalse(DEFAULT_SIMULATOR_PERFORMANCE.verify_against_reference)
+        self.assertTrue(DEFAULT_SIMULATOR_PERFORMANCE.numba_cache)
+
+    def test_effective_numba_disabled_for_ca_step_trace(self) -> None:
+        perf = SimulatorPerformanceOptions(numba_simulator=True)
+        self.assertFalse(effective_numba_enabled(perf, ca_step_trace=True))
+        self.assertTrue(effective_numba_enabled(perf, ca_step_trace=False))
+
+    def test_resolve_from_yaml_block(self) -> None:
+        resolved = resolve_simulator_performance(
+            {
+                "numba_simulator": True,
+                "parallel_eval": True,
+                "parallel_workers": 4,
+                "verify_against_reference": True,
+            }
+        )
+        self.assertTrue(resolved.numba_simulator)
+        self.assertTrue(resolved.parallel_eval)
+        self.assertEqual(resolved.parallel_workers, 4)
+        self.assertTrue(resolved.verify_against_reference)
+
+    def test_env_overrides_yaml(self) -> None:
+        env = {
+            "LIFEMANIFOLD_NUMBA_SIM": "0",
+            "LIFEMANIFOLD_PARALLEL_EVAL": "1",
+            "LIFEMANIFOLD_VERIFY_SIM": "0",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            resolved = resolve_simulator_performance({"numba_simulator": True})
+        self.assertFalse(resolved.numba_simulator)
+        self.assertTrue(resolved.parallel_eval)
+        self.assertFalse(resolved.verify_against_reference)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -91,7 +91,7 @@ def pattern_diversity_from_frame(
     cols = np.stack([(ys - 1) % n, ys % n, (ys + 1) % n], axis=1)
     patches = frame[rows[:, :, None], cols[:, None, :]]
     bits = patches.reshape(sample_size, 9).astype(np.uint16)
-    weights = (1 << np.arange(9, dtype=np.uint16))
+    weights = 1 << np.arange(9, dtype=np.uint16)
     packed = (bits * weights).sum(axis=1)
     return float(len(np.unique(packed)) / sample_size)
 
@@ -251,6 +251,5 @@ def _moore_stencil_views(grid: np.ndarray) -> tuple[np.ndarray, ...]:
     padded = np.pad(grid, 1, mode="wrap")
     n = int(grid.shape[0])
     return tuple(
-        padded[1 + dx : 1 + dx + n, 1 + dy : 1 + dy + n]
-        for dx, dy in _MOORE_OFFSETS
+        padded[1 + dx : 1 + dx + n, 1 + dy : 1 + dy + n] for dx, dy in _MOORE_OFFSETS
     )

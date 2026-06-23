@@ -470,8 +470,6 @@ surrogate:
 
 ## 8. Surrogate Acquisition
 
-Specification: [`artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md`](../artifacts/SURROGATE_MODEL_TZ_ACQUISITION_v1.0.md). Task breakdown: [`artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md`](../artifacts/SURROGATE_EPICS_AND_TASKS_ACQUISITION_v1.1.md).
-
 Implemented in `worldspace/surrogate/`: acquisition policies (`acquisition.py`), loop integration (`illuminators/loop.py`), `SurrogateArchive` JSONL, nested retrain (optional YAML), and **uncertainty calibration** (`calibration.py`).
 
 ### 8.0 Operating modes and decision point

@@ -35,6 +35,7 @@ from worldspace.illuminators.scheduler import (
     select_target_cell,
     slot_emitter_for_candidate,
 )
+from worldspace.simulator_perf import DEFAULT_SIMULATOR_PERFORMANCE
 from worldspace.specs.spec import WorldSpec
 
 _SPECS = Path(__file__).resolve().parents[1] / "worldspace" / "specs"
@@ -85,6 +86,37 @@ class TestLoadScheduler(unittest.TestCase):
         self.assertEqual(
             tuple(config.batch_emitters), ("random", "genetic", "genetic", "llm")
         )
+        self.assertEqual(config.performance, DEFAULT_SIMULATOR_PERFORMANCE)
+
+    def test_load_scheduler_performance_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "perf_scheduler.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["performance"] = {
+                "numba_simulator": True,
+                "parallel_eval": True,
+                "parallel_workers": 2,
+                "verify_against_reference": True,
+            }
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+        self.assertTrue(config.performance.numba_simulator)
+        self.assertTrue(config.performance.parallel_eval)
+        self.assertEqual(config.performance.parallel_workers, 2)
+        self.assertTrue(config.performance.verify_against_reference)
+
+    def test_load_scheduler_rejects_unknown_performance_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_perf.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["performance"] = {"numba_simulator": True, "unknown_flag": True}
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_scheduler(path)
 
     def test_load_mini_cvt_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)

@@ -11,6 +11,7 @@ import numpy as np
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.metrics import WorldMetrics
 from worldspace.simulator import run_world
+from worldspace.simulator_perf import SimulatorPerformanceOptions
 from worldspace.specs.spec import WorldSpec
 
 __all__ = [
@@ -149,13 +150,18 @@ def evaluate_candidate(
     archive: ArchiveProtocol | None = None,
     early_extinction_step: int = 200,
     enforce_min_steps: bool = True,
+    performance: SimulatorPerformanceOptions | None = None,
 ) -> EvalResult:
     """Run one candidate: canonical seed, simulation, measures, fitness, and bin."""
     spec = replace(world_spec)
     if enforce_min_steps:
         spec.steps = max(spec.steps, ILLUMINATOR_MIN_STEPS)
     apply_canonical_seed(spec)
-    simulation = run_world(spec, early_extinction_step=early_extinction_step)
+    simulation = run_world(
+        spec,
+        early_extinction_step=early_extinction_step,
+        performance=performance,
+    )
     if simulation.final_life is None:
         msg = "run_world did not return final_life"
         raise RuntimeError(msg)
