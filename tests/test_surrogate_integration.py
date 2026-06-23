@@ -23,7 +23,7 @@ from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.surrogate import StubSurrogate, get_surrogate
 from worldspace.surrogate.buffer import SurrogateBuffer
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
 
@@ -138,7 +138,7 @@ class TestLoopSurrogateBuffer(unittest.TestCase):
             for line in lines:
                 row = json.loads(line)
                 self.assertEqual(row["feature_schema_version"], FEATURE_SCHEMA_VERSION)
-                self.assertEqual(len(row["features"]), FEATURE_DIM)
+                self.assertEqual(len(row["features"]), FEATURE_DIM_V21)
                 self.assertIn("world_spec", row)
 
     def test_run_iteration_skips_buffer_when_surrogate_disabled(self) -> None:

@@ -17,7 +17,7 @@ from worldspace.surrogate.buffer import (
     world_spec_dict_for_buffer,
 )
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION, extract
-from worldspace.surrogate.genome_features import FEATURE_DIM
+from worldspace.surrogate.genome_features import FEATURE_DIM_V21
 from worldspace.surrogate.model import TARGET_KEYS
 
 
@@ -86,7 +86,7 @@ class SurrogateBufferTests(unittest.TestCase):
             world_spec=world_spec_dict_for_buffer(spec),
         )
         self.assertEqual(record["feature_schema_version"], FEATURE_SCHEMA_VERSION)
-        self.assertEqual(len(record["features"]), FEATURE_DIM)
+        self.assertEqual(len(record["features"]), FEATURE_DIM_V21)
         restored = WorldSpec.from_json_dict(record["world_spec"])
         apply_canonical_seed(restored)
         np.testing.assert_allclose(extract(restored), features)
@@ -115,7 +115,7 @@ class SurrogateBufferTests(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             row = json.loads(lines[0])
             self.assertEqual(row["emitter_type"], "random")
-            self.assertEqual(len(row["features"]), FEATURE_DIM)
+            self.assertEqual(len(row["features"]), FEATURE_DIM_V21)
             self.assertIn("world_spec", row)
 
     def test_append_eval_to_buffer_writes_world_spec(self) -> None:
@@ -137,7 +137,7 @@ class SurrogateBufferTests(unittest.TestCase):
             row = json.loads(path.read_text(encoding="utf-8").strip())
             self.assertEqual(row["feature_schema_version"], FEATURE_SCHEMA_VERSION)
             self.assertIn("world_spec", row)
-            self.assertEqual(len(row["features"]), FEATURE_DIM)
+            self.assertEqual(len(row["features"]), FEATURE_DIM_V21)
             for key in TARGET_KEYS:
                 self.assertIn(key, row["targets"])
             self.assertEqual(row["metadata"]["source"], "live_eval")

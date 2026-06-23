@@ -35,7 +35,9 @@ class _ParallelEvalJob:
 class ParallelEvalPool:
     """Reusable process pool for illuminator parallel eval."""
 
-    def __init__(self, processes: int, *, mp_context: BaseContext | None = None) -> None:
+    def __init__(
+        self, processes: int, *, mp_context: BaseContext | None = None
+    ) -> None:
         from multiprocessing import get_context
 
         ctx = mp_context if mp_context is not None else get_context("forkserver")
