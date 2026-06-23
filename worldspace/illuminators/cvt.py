@@ -87,16 +87,7 @@ def voronoi_neighbors(
         raise ValueError(msg)
 
     edges: list[set[int]] = [set() for _ in range(n_centroids)]
-    stability_axis = np.linspace(BC_MIN, BC_MAX, grid_resolution, dtype=np.float64)
-    diversity_axis = np.linspace(BC_MIN, BC_MAX, grid_resolution, dtype=np.float64)
-    owners = np.zeros((grid_resolution, grid_resolution), dtype=np.int32)
-    for row, stability in enumerate(stability_axis):
-        for col, diversity in enumerate(diversity_axis):
-            owners[row, col] = assign_cell_id(
-                float(stability),
-                float(diversity),
-                centroids,
-            )
+    owners = _owners_on_bc_grid(centroids, grid_resolution)
 
     for row in range(grid_resolution):
         for col in range(grid_resolution):
@@ -138,6 +129,20 @@ def load_centroids(path: str | Path) -> np.ndarray:
         msg = "centroids JSON root must be an object"
         raise ValueError(msg)
     return _centroids_from_json_dict(payload)
+
+
+def _owners_on_bc_grid(centroids: np.ndarray, grid_resolution: int) -> np.ndarray:
+    """Map each point on a uniform BC grid to the nearest centroid index."""
+    stability_axis = np.linspace(BC_MIN, BC_MAX, grid_resolution, dtype=np.float64)
+    diversity_axis = np.linspace(BC_MIN, BC_MAX, grid_resolution, dtype=np.float64)
+    stability_grid, diversity_grid = np.meshgrid(
+        stability_axis,
+        diversity_axis,
+        indexing="ij",
+    )
+    points = np.stack((stability_grid, diversity_grid), axis=-1)
+    diff = points[..., np.newaxis, :] - centroids[np.newaxis, np.newaxis, :, :]
+    return np.argmin((diff * diff).sum(axis=-1), axis=-1).astype(np.int32)
 
 
 def _lloyd_step(
