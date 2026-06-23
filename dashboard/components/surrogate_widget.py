@@ -4,20 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
 import numpy as np
 import streamlit as st
 
 from dashboard.utils.bootstrap import ensure_repo_on_path
+from dashboard.components.artifact_selectors import (
+    format_repo_relative_path_with_symlink,
+)
 from dashboard.utils.config import (
     CHECKPOINT_STUB_VALUE,
+    UNSET,
+    UnsetType,
     active_archive_path,
     archive_adjacent_surrogate_checkpoint,
     checkpoint_session_key,
     list_surrogate_checkpoint_candidates,
     load_config,
-    repo_root,
     resolve_surrogate_checkpoint_path,
 )
 from dashboard.utils.surrogate_checkpoint import is_surrogate_model_checkpoint
@@ -45,16 +49,6 @@ __all__ = [
 ]
 
 
-class _CheckpointUnsetType:
-    """Sentinel: ``checkpoint_path`` was not passed (distinct from explicit ``None`` stub)."""
-
-    __slots__ = ()
-
-
-_CHECKPOINT_UNSET: Final = _CheckpointUnsetType()
-UnsetCheckpoint = _CheckpointUnsetType
-
-
 @dataclass(frozen=True)
 class SurrogateStatus:
     """Checkpoint load state for dashboard UI."""
@@ -69,13 +63,18 @@ def resolve_checkpoint_path(
     cfg: dict[str, Any] | None = None,
     *,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> Path | None:
     """Resolve checkpoint: explicit selection, session override, then archive-local."""
-    if checkpoint_path is not _CHECKPOINT_UNSET:
+    if checkpoint_path is not UNSET:
         if checkpoint_path is None:
             return None
-        assert isinstance(checkpoint_path, Path)
+        if not isinstance(checkpoint_path, Path):
+            msg = (
+                "checkpoint_path must be a pathlib.Path, None, or omitted; "
+                f"got {type(checkpoint_path).__name__}"
+            )
+            raise TypeError(msg)
         return (
             checkpoint_path if is_surrogate_model_checkpoint(checkpoint_path) else None
         )
@@ -155,19 +154,7 @@ def render_surrogate_checkpoint_selector(
     def _label(value: str) -> str:
         if value == CHECKPOINT_STUB_VALUE:
             return "Stub (no checkpoint)"
-        path = Path(value)
-        try:
-            display = path.relative_to(repo_root())
-        except ValueError:
-            display = path
-        if path.is_symlink():
-            target = path.resolve()
-            try:
-                target_display = target.relative_to(repo_root())
-            except ValueError:
-                target_display = target
-            return f"{display} -> {target_display}"
-        return str(display)
+        return format_repo_relative_path_with_symlink(Path(value))
 
     selected_value = st.sidebar.selectbox(
         "Surrogate checkpoint",
@@ -185,7 +172,7 @@ def load_surrogate(
     cfg: dict[str, Any] | None = None,
     *,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> SurrogateProtocol:
     """Load cached surrogate instance (checkpoint or stub)."""
     config = cfg if cfg is not None else load_config()
@@ -207,7 +194,7 @@ def surrogate_status(
     cfg: dict[str, Any] | None = None,
     *,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> SurrogateStatus:
     """Describe whether a real checkpoint-backed surrogate is active."""
     config = cfg if cfg is not None else load_config()
@@ -246,7 +233,7 @@ def predict_world_spec_dict(
     *,
     cfg: dict[str, Any] | None = None,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> dict[str, float] | None:
     """Predict fitness and uncertainty for one JSON-like world spec.
 
@@ -273,7 +260,7 @@ def render_surrogate_status_banner(
     cfg: dict[str, Any] | None = None,
     *,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> SurrogateStatus:
     """Show info/warning banner for surrogate availability."""
     status = surrogate_status(
@@ -325,7 +312,7 @@ def _surrogate_config_from_dashboard(
     cfg: dict[str, Any],
     *,
     archive_path: Path | None = None,
-    checkpoint_path: Path | None | UnsetCheckpoint = _CHECKPOINT_UNSET,
+    checkpoint_path: Path | None | UnsetType = UNSET,
 ) -> SurrogateConfig:
     surrogate_section = cfg.get("surrogate")
     block = surrogate_section if isinstance(surrogate_section, dict) else {}

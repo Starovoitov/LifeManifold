@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import fnmatch
+import os
+from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import yaml
 
@@ -18,11 +22,28 @@ MAP_ELITES_ARCHIVE_JSONL = "map_elites_archive.jsonl"
 
 SURROGATE_ARCHIVE_JSONL_NAME = "surrogate_archive.jsonl"
 
-_UNSET = object()
 CHECKPOINT_STUB_VALUE = ""
+ARTIFACT_SEARCH_MAX_DEPTH = 4
+CHECKPOINT_SEARCH_MAX_DEPTH = ARTIFACT_SEARCH_MAX_DEPTH
+BUFFER_SEARCH_MAX_DEPTH = ARTIFACT_SEARCH_MAX_DEPTH
+
+
+class UnsetType:
+    """Marker for omitted optional values (distinct from explicit ``None``)."""
+
+    __slots__ = ()
+
+
+UNSET: Final = UnsetType()
 
 __all__ = [
     "CHECKPOINT_STUB_VALUE",
+    "ARTIFACT_SEARCH_MAX_DEPTH",
+    "BUFFER_SEARCH_MAX_DEPTH",
+    "CHECKPOINT_SEARCH_MAX_DEPTH",
+    "MAP_ELITES_ARCHIVE_JSONL",
+    "UNSET",
+    "UnsetType",
     "DASHBOARD_ARCHIVE_SESSION_KEY",
     "DASHBOARD_BUFFER_SESSION_KEY",
     "DASHBOARD_SURROGATE_CHECKPOINT_SESSION_KEY",
@@ -145,19 +166,13 @@ def buffer_paths_near_archive(archive_path: Path) -> list[Path]:
     for root_index, root in enumerate(buffer_search_roots(archive_path)):
         if not root.is_dir():
             continue
-        try:
-            iterator = root.rglob("*buffer*.jsonl")
-            while True:
-                try:
-                    candidate = next(iterator)
-                except StopIteration:
-                    break
-                except OSError:
-                    continue
-                try:
-                    if not candidate.is_file():
-                        continue
-                except OSError:
+        with suppress(OSError):
+            for candidate in _iter_matching_files(
+                root,
+                pattern="*buffer*.jsonl",
+                max_depth=BUFFER_SEARCH_MAX_DEPTH,
+            ):
+                if not _is_existing_file(candidate):
                     continue
                 resolved = str(candidate.resolve())
                 if resolved in seen:
@@ -166,8 +181,6 @@ def buffer_paths_near_archive(archive_path: Path) -> list[Path]:
                 ranked.append(
                     (_buffer_sort_key(candidate, root_index=root_index), candidate)
                 )
-        except OSError:
-            continue
     ranked.sort(key=lambda item: item[0])
     return [path for _, path in ranked]
 
@@ -210,6 +223,43 @@ def _checkpoint_sort_key(
     return (root_index, -mtime, str(pkl_path.resolve()))
 
 
+def _iter_matching_files(
+    root: Path,
+    *,
+    pattern: str,
+    max_depth: int,
+) -> Iterator[Path]:
+    """Yield files under ``root`` whose names match ``pattern`` up to ``max_depth`` levels."""
+    resolved_root = root.resolve()
+    depth_limit = max(0, max_depth)
+    for current, dirnames, filenames in os.walk(
+        resolved_root,
+        topdown=True,
+        followlinks=True,
+    ):
+        current_path = Path(current)
+        try:
+            rel_depth = len(current_path.relative_to(resolved_root).parts)
+        except ValueError:
+            continue
+        if rel_depth >= depth_limit:
+            dirnames.clear()
+        for name in filenames:
+            if fnmatch.fnmatch(name, pattern):
+                yield current_path / name
+
+
+def _iter_pkl_files(root: Path, *, max_depth: int) -> Iterator[Path]:
+    """Yield ``.pkl`` files under ``root`` up to ``max_depth`` subdirectory levels."""
+    yield from _iter_matching_files(root, pattern="*.pkl", max_depth=max_depth)
+
+
+def _is_existing_file(path: Path) -> bool:
+    with suppress(OSError):
+        return path.is_file()
+    return False
+
+
 def checkpoint_paths_near_archive(archive_path: Path) -> list[Path]:
     """List loadable ``SurrogateModel`` pickles under run dirs that contain the archive."""
     from dashboard.utils.surrogate_checkpoint import filter_surrogate_model_checkpoints
@@ -219,19 +269,12 @@ def checkpoint_paths_near_archive(archive_path: Path) -> list[Path]:
     for root_index, root in enumerate(checkpoint_search_roots(archive_path)):
         if not root.is_dir():
             continue
-        try:
-            iterator = root.rglob("*.pkl")
-            while True:
-                try:
-                    candidate = next(iterator)
-                except StopIteration:
-                    break
-                except OSError:
-                    continue
-                try:
-                    if not candidate.is_file():
-                        continue
-                except OSError:
+        with suppress(OSError):
+            for candidate in _iter_pkl_files(
+                root,
+                max_depth=CHECKPOINT_SEARCH_MAX_DEPTH,
+            ):
+                if not _is_existing_file(candidate):
                     continue
                 resolved = str(candidate.resolve())
                 if resolved in seen:
@@ -240,8 +283,6 @@ def checkpoint_paths_near_archive(archive_path: Path) -> list[Path]:
                 ranked.append(
                     (_checkpoint_sort_key(candidate, root_index=root_index), candidate)
                 )
-        except OSError:
-            continue
     ranked.sort(key=lambda item: item[0])
     return filter_surrogate_model_checkpoints([path for _, path in ranked])
 
@@ -249,12 +290,6 @@ def checkpoint_paths_near_archive(archive_path: Path) -> list[Path]:
 def checkpoint_session_key(archive_path: Path) -> str:
     """Streamlit session key for per-archive surrogate checkpoint override."""
     return f"{DASHBOARD_SURROGATE_CHECKPOINT_SESSION_KEY}:{archive_path.resolve()}"
-
-
-def configured_checkpoint_candidates(cfg: dict[str, Any] | None = None) -> list[Path]:
-    """Deprecated: checkpoints are discovered beside the selected archive only."""
-    del cfg
-    return []
 
 
 def archive_adjacent_surrogate_checkpoint(archive_path: Path) -> Path | None:
@@ -286,10 +321,10 @@ def session_surrogate_checkpoint_override(
     try:
         import streamlit as st
 
-        raw = st.session_state.get(checkpoint_session_key(archive_path), _UNSET)
+        raw = st.session_state.get(checkpoint_session_key(archive_path), UNSET)
     except (ImportError, RuntimeError, AttributeError):
         return None
-    if raw is _UNSET:
+    if raw is UNSET:
         return None
     if raw == CHECKPOINT_STUB_VALUE:
         return "stub"

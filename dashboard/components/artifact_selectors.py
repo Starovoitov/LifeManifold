@@ -16,6 +16,7 @@ from dashboard.utils.config import (
 
 __all__ = [
     "format_repo_relative_path",
+    "format_repo_relative_path_with_symlink",
     "render_archive_selector",
     "render_buffer_selector",
 ]
@@ -27,6 +28,14 @@ def format_repo_relative_path(path: Path) -> str:
         return str(path.relative_to(repo_root()))
     except ValueError:
         return str(path)
+
+
+def format_repo_relative_path_with_symlink(path: Path) -> str:
+    """Like :func:`format_repo_relative_path`, appending symlink targets as ``a -> b``."""
+    display = format_repo_relative_path(path)
+    if path.is_symlink():
+        return f"{display} -> {format_repo_relative_path(path.resolve())}"
+    return display
 
 
 def render_archive_selector(cfg: dict | None = None) -> Path | None:
@@ -57,18 +66,10 @@ def render_buffer_selector(
 
     option_values = [str(path) for path in candidates]
 
-    def _label(value: str) -> str:
-        path = Path(value)
-        display = format_repo_relative_path(path)
-        if path.is_symlink():
-            target = path.resolve()
-            return f"{display} -> {format_repo_relative_path(target)}"
-        return display
-
     selected_value = st.sidebar.selectbox(
         "Training buffer JSONL",
         option_values,
-        format_func=_label,
+        format_func=lambda value: format_repo_relative_path_with_symlink(Path(value)),
         key=f"dashboard_buffer_select:{archive_path.resolve()}",
     )
     selected_path = Path(selected_value)

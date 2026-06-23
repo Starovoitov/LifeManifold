@@ -59,6 +59,29 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
                 )
             )
 
+    def test_resolve_checkpoint_path_rejects_non_path_explicit(self) -> None:
+        from dashboard.components.surrogate_widget import resolve_checkpoint_path
+
+        with self.assertRaises(TypeError):
+            resolve_checkpoint_path(checkpoint_path="not-a-path")  # type: ignore[arg-type]
+
+    def test_format_repo_relative_path_with_symlink(self) -> None:
+        from dashboard.components.artifact_selectors import (
+            format_repo_relative_path,
+            format_repo_relative_path_with_symlink,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "real.pkl"
+            target.write_bytes(b"x")
+            link = root / "linked.pkl"
+            link.symlink_to(target)
+            self.assertEqual(
+                format_repo_relative_path_with_symlink(link),
+                f"{format_repo_relative_path(link)} -> {format_repo_relative_path(target)}",
+            )
+
     def test_checkpoint_paths_found_recursively_under_run_dir(self) -> None:
         from dashboard.utils.config import checkpoint_paths_near_archive
 
@@ -71,6 +94,25 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             _write_model_checkpoint(nested)
             found = checkpoint_paths_near_archive(archive)
             self.assertEqual(found, [nested.resolve()])
+
+    def test_checkpoint_paths_ignore_pkl_beyond_search_depth(self) -> None:
+        from dashboard.utils.config import (
+            CHECKPOINT_SEARCH_MAX_DEPTH,
+            checkpoint_paths_near_archive,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            shallow = archive.parent / "checkpoints" / "model.pkl"
+            _write_model_checkpoint(shallow)
+            deep_parts = ["d"] * (CHECKPOINT_SEARCH_MAX_DEPTH + 1)
+            deep = archive.parent.joinpath(*deep_parts, "deep.pkl")
+            _write_model_checkpoint(deep)
+            found = checkpoint_paths_near_archive(archive)
+            self.assertEqual(found, [shallow.resolve()])
 
     def test_checkpoint_paths_exclude_calibration_pickle(self) -> None:
         from dashboard.utils.config import checkpoint_paths_near_archive
@@ -250,10 +292,8 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
     ) -> None:
         from unittest import mock
 
-        from dashboard.components.surrogate_widget import (
-            _CHECKPOINT_UNSET,
-            predict_world_spec_dict,
-        )
+        from dashboard.utils.config import UNSET
+        from dashboard.components.surrogate_widget import predict_world_spec_dict
 
         world_spec = {
             "birth": [3, 7, 8],
@@ -277,7 +317,7 @@ class TestDashboardSurrogateWidget(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertIs(
                 load_mock.call_args.kwargs["checkpoint_path"],
-                _CHECKPOINT_UNSET,
+                UNSET,
             )
 
             load_mock.reset_mock()

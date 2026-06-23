@@ -7,9 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dashboard.utils.config import load_config, repo_root, resolve_repo_path
+from dashboard.utils.config import (
+    MAP_ELITES_ARCHIVE_JSONL,
+    load_config,
+    repo_root,
+    resolve_repo_path,
+)
 
-ARCHIVE_JSONL_NAME = "map_elites_archive.jsonl"
 SUMMARY_FILENAMES = ("nightly_run_summary.json", "smoke_run_summary.json")
 
 # Used only when ``paths.run_scan_dirs`` is missing or empty in config.yaml.
@@ -126,7 +130,7 @@ def _scan_roots(cfg: dict[str, Any]) -> list[Path]:
 def _find_archives_under(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
-    return sorted(root.rglob(ARCHIVE_JSONL_NAME))
+    return sorted(root.rglob(MAP_ELITES_ARCHIVE_JSONL))
 
 
 def expand_scan_dir_entries(entries: list[str]) -> list[Path]:
