@@ -10,6 +10,7 @@ __all__ = [
     "DEFAULT_SIMULATOR_PERFORMANCE",
     "SimulatorPerformanceOptions",
     "effective_numba_enabled",
+    "effective_parallel_workers",
     "resolve_simulator_performance",
 ]
 
@@ -37,6 +38,19 @@ def effective_numba_enabled(
     if ca_step_trace:
         return False
     return performance.numba_simulator
+
+
+def effective_parallel_workers(
+    performance: SimulatorPerformanceOptions,
+    *,
+    batch_size: int,
+) -> int:
+    """Return worker count for parallel eval (at least 1, capped by ``batch_size``)."""
+    if performance.parallel_workers > 0:
+        requested = performance.parallel_workers
+    else:
+        requested = os.cpu_count() or 1
+    return max(1, min(int(requested), int(batch_size)))
 
 
 def resolve_simulator_performance(

@@ -18,6 +18,7 @@ __all__ = [
     "MEASURE_KEYS",
     "EvalResult",
     "ILLUMINATOR_MIN_STEPS",
+    "SimulationOutcome",
     "apply_canonical_seed",
     "bin_center",
     "bin_edges",
@@ -25,10 +26,12 @@ __all__ = [
     "bin_index_from_measures",
     "canonical_seed",
     "compute_fitness",
+    "eval_result_from_simulation",
     "evaluate_candidate",
     "extinction_probability",
     "measures_from_metrics",
     "assign_cell_for_archive",
+    "simulate_candidate",
     "topology_complexity",
 ]
 
@@ -47,6 +50,17 @@ class EvalResult:
     measures: dict[str, float]
     fitness: float
     bin: tuple[int, int]
+    early_extinct: bool
+
+
+@dataclass
+class SimulationOutcome:
+    """Result of ``run_world`` for one candidate before archive binning."""
+
+    world_spec: WorldSpec
+    metrics: WorldMetrics
+    measures: dict[str, float]
+    fitness: float
     early_extinct: bool
 
 
@@ -153,6 +167,27 @@ def evaluate_candidate(
     performance: SimulatorPerformanceOptions | None = None,
 ) -> EvalResult:
     """Run one candidate: canonical seed, simulation, measures, fitness, and bin."""
+    simulation = simulate_candidate(
+        world_spec,
+        early_extinction_step=early_extinction_step,
+        enforce_min_steps=enforce_min_steps,
+        performance=performance,
+    )
+    return eval_result_from_simulation(
+        simulation,
+        resolution=resolution,
+        archive=archive,
+    )
+
+
+def simulate_candidate(
+    world_spec: WorldSpec,
+    *,
+    early_extinction_step: int = 200,
+    enforce_min_steps: bool = True,
+    performance: SimulatorPerformanceOptions | None = None,
+) -> SimulationOutcome:
+    """Run simulation only (no archive binning); safe for worker processes."""
     spec = replace(world_spec)
     if enforce_min_steps:
         spec.steps = max(spec.steps, ILLUMINATOR_MIN_STEPS)
@@ -173,16 +208,32 @@ def evaluate_candidate(
         early_extinct=simulation.early_extinct,
         final_density=final_density,
     )
-    if archive is not None:
-        cell_id = assign_cell_for_archive(measures, archive)
-        bin_ij = archive.bin_from_cell_id(cell_id)
-    else:
-        bin_ij = bin_index_from_measures(measures, resolution)
-    return EvalResult(
+    return SimulationOutcome(
         world_spec=spec,
         metrics=simulation.metrics,
         measures=measures,
         fitness=fitness,
+        early_extinct=simulation.early_extinct,
+    )
+
+
+def eval_result_from_simulation(
+    simulation: SimulationOutcome,
+    *,
+    resolution: int,
+    archive: ArchiveProtocol | None = None,
+) -> EvalResult:
+    """Attach archive/grid bin indices to a simulation outcome."""
+    if archive is not None:
+        cell_id = assign_cell_for_archive(simulation.measures, archive)
+        bin_ij = archive.bin_from_cell_id(cell_id)
+    else:
+        bin_ij = bin_index_from_measures(simulation.measures, resolution)
+    return EvalResult(
+        world_spec=simulation.world_spec,
+        metrics=simulation.metrics,
+        measures=simulation.measures,
+        fitness=simulation.fitness,
         bin=bin_ij,
         early_extinct=simulation.early_extinct,
     )

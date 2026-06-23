@@ -10,6 +10,7 @@ from worldspace.simulator_perf import (
     DEFAULT_SIMULATOR_PERFORMANCE,
     SimulatorPerformanceOptions,
     effective_numba_enabled,
+    effective_parallel_workers,
     resolve_simulator_performance,
 )
 
@@ -26,6 +27,17 @@ class TestSimulatorPerformanceOptions(unittest.TestCase):
         perf = SimulatorPerformanceOptions(numba_simulator=True)
         self.assertFalse(effective_numba_enabled(perf, ca_step_trace=True))
         self.assertTrue(effective_numba_enabled(perf, ca_step_trace=False))
+
+    def test_effective_parallel_workers(self) -> None:
+        perf = SimulatorPerformanceOptions(parallel_eval=True, parallel_workers=0)
+        workers = effective_parallel_workers(perf, batch_size=4)
+        self.assertGreaterEqual(workers, 1)
+        self.assertLessEqual(workers, 4)
+        capped = effective_parallel_workers(
+            SimulatorPerformanceOptions(parallel_workers=8),
+            batch_size=2,
+        )
+        self.assertEqual(capped, 2)
 
     def test_resolve_from_yaml_block(self) -> None:
         resolved = resolve_simulator_performance(
