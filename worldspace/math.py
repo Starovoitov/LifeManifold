@@ -32,6 +32,7 @@ def kmeans_lloyd_on_memmap(
     if n <= 0:
         return
 
+    # Lazy import: sklearn is heavy; pipeline callers often skip k-means entirely.
     from sklearn.cluster import MiniBatchKMeans
 
     k = max(1, min(k, n))

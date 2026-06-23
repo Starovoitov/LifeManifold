@@ -14,6 +14,7 @@ DEFAULT_CVT_SAMPLE_MULTIPLIER = 50
 MIN_CVT_SAMPLES = 10_000
 VORONOI_GRID_RESOLUTION = 200
 CVT_CENTROIDS_FILENAME = "cvt_centroids.json"
+_OWNERS_BC_GRID_CHUNK_SIZE = 128
 
 __all__ = [
     "CVT_CENTROIDS_FILENAME",
@@ -141,8 +142,19 @@ def _owners_on_bc_grid(centroids: np.ndarray, grid_resolution: int) -> np.ndarra
         indexing="ij",
     )
     points = np.stack((stability_grid, diversity_grid), axis=-1)
-    diff = points[..., np.newaxis, :] - centroids[np.newaxis, np.newaxis, :, :]
-    return np.argmin((diff * diff).sum(axis=-1), axis=-1).astype(np.int32)
+    n_centroids = int(centroids.shape[0])
+    best_dist = np.full((grid_resolution, grid_resolution), np.inf, dtype=np.float64)
+    owners = np.zeros((grid_resolution, grid_resolution), dtype=np.int32)
+    for start in range(0, n_centroids, _OWNERS_BC_GRID_CHUNK_SIZE):
+        chunk = centroids[start : start + _OWNERS_BC_GRID_CHUNK_SIZE]
+        diff = points[..., np.newaxis, :] - chunk[np.newaxis, np.newaxis, :, :]
+        dist_sq = (diff * diff).sum(axis=-1)
+        chunk_min = dist_sq.min(axis=-1)
+        chunk_argmin = dist_sq.argmin(axis=-1)
+        improved = chunk_min < best_dist
+        best_dist[improved] = chunk_min[improved]
+        owners[improved] = chunk_argmin[improved] + start
+    return owners
 
 
 def _lloyd_step(

@@ -235,7 +235,6 @@ def _iter_matching_files(
     for current, dirnames, filenames in os.walk(
         resolved_root,
         topdown=True,
-        followlinks=True,
     ):
         current_path = Path(current)
         try:
