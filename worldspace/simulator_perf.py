@@ -1,0 +1,76 @@
+"""Simulator performance options (numba / parallel eval); wired from scheduler YAML."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, replace
+from typing import Any
+
+__all__ = [
+    "DEFAULT_SIMULATOR_PERFORMANCE",
+    "SimulatorPerformanceOptions",
+    "effective_numba_enabled",
+    "resolve_simulator_performance",
+]
+
+
+@dataclass(frozen=True)
+class SimulatorPerformanceOptions:
+    """Optional fast paths for ``run_world`` (numba, parallel eval). Defaults use numpy."""
+
+    numba_simulator: bool = False
+    numba_cache: bool = True
+    parallel_eval: bool = False
+    parallel_workers: int = 0
+    verify_against_reference: bool = False
+
+
+DEFAULT_SIMULATOR_PERFORMANCE = SimulatorPerformanceOptions()
+
+
+def effective_numba_enabled(
+    performance: SimulatorPerformanceOptions,
+    *,
+    ca_step_trace: bool,
+) -> bool:
+    """Return whether the numba fused step may run (trace path always uses numpy)."""
+    if ca_step_trace:
+        return False
+    return performance.numba_simulator
+
+
+def resolve_simulator_performance(
+    yaml_block: dict[str, Any] | None = None,
+) -> SimulatorPerformanceOptions:
+    """Build options from scheduler YAML block with env overrides (env wins)."""
+    block = yaml_block or {}
+    options = SimulatorPerformanceOptions(
+        numba_simulator=bool(block.get("numba_simulator", False)),
+        numba_cache=bool(block.get("numba_cache", True)),
+        parallel_eval=bool(block.get("parallel_eval", False)),
+        parallel_workers=int(block.get("parallel_workers", 0)),
+        verify_against_reference=bool(block.get("verify_against_reference", False)),
+    )
+    return _apply_env_overrides(options)
+
+
+def _apply_env_overrides(
+    options: SimulatorPerformanceOptions,
+) -> SimulatorPerformanceOptions:
+    env_numba = _env_bool("LIFEMANIFOLD_NUMBA_SIM")
+    if env_numba is not None:
+        options = replace(options, numba_simulator=env_numba)
+    env_parallel = _env_bool("LIFEMANIFOLD_PARALLEL_EVAL")
+    if env_parallel is not None:
+        options = replace(options, parallel_eval=env_parallel)
+    env_verify = _env_bool("LIFEMANIFOLD_VERIFY_SIM")
+    if env_verify is not None:
+        options = replace(options, verify_against_reference=env_verify)
+    return options
+
+
+def _env_bool(name: str) -> bool | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")

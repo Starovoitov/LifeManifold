@@ -1,6 +1,6 @@
 # Deprecated: matplotlib PNG visualizer
 
-**Status:** deprecated as of dashboard MVP (E10). Do not add new features here.
+**Status:** deprecated as of dashboard MVP. Do not add new features here.
 
 ## Use instead
 
@@ -13,7 +13,7 @@ streamlit run Home.py
 - Training buffer: **Training Buffer** page
 - LLM prompts: **LLM Prompt Tester**
 
-Dashboard setup: [docs/DASHBOARD.md](../../docs/DASHBOARD.md). E10 parity checklist: `artifacts/DASHBOARD_PARITY_CHECKLIST.md`.
+Dashboard setup: [docs/DASHBOARD.md](../../docs/DASHBOARD.md).
 
 ## Still supported (legacy)
 

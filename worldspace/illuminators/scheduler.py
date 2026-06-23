@@ -21,6 +21,11 @@ from pydantic import (
 from worldspace.illuminators.archive import DEFAULT_GRID_RESOLUTION, GridArchive
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.cvt import DEFAULT_LLOYD_ITERATIONS
+from worldspace.simulator_perf import (
+    DEFAULT_SIMULATOR_PERFORMANCE,
+    SimulatorPerformanceOptions,
+    resolve_simulator_performance,
+)
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition_config import (
     AcquisitionConfig,
@@ -122,6 +127,9 @@ class SchedulerConfig:
     n_centroids: int = DEFAULT_GRID_RESOLUTION * DEFAULT_GRID_RESOLUTION
     cvt_seed: int = 0
     lloyd_iterations: int = DEFAULT_LLOYD_ITERATIONS
+    performance: SimulatorPerformanceOptions = field(
+        default_factory=lambda: DEFAULT_SIMULATOR_PERFORMANCE
+    )
 
     @property
     def n_cells(self) -> int:
@@ -216,6 +224,9 @@ def load_scheduler(
         doc.surrogate.surrogate_archive_path or DEFAULT_SURROGATE_ARCHIVE_PATH
     )
     archive_settings = _archive_settings_from_yaml(doc)
+    performance = resolve_simulator_performance(
+        doc.performance.model_dump() if doc.performance is not None else None
+    )
     config = SchedulerConfig(
         schema_version=doc.schema_version,
         iterations=iterations,
@@ -242,6 +253,7 @@ def load_scheduler(
         n_centroids=archive_settings.n_centroids,
         cvt_seed=archive_settings.cvt_seed,
         lloyd_iterations=archive_settings.lloyd_iterations,
+        performance=performance,
     )
     return _normalize_acquisition_config(config)
 
@@ -418,6 +430,16 @@ class _GeneticSchedulerBlock(BaseModel):
     mutation_scale: float = Field(default=0.02, ge=0.0)
 
 
+class _PerformanceYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    numba_simulator: bool = False
+    numba_cache: bool = True
+    parallel_eval: bool = False
+    parallel_workers: int = Field(default=0, ge=0)
+    verify_against_reference: bool = False
+
+
 class _GridArchiveYamlBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -455,6 +477,7 @@ class _MapElitesSchedulerYaml(BaseModel):
     llm: _LlmSchedulerBlock
     surrogate: _SurrogateSchedulerBlock
     genetic: _GeneticSchedulerBlock = Field(default_factory=_GeneticSchedulerBlock)
+    performance: _PerformanceYamlBlock | None = None
 
     @model_validator(mode="after")
     def _validate_archive_fields(self) -> _MapElitesSchedulerYaml:

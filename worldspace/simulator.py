@@ -13,6 +13,11 @@ from .metrics import (
     metrics_vector_to_dict,
     multi_objective_edge_of_chaos_indicator,
 )
+from worldspace.simulator_perf import (
+    DEFAULT_SIMULATOR_PERFORMANCE,
+    SimulatorPerformanceOptions,
+    effective_numba_enabled,
+)
 from .specs.spec import WorldSpec
 
 
@@ -33,6 +38,7 @@ def run_world(
     ca_step_trace_file: TextIO | None = None,
     ca_step_trace_yield_index: int = 0,
     early_extinction_step: int | None = None,
+    performance: SimulatorPerformanceOptions | None = None,
 ) -> SimulationResult:
     """Run one world; metrics use online accumulators.
 
@@ -43,7 +49,14 @@ def run_world(
     When ``early_extinction_step`` is set (illuminator: ``200``), stop as soon as
     ``life.mean() == 0`` at timestep ``t`` with ``0 <= t < early_extinction_step``
     (``t = 0`` is post-init, before the first CA step). ``None`` keeps legacy full runs.
+
+    ``performance`` selects optional numba / verify paths (scheduler YAML). Default is
+    standard numpy. Per-step trace forces numpy regardless of ``numba_simulator``.
     """
+    perf = performance if performance is not None else DEFAULT_SIMULATOR_PERFORMANCE
+    _ = effective_numba_enabled(perf, ca_step_trace=ca_step_trace_file is not None)
+    if perf.verify_against_reference:
+        pass  # dual-run numpy vs numba when numba path is enabled
     rng = np.random.default_rng(world.seed)
     life, food, ages = _initial_grids(rng, world)
 

@@ -119,6 +119,12 @@ def run_iteration(
     rejected = 0
     acquisition_active = _acquisition_logging_active(config)
 
+    if config.performance.parallel_eval:
+        logger.debug(
+            "parallel_eval is enabled but parallel batch eval is not implemented "
+            "yet — running sequential"
+        )
+
     for candidate_id in range(config.batch_size):
         emitter_kind = resolve_emitter_for_slot(
             config,
@@ -187,6 +193,7 @@ def run_iteration(
             archive=archive,
             early_extinction_step=config.early_extinction_step,
             enforce_min_steps=True,
+            performance=config.performance,
         )
         if config.surrogate_enabled and surrogate_buffer is not None:
             from worldspace.surrogate.buffer import append_eval_to_buffer
