@@ -22,8 +22,10 @@ from worldspace.illuminators.archive_factory import (
 from worldspace.illuminators.cvt import generate_centroids
 from worldspace.illuminators.cvt_archive import CvtArchive
 from worldspace.illuminators.scheduler import (
+    DEFAULT_GITHUB_LLM_SCHEDULER_PATH,
     DEFAULT_MINI_CVT_SCHEDULER_PATH,
     DEFAULT_MINI_SCHEDULER_PATH,
+    DEFAULT_NIGHTLY_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
     RunCounters,
@@ -35,6 +37,7 @@ from worldspace.illuminators.scheduler import (
     select_target_cell,
     slot_emitter_for_candidate,
 )
+from worldspace.simulator_perf import DEFAULT_SIMULATOR_PERFORMANCE
 from worldspace.specs.spec import WorldSpec
 
 _SPECS = Path(__file__).resolve().parents[1] / "worldspace" / "specs"
@@ -85,6 +88,62 @@ class TestLoadScheduler(unittest.TestCase):
         self.assertEqual(
             tuple(config.batch_emitters), ("random", "genetic", "genetic", "llm")
         )
+        self.assertEqual(config.performance, DEFAULT_SIMULATOR_PERFORMANCE)
+
+    def test_load_scheduler_performance_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "perf_scheduler.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["performance"] = {
+                "numba_simulator": True,
+                "parallel_workers": 2,
+                "verify_against_reference": True,
+            }
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+        self.assertTrue(config.performance.numba_simulator)
+        self.assertFalse(config.performance.parallel_eval)
+        self.assertEqual(config.performance.parallel_workers, 2)
+        self.assertTrue(config.performance.verify_against_reference)
+
+    def test_load_scheduler_rejects_numba_with_parallel_eval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_perf.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["performance"] = {
+                "numba_simulator": True,
+                "parallel_eval": True,
+            }
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_scheduler(path)
+            self.assertIn("numba_simulator and parallel_eval", str(ctx.exception))
+
+    def test_nightly_and_github_llm_schedulers_enable_parallel_eval(self) -> None:
+        for path in (
+            DEFAULT_NIGHTLY_SCHEDULER_PATH,
+            DEFAULT_GITHUB_LLM_SCHEDULER_PATH,
+        ):
+            with self.subTest(scheduler=path.name):
+                config = load_scheduler(path)
+                self.assertTrue(config.performance.parallel_eval)
+                self.assertFalse(config.performance.numba_simulator)
+                self.assertEqual(config.performance.parallel_workers, 0)
+
+    def test_load_scheduler_rejects_unknown_performance_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_perf.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["performance"] = {"numba_simulator": True, "unknown_flag": True}
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_scheduler(path)
 
     def test_load_mini_cvt_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)

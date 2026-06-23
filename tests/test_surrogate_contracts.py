@@ -12,8 +12,7 @@ from worldspace.surrogate.feature_extractor import (
     FEATURE_SCHEMA_VERSION,
     extract as extract_features,
 )
-from worldspace.surrogate.genome_features import FEATURE_DIM
-from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
+from worldspace.surrogate.model import TARGET_KEYS, EXPECTED_FEATURE_DIM, SurrogateModel
 from worldspace.surrogate import StubSurrogate, SurrogateFacade, get_surrogate
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
 from worldspace.surrogate.utils import compute_fitness_from_prediction
@@ -143,8 +142,8 @@ class SurrogateContractsTests(unittest.TestCase):
         apply_canonical_seed(spec)
         vector = extract_features(spec)
         self.assertEqual(FEATURE_SCHEMA_VERSION, "2.1")
-        self.assertEqual(len(FEATURE_NAMES), FEATURE_DIM)
-        self.assertEqual(vector.shape, (FEATURE_DIM,))
+        self.assertEqual(len(FEATURE_NAMES), EXPECTED_FEATURE_DIM)
+        self.assertEqual(vector.shape, (EXPECTED_FEATURE_DIM,))
 
     def test_feature_extractor_v2_breaks_v1_density_aliasing(self) -> None:
         left = WorldSpec(

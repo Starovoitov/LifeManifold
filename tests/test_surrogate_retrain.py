@@ -22,6 +22,7 @@ from worldspace.surrogate.retrain import (
     is_retrain_iteration,
     maybe_retrain_after_iteration,
 )
+from worldspace.surrogate.model import EXPECTED_FEATURE_DIM
 from worldspace.surrogate.surrogate import (
     StubSurrogate,
     SurrogateFacade,
@@ -357,11 +358,18 @@ def _mock_model(*, predict_value: float = 0.1):
         "topology_interface_index": predict_value,
         "topology_window_heterogeneity": predict_value,
         "final_density": predict_value,
-        "early_extinction_prob": predict_value,
+        "early_extinction_prob": 0.0,
     }
     model.predict_components.return_value = components
     model.predict_uncertainty.return_value = 0.2
     model.predict_fitness.return_value = None
+    model._trained_input_dim = EXPECTED_FEATURE_DIM
+    model.predict_components_batch.side_effect = lambda feature_matrix: [
+        dict(components) for _ in range(int(feature_matrix.shape[0]))
+    ]
+    model.predict_uncertainty_batch.side_effect = lambda feature_matrix: [0.2] * int(
+        feature_matrix.shape[0]
+    )
     return model
 
 

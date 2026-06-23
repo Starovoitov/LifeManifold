@@ -13,12 +13,20 @@ OSCILLATION_DENSITY_WINDOW = 512
 def neighbor_count(grid: np.ndarray) -> np.ndarray:
     """Compute Moore-neighborhood live-neighbor counts with wrap-around edges."""
     total = np.zeros_like(grid, dtype=np.int16)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            total += np.roll(np.roll(grid, dx, axis=0), dy, axis=1)
+    for view in _moore_stencil_views(grid):
+        total += view.astype(np.int16, copy=False)
     return total
+
+
+def rule_count_masks(
+    birth: list[int], survival: list[int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build ``bool[9]`` lookup tables for Moore neighbor counts (0–8)."""
+    birth_mask = np.zeros(9, dtype=bool)
+    survival_mask = np.zeros(9, dtype=bool)
+    birth_mask[birth] = True
+    survival_mask[survival] = True
+    return birth_mask, survival_mask
 
 
 def kmeans_lloyd_on_memmap(
@@ -59,11 +67,14 @@ def oscillation(series: np.ndarray, max_lag: int = 10) -> float:
         return 0.0
     centered = series - series.mean()
     denom = np.dot(centered, centered) + 1e-9
-    scores = []
-    for lag in range(1, min(max_lag + 1, len(series))):
-        num = np.dot(centered[:-lag], centered[lag:])
-        scores.append(abs(num / denom))
-    return float(max(scores) if scores else 0.0)
+    n = len(centered)
+    max_lag_eff = min(max_lag, n - 1)
+    if max_lag_eff < 1:
+        return 0.0
+    ac = np.correlate(centered, centered, mode="full")
+    # ac[n-1+k] = lag-k correlation; slice lags 1..max_lag_eff
+    scores = np.abs(ac[n : n + max_lag_eff] / denom)
+    return float(np.max(scores))
 
 
 def pattern_diversity_from_frame(
@@ -74,15 +85,16 @@ def pattern_diversity_from_frame(
         return 0.0
     rng = np.random.default_rng(0)
     n = int(frame.shape[0])
-    signatures: set[tuple[int, ...]] = set()
-    for _ in range(sample_size):
-        x = int(rng.integers(0, n))
-        y = int(rng.integers(0, n))
-        patch = frame.take([(x - 1) % n, x % n, (x + 1) % n], axis=0).take(
-            [(y - 1) % n, y % n, (y + 1) % n], axis=1
-        )
-        signatures.add(tuple(int(v) for v in patch.reshape(-1)))
-    return float(len(signatures) / sample_size)
+    coords = rng.integers(0, n, size=(sample_size, 2), dtype=np.intp)
+    xs = coords[:, 0]
+    ys = coords[:, 1]
+    rows = np.stack([(xs - 1) % n, xs % n, (xs + 1) % n], axis=1)
+    cols = np.stack([(ys - 1) % n, ys % n, (ys + 1) % n], axis=1)
+    patches = frame[rows[:, :, None], cols[:, None, :]]
+    bits = patches.reshape(sample_size, 9).astype(np.uint16)
+    weights = 1 << np.arange(9, dtype=np.uint16)
+    packed = (bits * weights).sum(axis=1)
+    return float(len(np.unique(packed)) / sample_size)
 
 
 def pattern_diversity(history: list[np.ndarray], sample_size: int = 128) -> float:
@@ -103,12 +115,8 @@ def topology_interface_index(life: np.ndarray) -> float:
         return 0.0
     g = life.astype(np.float32)
     diff_sum = np.zeros_like(g, dtype=np.float32)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
-            diff_sum += (nb != g).astype(np.float32)
+    for nb in _moore_stencil_views(g):
+        diff_sum += (nb != g).astype(np.float32)
     return float(np.clip(diff_sum.mean() / 8.0, 0.0, 1.0))
 
 
@@ -183,12 +191,8 @@ def topology_interface_strength_map(life: np.ndarray) -> np.ndarray:
         return np.zeros((0, 0), dtype=np.float64)
     g = life.astype(np.float32)
     diff_sum = np.zeros_like(g, dtype=np.float32)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if dx == 0 and dy == 0:
-                continue
-            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
-            diff_sum += (nb != g).astype(np.float32)
+    for nb in _moore_stencil_views(g):
+        diff_sum += (nb != g).astype(np.float32)
     return np.clip(diff_sum / 8.0, 0.0, 1.0).astype(np.float64)
 
 
@@ -229,3 +233,27 @@ def ecology_resource_adjacency(life: np.ndarray, food: np.ndarray) -> float:
         return 0.0
     fsum = neighbor_count(food.astype(np.int16)).astype(np.float64)
     return float(np.clip((fsum[live] / 8.0).mean(), 0.0, 1.0))
+
+
+_MOORE_OFFSETS: tuple[tuple[int, int], ...] = (
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+)
+
+
+def _moore_stencil_views(grid: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Eight toroidal Moore neighbor views aligned with ``grid`` (center excluded).
+
+    Views share the padded buffer; do not modify ``grid`` between call and consumption.
+    """
+    padded = np.pad(grid, 1, mode="wrap")
+    n = int(grid.shape[0])
+    return tuple(
+        padded[1 + dx : 1 + dx + n, 1 + dy : 1 + dy + n] for dx, dy in _MOORE_OFFSETS
+    )

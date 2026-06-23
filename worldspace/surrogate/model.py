@@ -247,33 +247,60 @@ class SurrogateModel:
 
     def predict_components(self, features: np.ndarray) -> dict[str, float]:
         """Predict all Strategy A target components from extracted features."""
-        vector = np.asarray(features, dtype=float).reshape(-1)
+        return self.predict_components_batch(
+            np.asarray(features, dtype=float).reshape(1, -1)
+        )[0]
+
+    def predict_components_batch(
+        self, feature_matrix: np.ndarray
+    ) -> list[dict[str, float]]:
+        """Predict component dicts for each row of ``feature_matrix``."""
+        matrix = np.asarray(feature_matrix, dtype=float)
+        if matrix.ndim != 2:
+            msg = f"feature matrix must be 2-D, got shape={matrix.shape!r}"
+            raise ValueError(msg)
+        n_rows = int(matrix.shape[0])
+        if n_rows == 0:
+            return []
         if self._uses_mlp:
-            return self._predict_mlp_components(vector)
+            return self._predict_mlp_components_batch(matrix)
         if self._uses_lightgbm:
-            row = _lightgbm_feature_row(vector)
-            return {
-                key: float(
-                    np.mean(
-                        [
-                            float(estimator.predict(row)[0])
-                            for estimator in self._ensemble[key]
-                        ]
-                    )
-                )
-                for key in TARGET_KEYS
-            }
+            return self._predict_lightgbm_components_batch(matrix)
         if not self._component_means:
             self.set_component_defaults(0.5)
-        return dict(self._component_means)
+        defaults = dict(self._component_means)
+        return [dict(defaults) for _ in range(n_rows)]
 
     def predict_uncertainty(self, features: np.ndarray) -> float:
         """Return ensemble standard deviation of predicted fitness."""
-        vector = np.asarray(features, dtype=float).reshape(-1)
+        return float(
+            self.predict_uncertainty_batch(
+                np.asarray(features, dtype=float).reshape(1, -1)
+            )[0]
+        )
+
+    def predict_uncertainty_batch(self, feature_matrix: np.ndarray) -> list[float]:
+        """Return ensemble uncertainty for each row of ``feature_matrix``."""
+        matrix = np.asarray(feature_matrix, dtype=float)
+        if matrix.ndim != 2:
+            msg = f"feature matrix must be 2-D, got shape={matrix.shape!r}"
+            raise ValueError(msg)
+        n_rows = int(matrix.shape[0])
+        if n_rows == 0:
+            return []
         if self._uses_mlp:
-            return self._predict_mlp_uncertainty(vector)
+            return [
+                self._predict_mlp_uncertainty(matrix[row_index])
+                for row_index in range(n_rows)
+            ]
         if not self._uses_lightgbm:
-            return 0.0
+            return [0.0] * n_rows
+        return [
+            self._predict_lightgbm_uncertainty_row(matrix[row_index])
+            for row_index in range(n_rows)
+        ]
+
+    def _predict_lightgbm_uncertainty_row(self, vector: np.ndarray) -> float:
         fitness_values: list[float] = []
         row = _lightgbm_feature_row(vector)
         for member_index in range(self.ensemble_size):
@@ -294,6 +321,52 @@ class SurrogateModel:
         if len(fitness_values) < 2:
             return 0.0
         return float(np.std(np.asarray(fitness_values, dtype=float), ddof=0))
+
+    def _predict_lightgbm_components_batch(
+        self, feature_matrix: np.ndarray
+    ) -> list[dict[str, float]]:
+        x_train = _lightgbm_feature_matrix(feature_matrix)
+        n_rows = int(feature_matrix.shape[0])
+        means_by_key = {
+            key: np.mean(
+                np.stack(
+                    [
+                        np.asarray(estimator.predict(x_train), dtype=float)
+                        for estimator in self._ensemble[key]
+                    ],
+                    axis=0,
+                ),
+                axis=0,
+            )
+            for key in TARGET_KEYS
+        }
+        return [
+            {key: float(means_by_key[key][row_index]) for key in TARGET_KEYS}
+            for row_index in range(n_rows)
+        ]
+
+    def _predict_mlp_components_batch(
+        self, feature_matrix: np.ndarray
+    ) -> list[dict[str, float]]:
+        from worldspace.surrogate.mlp_model import predict_mlp_state_dict
+
+        member_preds = [
+            predict_mlp_state_dict(
+                state_dict,
+                feature_matrix,
+                hidden_dims=self._mlp_hidden_dims,
+                input_dim=self._trained_input_dim,
+            )
+            for state_dict in self._mlp_members
+        ]
+        mean_preds = np.mean(np.stack(member_preds, axis=0), axis=0)
+        return [
+            {
+                key: float(mean_preds[row_index, index])
+                for index, key in enumerate(TARGET_KEYS)
+            }
+            for row_index in range(mean_preds.shape[0])
+        ]
 
     def _fit_mlp_ensemble(
         self,

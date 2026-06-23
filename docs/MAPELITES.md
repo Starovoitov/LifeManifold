@@ -329,8 +329,8 @@ Files in `worldspace/specs/`:
 | --- | --- |
 | `map_elites_scheduler.yaml` | Production: `iterations: 10000`, `batch_size: 50`, LLM on |
 | `map_elites_scheduler_mini.yaml` | CI: 20×4 evals, `llm.enabled: false` |
-| `map_elites_scheduler_nightly.yaml` | Nightly phase 1, surrogate off |
-| `map_elites_scheduler_nightly_surrogate.yaml` | Nightly phase 3, surrogate on |
+| `map_elites_scheduler_nightly.yaml` | Nightly phase 1, surrogate off; `parallel_eval: true` |
+| `map_elites_scheduler_nightly_surrogate.yaml` | Nightly phase 3, surrogate on; `parallel_eval: true` |
 
 Example structure (schema **1.2**):
 
@@ -362,7 +362,33 @@ surrogate:
   buffer_path: artifacts/surrogate/buffer.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
+
+# Optional simulator fast paths (default: all off — standard numpy simulator).
+# performance:
+#   numba_simulator: false
+#   numba_cache: true
+#   parallel_eval: false
+#   parallel_workers: 0        # 0 = all CPUs (auto); e.g. 4 to cap workers
+#   verify_against_reference: false
 ```
+
+**Performance flags** (optional `performance` block; not the dashboard `config.yaml` section):
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `numba_simulator` | `false` | Fused numba step in `run_world` (off = numpy) |
+| `numba_cache` | `true` | `@njit(cache=True)` when numba is enabled |
+| `parallel_eval` | `false` | Parallel `evaluate_candidate` batch in `run_iteration` |
+| `parallel_workers` | `0` | Worker count when `parallel_eval` is on; `0` = `os.cpu_count()` (auto), always capped by `batch_size` |
+| `verify_against_reference` | `false` | Dual-run numpy vs numba and assert metrics equal |
+
+Environment overrides (win over YAML): `LIFEMANIFOLD_NUMBA_SIM`, `LIFEMANIFOLD_PARALLEL_EVAL`, `LIFEMANIFOLD_VERIFY_SIM` (`0`/`1`). Per-step `ca_step_trace` in the legacy pipeline always uses numpy regardless of `numba_simulator`.
+
+Numba is an optional dependency: `uv sync --group perf`. First run with `numba_simulator: true` may spend ~1–2 s on JIT compile when `numba_cache: true` (cached on disk thereafter).
+
+`parallel_eval: true` uses a `forkserver` process pool reused across iterations via ``parallel_eval_context`` in ``run_scheduler``. Pass the same pool to ``evaluate_batch_parallel``; do not create a pool per batch. First parallel batch may pay one-time worker import cost (numpy/torch); simulations themselves are deterministic and match sequential runs when acquisition is off.
+
+`numba_simulator` and `parallel_eval` cannot both be `true`: numba JIT in the main process before `forkserver` can deadlock LLVM threads. Use one or the other. `verify_against_reference` tolerates float ULP drift (`atol=1e-12`) between numpy and numba metrics.
 
 **Emitter overrides by phase:**
 
