@@ -18,6 +18,17 @@ def neighbor_count(grid: np.ndarray) -> np.ndarray:
     return total
 
 
+def rule_count_masks(
+    birth: list[int], survival: list[int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build ``bool[9]`` lookup tables for Moore neighbor counts (0–8)."""
+    birth_mask = np.zeros(9, dtype=bool)
+    survival_mask = np.zeros(9, dtype=bool)
+    birth_mask[birth] = True
+    survival_mask[survival] = True
+    return birth_mask, survival_mask
+
+
 def kmeans_lloyd_on_memmap(
     mm: np.memmap,
     labels: np.memmap,
@@ -56,11 +67,13 @@ def oscillation(series: np.ndarray, max_lag: int = 10) -> float:
         return 0.0
     centered = series - series.mean()
     denom = np.dot(centered, centered) + 1e-9
-    scores = []
-    for lag in range(1, min(max_lag + 1, len(series))):
-        num = np.dot(centered[:-lag], centered[lag:])
-        scores.append(abs(num / denom))
-    return float(max(scores) if scores else 0.0)
+    n = len(centered)
+    max_lag_eff = min(max_lag, n - 1)
+    if max_lag_eff < 1:
+        return 0.0
+    ac = np.correlate(centered, centered, mode="full")
+    scores = np.abs(ac[n : n + max_lag_eff] / denom)
+    return float(np.max(scores))
 
 
 def pattern_diversity_from_frame(
@@ -71,15 +84,16 @@ def pattern_diversity_from_frame(
         return 0.0
     rng = np.random.default_rng(0)
     n = int(frame.shape[0])
-    signatures: set[tuple[int, ...]] = set()
-    for _ in range(sample_size):
-        x = int(rng.integers(0, n))
-        y = int(rng.integers(0, n))
-        patch = frame.take([(x - 1) % n, x % n, (x + 1) % n], axis=0).take(
-            [(y - 1) % n, y % n, (y + 1) % n], axis=1
-        )
-        signatures.add(tuple(int(v) for v in patch.reshape(-1)))
-    return float(len(signatures) / sample_size)
+    coords = rng.integers(0, n, size=(sample_size, 2), dtype=np.intp)
+    xs = coords[:, 0]
+    ys = coords[:, 1]
+    rows = np.stack([(xs - 1) % n, xs % n, (xs + 1) % n], axis=1)
+    cols = np.stack([(ys - 1) % n, ys % n, (ys + 1) % n], axis=1)
+    patches = frame[rows[:, :, None], cols[:, None, :]]
+    bits = patches.reshape(sample_size, 9).astype(np.uint16)
+    weights = (1 << np.arange(9, dtype=np.uint16))
+    packed = (bits * weights).sum(axis=1)
+    return float(len(np.unique(packed)) / sample_size)
 
 
 def pattern_diversity(history: list[np.ndarray], sample_size: int = 128) -> float:
