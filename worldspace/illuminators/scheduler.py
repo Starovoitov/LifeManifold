@@ -25,6 +25,7 @@ from worldspace.simulator_perf import (
     DEFAULT_SIMULATOR_PERFORMANCE,
     SimulatorPerformanceOptions,
     resolve_simulator_performance,
+    validate_simulator_performance,
 )
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition_config import (
@@ -227,6 +228,7 @@ def load_scheduler(
     performance = resolve_simulator_performance(
         doc.performance.model_dump() if doc.performance is not None else None
     )
+    validate_simulator_performance(performance)
     config = SchedulerConfig(
         schema_version=doc.schema_version,
         iterations=iterations,

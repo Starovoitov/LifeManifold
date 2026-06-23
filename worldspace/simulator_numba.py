@@ -289,11 +289,7 @@ def _run_ca_loop_numba_impl(
 
         life = next_life
 
-        density = 0.0
-        for i in range(n):
-            for j in range(n):
-                density += life[i, j]
-        density /= n * n
+        density = life.sum() / (n * n)
 
         density_n += 1
         delta = density - density_mean

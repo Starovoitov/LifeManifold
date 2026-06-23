@@ -388,6 +388,8 @@ Numba is an optional dependency: `uv sync --group perf`. First run with `numba_s
 
 `parallel_eval: true` uses a `forkserver` process pool reused across iterations. First parallel batch may pay one-time worker import cost (numpy/torch); simulations themselves are deterministic and match sequential runs when acquisition is off.
 
+`numba_simulator` and `parallel_eval` cannot both be `true`: numba JIT in the main process before `forkserver` can deadlock LLVM threads. Use one or the other. `verify_against_reference` tolerates float ULP drift (`atol=1e-12`) between numpy and numba metrics.
+
 **Emitter overrides by phase:**
 
 ```mermaid
