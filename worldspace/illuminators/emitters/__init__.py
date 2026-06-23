@@ -3,19 +3,23 @@
 from .base import CandidateEmitter, EmitterOutput, MapElitesEmitter, strip_seed
 from .genetic_emitter import DEFAULT_MUTATION_SCALE, GeneticEmitter
 from .genetics import GENOME_SIZE, decode_genome, encode_world
+from .archive_neighbors import moore_neighbor_elites
 from .llm_emitter import (
     LlmEmitter,
     build_user_prompt,
     format_current_elite_json,
     format_few_shot_block,
-    moore_neighbor_elites,
 )
 from .llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
+    DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     DEFAULT_USER_PROMPT_PATH,
     load_system_prompt_template,
     load_user_prompt_template,
+    render_cvt_system_prompt,
     render_system_prompt,
+    render_system_prompt_for_archive_type,
+    system_prompt_path_for_archive_type,
     system_prompt_version,
 )
 from .random_emitter import RandomEmitter
@@ -26,6 +30,7 @@ __all__ = [
     "DEFAULT_MUTATION_SCALE",
     "EmitterOutput",
     "DEFAULT_SYSTEM_PROMPT_PATH",
+    "DEFAULT_SYSTEM_PROMPT_PATH_CVT",
     "DEFAULT_USER_PROMPT_PATH",
     "GENOME_SIZE",
     "GeneticEmitter",
@@ -41,7 +46,10 @@ __all__ = [
     "load_system_prompt_template",
     "load_user_prompt_template",
     "moore_neighbor_elites",
+    "render_cvt_system_prompt",
     "render_system_prompt",
+    "render_system_prompt_for_archive_type",
+    "system_prompt_path_for_archive_type",
     "strip_seed",
     "system_prompt_version",
 ]

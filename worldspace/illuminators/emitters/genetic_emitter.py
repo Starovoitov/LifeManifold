@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from worldspace.illuminators.archive import (
-    ArchiveElite,
-    GridArchive,
-    new_elite_metadata,
+from worldspace.illuminators.archive import ArchiveElite, new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.emitters.archive_neighbors import (
+    min_fitness_elite,
+    occupied_neighbors,
 )
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.genetics import (
@@ -17,8 +18,7 @@ from worldspace.illuminators.emitters.genetics import (
     uniform_crossover,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
-from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import TargetCell
 
 DEFAULT_MUTATION_SCALE = 0.02
 
@@ -40,8 +40,8 @@ class GeneticEmitter:
     def emit(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
@@ -54,7 +54,7 @@ class GeneticEmitter:
                 grid_size=grid_size,
                 steps=steps,
             )
-        parent1 = archive.get(*target.bin)
+        parent1 = archive.get_cell(target.cell_id)
         if parent1 is None or parent1.world_spec is None:
             return self._random_fallback(
                 target=target,
@@ -63,7 +63,7 @@ class GeneticEmitter:
                 grid_size=grid_size,
                 steps=steps,
             )
-        parent2 = _select_parent_two(target.bin, archive, rng)
+        parent2 = _select_parent_two(target.cell_id, archive, rng)
         if parent2 is None or parent2.world_spec is None:
             return self._random_fallback(
                 target=target,
@@ -91,8 +91,8 @@ class GeneticEmitter:
     def _random_fallback(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
@@ -113,46 +113,12 @@ class GeneticEmitter:
 
 
 def _select_parent_two(
-    target_bin: tuple[int, int],
-    archive: GridArchive,
+    cell_id: int,
+    archive: ArchiveProtocol,
     rng: np.random.Generator,
 ) -> ArchiveElite | None:
-    neighbors = _occupied_cardinal_neighbors(target_bin, archive)
+    neighbors = occupied_neighbors(archive, cell_id)
     if neighbors:
         index = int(rng.integers(0, len(neighbors)))
         return neighbors[index]
-    return _min_fitness_elite(archive)
-
-
-def _occupied_cardinal_neighbors(
-    target_bin: tuple[int, int],
-    archive: GridArchive,
-) -> list[ArchiveElite]:
-    i, j = target_bin
-    resolution = archive.resolution
-    occupied: list[ArchiveElite] = []
-    for ni, nj in cardinal_neighbors_bounded(i, j, resolution):
-        elite = archive.get(ni, nj)
-        if elite is not None:
-            occupied.append(elite)
-    return occupied
-
-
-def _min_fitness_elite(archive: GridArchive) -> ArchiveElite | None:
-    best: ArchiveElite | None = None
-    best_bin: tuple[int, int] | None = None
-    best_fitness = float("inf")
-    resolution = archive.resolution
-    for i in range(resolution):
-        for j in range(resolution):
-            elite = archive.get(i, j)
-            if elite is None:
-                continue
-            if elite.fitness < best_fitness or (
-                elite.fitness == best_fitness
-                and (best_bin is None or (i, j) < best_bin)
-            ):
-                best = elite
-                best_bin = (i, j)
-                best_fitness = elite.fitness
-    return best
+    return min_fitness_elite(archive)

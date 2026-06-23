@@ -5,26 +5,24 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal, cast
 
 import numpy as np
 
 from worldspace.generators import RandomWalkWorldGenerator
 from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
-from worldspace.illuminators.archive import (
-    ArchiveElite,
-    GridArchive,
-    new_elite_metadata,
-)
+from worldspace.illuminators.archive import ArchiveElite, new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
-    render_system_prompt,
+    render_system_prompt_for_archive_type,
     system_prompt_version,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
-from worldspace.illuminators.grid_neighbors import moore_neighbors_bounded
 from worldspace.illuminators.scheduler import (
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
     resolve_surrogate_stub,
 )
 from worldspace.surrogate.types import SurrogateProtocol
@@ -48,7 +46,6 @@ __all__ = [
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
-    "moore_neighbor_elites",
 ]
 
 
@@ -58,7 +55,7 @@ class LlmEmitter:
     def __init__(
         self,
         *,
-        grid_resolution: int,
+        grid_resolution: int | None = None,
         scheduler: SchedulerConfig | None = None,
         surrogate: SurrogateProtocol | None = None,
         surrogate_mean: float = 0.5,
@@ -68,7 +65,15 @@ class LlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         random_emitter: RandomEmitter | None = None,
     ) -> None:
-        self._grid_resolution = int(grid_resolution)
+        if scheduler is not None:
+            self._grid_resolution = scheduler.grid_resolution
+            self._n_centroids = scheduler.n_centroids
+        elif grid_resolution is not None:
+            self._grid_resolution = int(grid_resolution)
+            self._n_centroids = self._grid_resolution * self._grid_resolution
+        else:
+            self._grid_resolution = 50
+            self._n_centroids = 50 * 50
         self._scheduler = scheduler
         self._surrogate = surrogate
         self._surrogate_mean = float(surrogate_mean)
@@ -77,13 +82,12 @@ class LlmEmitter:
         self._llm_config = load_llm_config(llm_spec_path or _DEFAULT_LLM_SPEC)
         self._random = random_emitter or RandomEmitter()
         self._call_llm_text = call_llm_text
-        self._prompt_version = system_prompt_version()
 
     def emit(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
@@ -99,7 +103,19 @@ class LlmEmitter:
         surrogate_mean, surrogate_uncertainty = self._resolve_surrogate_values(
             prepared_parent
         )
-        system_prompt = render_system_prompt(self._grid_resolution)
+        archive_type = cast(
+            Literal["grid", "cvt"],
+            archive.archive_type,
+        )
+        if archive_type not in {"grid", "cvt"}:
+            msg = f"unsupported archive_type for LLM emitter: {archive.archive_type!r}"
+            raise ValueError(msg)
+        system_prompt = render_system_prompt_for_archive_type(
+            archive_type,
+            grid_resolution=self._grid_resolution,
+            n_centroids=archive.n_cells,
+        )
+        prompt_version = system_prompt_version(archive_type=archive_type)
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
@@ -126,7 +142,7 @@ class LlmEmitter:
                         generated_by="llm",
                         emitter_type=_EMITTER_TYPE_LLM,
                         parent_id=parent_id,
-                        prompt_version=self._prompt_version,
+                        prompt_version=prompt_version,
                     ),
                 )
         fallback_spec = _random_walk_step(
@@ -142,20 +158,20 @@ class LlmEmitter:
                 generated_by="llm",
                 emitter_type=_EMITTER_TYPE_LLM_FALLBACK,
                 parent_id=parent_id,
-                prompt_version=self._prompt_version,
+                prompt_version=prompt_version,
             ),
         )
 
     def _resolve_parent_one(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
     ) -> tuple[WorldSpec, str | None]:
-        elite = archive.get(*target.bin)
+        elite = archive.get_cell(target.cell_id)
         if elite is not None and elite.world_spec is not None:
             parent_id = elite.metadata.id if elite.metadata is not None else None
             return (
@@ -197,8 +213,8 @@ class LlmEmitter:
 
 def build_user_prompt(
     *,
-    target: TargetBin,
-    archive: GridArchive,
+    target: TargetCell,
+    archive: ArchiveProtocol,
     surrogate_mean: float,
     surrogate_uncertainty: float,
     rng: np.random.Generator,
@@ -207,10 +223,13 @@ def build_user_prompt(
     """Build the LLM user prompt for one emitter slot."""
     from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
 
-    neighbors = moore_neighbor_elites(
-        archive, target.bin, rng=rng, max_count=max_few_shot
+    neighbors = neighbor_elites(
+        archive,
+        target.cell_id,
+        rng=rng,
+        max_count=max_few_shot,
     )
-    current = archive.get(*target.bin)
+    current = archive.get_cell(target.cell_id)
     return USER_PROMPT_TEMPLATE.format(
         target_stability=target.target_stability,
         target_diversity=target.target_diversity,
@@ -220,29 +239,6 @@ def build_user_prompt(
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),
     )
-
-
-def moore_neighbor_elites(
-    archive: GridArchive,
-    bin_coord: tuple[int, int],
-    *,
-    rng: np.random.Generator,
-    max_count: int = _DEFAULT_FEW_SHOT,
-) -> list[ArchiveElite]:
-    """Return up to ``max_count`` elites from occupied Moore neighbors of ``bin_coord``."""
-    if max_count < 1:
-        return []
-    i, j = bin_coord
-    resolution = archive.resolution
-    neighbors: list[ArchiveElite] = []
-    for ni, nj in moore_neighbors_bounded(i, j, resolution):
-        elite = archive.get(ni, nj)
-        if elite is not None:
-            neighbors.append(elite)
-    if len(neighbors) <= max_count:
-        return neighbors
-    indices = rng.choice(len(neighbors), size=max_count, replace=False)
-    return [neighbors[int(idx)] for idx in sorted(indices)]
 
 
 def format_current_elite_json(elite: ArchiveElite | None) -> str:

@@ -300,11 +300,33 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         self.assertEqual(len(page), 8)
         self.assertEqual(page_size, 500)
 
-    def test_resolve_surrogate_buffer_path(self) -> None:
-        from dashboard.utils.config import load_config, resolve_surrogate_buffer_path
+    def test_get_buffer_bundle_raises_when_buffer_unresolved(self) -> None:
+        from unittest.mock import patch
 
-        path = resolve_surrogate_buffer_path(load_config())
-        self.assertTrue(path.name.endswith(".jsonl"))
+        from dashboard.components.training_buffer_loader import get_buffer_bundle
+
+        with patch(
+            "dashboard.components.training_buffer_loader.resolve_surrogate_buffer_path",
+            return_value=None,
+        ):
+            with self.assertRaises(FileNotFoundError) as ctx:
+                get_buffer_bundle()
+        self.assertIn("no buffer selected or discovered", str(ctx.exception))
+
+    def test_resolve_surrogate_buffer_path_near_archive(self) -> None:
+        import tempfile
+
+        from dashboard.utils.config import list_surrogate_buffer_candidates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "run" / "map_elites_archive.jsonl"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("{}\n", encoding="utf-8")
+            buffer = archive.parent / "buffer.jsonl"
+            buffer.write_text("{}\n", encoding="utf-8")
+            found = list_surrogate_buffer_candidates(archive)
+            self.assertEqual(found, [buffer.resolve()])
 
 
 if __name__ == "__main__":

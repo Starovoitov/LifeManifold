@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,9 +13,69 @@ import pandas as pd
 __all__ = [
     "build_prediction_frame",
     "calibration_table",
+    "checkpoint_summary_path",
+    "load_checkpoint_training_summary",
     "regression_metrics",
     "sample_collapsed_rows",
+    "training_summary_holdout_metrics",
 ]
+
+
+def checkpoint_summary_path(checkpoint_path: Path) -> Path:
+    """Return the training summary JSON path beside a surrogate checkpoint."""
+    return checkpoint_path.with_name(f"{checkpoint_path.stem}.summary.json")
+
+
+def load_checkpoint_training_summary(checkpoint_path: Path) -> dict[str, Any] | None:
+    """Load ``*.summary.json`` written by ``train_surrogate.py`` when present."""
+    summary_path = checkpoint_summary_path(checkpoint_path)
+    if not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def training_summary_holdout_metrics(
+    summary: dict[str, Any],
+) -> dict[str, float | int | bool | None]:
+    """Extract display fields from a training summary payload."""
+    holdout = summary.get("holdout_metrics")
+    metrics: dict[str, float | int | bool | None] = {
+        "sample_count": _coerce_int(summary.get("sample_count")),
+        "train_count": _coerce_int(summary.get("train_count")),
+        "holdout_count": _coerce_int(summary.get("holdout_count")),
+        "quality_passed": summary.get("quality_passed"),
+        "hints_ok": summary.get("hints_ok"),
+        "r2_fitness": None,
+        "mae_fitness": None,
+        "mae_stability": None,
+    }
+    if isinstance(holdout, dict):
+        metrics["r2_fitness"] = _coerce_float(holdout.get("r2_fitness"))
+        metrics["mae_fitness"] = _coerce_float(holdout.get("mae_fitness"))
+        metrics["mae_stability"] = _coerce_float(holdout.get("mae_stability"))
+    return metrics
+
+
+def _coerce_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def sample_collapsed_rows(

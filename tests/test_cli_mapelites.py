@@ -12,8 +12,12 @@ from unittest.mock import patch
 from worldspace.cli import main as cli_main
 from worldspace.cli_mapelites import add_mapelites_arguments, run_mapelites_cli
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS
-from worldspace.illuminators.illuminator import MapElitesRunResult
-from worldspace.illuminators.scheduler import DEFAULT_MINI_SCHEDULER_PATH, RunCounters
+from worldspace.illuminators.illuminator import MapElitesIlluminator, MapElitesRunResult
+from worldspace.illuminators.scheduler import (
+    DEFAULT_MINI_CVT_SCHEDULER_PATH,
+    DEFAULT_MINI_SCHEDULER_PATH,
+    RunCounters,
+)
 
 
 class TestIlluminatorsModuleCli(unittest.TestCase):
@@ -27,6 +31,7 @@ class TestIlluminatorsModuleCli(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("--scheduler", proc.stdout)
         self.assertIn("--output-dir", proc.stdout)
+        self.assertIn("--archive-type", proc.stdout)
 
 
 class TestCliMapelitesHelp(unittest.TestCase):
@@ -48,6 +53,7 @@ class TestCliMapelitesHelp(unittest.TestCase):
         self.assertIn("--grid-resolution", proc.stdout)
         self.assertIn("--load-archive", proc.stdout)
         self.assertIn("--scheduler", proc.stdout)
+        self.assertIn("--archive-type", proc.stdout)
 
 
 class TestCliMapelitesValidation(unittest.TestCase):
@@ -89,6 +95,51 @@ class TestCliMapelitesValidation(unittest.TestCase):
         )
         run_mapelites_cli(args)
         mock_cls.return_value.run.assert_called_once()
+        call_kwargs = mock_cls.return_value.run.call_args.kwargs
+        self.assertIsNone(call_kwargs.get("archive_type"))
+
+    @patch("worldspace.illuminators.cli.MapElitesIlluminator")
+    def test_passes_archive_type_override(self, mock_cls: mock.MagicMock) -> None:
+        import argparse
+
+        mock_cls.return_value.run.return_value = MapElitesRunResult(
+            iterations=1,
+            evaluations=4,
+            filled_cells=2,
+            archive_jsonl_path=Path("out/map_elites_archive.jsonl"),
+            counters=RunCounters(candidates_evaluated=4),
+        )
+        parser = argparse.ArgumentParser()
+        add_mapelites_arguments(parser)
+        parser.add_argument("--steps", type=int, default=ILLUMINATOR_MIN_STEPS)
+        parser.add_argument("--grid", type=int, default=50)
+        args = parser.parse_args(
+            [
+                "--illuminator",
+                "mapelites",
+                "--scheduler",
+                str(DEFAULT_MINI_CVT_SCHEDULER_PATH),
+                "--archive-type",
+                "grid",
+                "--iterations",
+                "1",
+            ]
+        )
+        run_mapelites_cli(args)
+        call_kwargs = mock_cls.return_value.run.call_args.kwargs
+        self.assertEqual(call_kwargs.get("archive_type"), "grid")
+
+    def test_archive_type_override_rejects_schema_1_2(self) -> None:
+        with self.assertRaises(ValueError):
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
+                output_dir="output",
+                seed=0,
+                grid_size=8,
+                steps=ILLUMINATOR_MIN_STEPS,
+                iterations=1,
+                archive_type="cvt",
+            )
 
 
 class TestLegacyCliUnchanged(unittest.TestCase):

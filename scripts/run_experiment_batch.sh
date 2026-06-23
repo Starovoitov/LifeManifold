@@ -11,7 +11,7 @@ SEED_START="${2:-0}"
 SEED_END="${3:-$SEED_START}"
 
 EXP_ROOT="$ROOT/artifacts/experiments"
-BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
+BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/cvt/baseline/map_elites_archive.jsonl"
 TRAIN_SCRIPT="$ROOT/scripts/train_surrogate.py"
 RUN_SCRIPT="$ROOT/scripts/run_github_llm_map_elites.py"
 AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
@@ -20,7 +20,7 @@ SCHEDULER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_
 SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
 SCHEDULER_STUB_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_stub.yaml"
-SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm.yaml"
+SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_cvt.yaml"
 
 case "$TIER" in
   pilot)

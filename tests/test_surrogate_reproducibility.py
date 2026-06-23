@@ -12,13 +12,14 @@ import numpy as np
 import yaml
 
 from worldspace.illuminators.archive import GridArchive, load_and_collapse_jsonl
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput, MapElitesEmitter
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.illuminator import MapElitesIlluminator
 from worldspace.illuminators.loop import run_scheduler
 from worldspace.illuminators.scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
-    TargetBin,
+    TargetCell,
     load_scheduler,
     surrogate_config_from_scheduler,
 )
@@ -96,7 +97,7 @@ def _semantic_archive_snapshot(
     snapshot: dict[tuple[int, int], dict[str, Any]] = {}
     for i in range(resolution):
         for j in range(resolution):
-            elite = archive.get(i, j)
+            elite = archive.get_cell(archive.cell_id_from_bin((i, j)))
             if elite is None:
                 continue
             if elite.world_spec is None or elite.measures is None:
@@ -191,8 +192,8 @@ class _FailingLlmEmitter(LlmEmitter):
     def emit(
         self,
         *,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng,
         grid_size: int,
         steps: int,

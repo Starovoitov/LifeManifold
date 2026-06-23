@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
-from worldspace.illuminators.archive import GridArchive
+from worldspace.illuminators.archive_factory import ArchiveFactoryConfig, create_archive
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import TargetBin
 from worldspace.surrogate.acquisition import decide
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
@@ -74,6 +75,10 @@ def evaluate_acquisition_replay(
     *,
     calibrator: UncertaintyCalibrator | None = None,
     grid_resolution: int = 10,
+    n_cells: int | None = None,
+    archive_type: Literal["grid", "cvt"] = "grid",
+    cvt_seed: int = 0,
+    lloyd_iterations: int = 50,
     never_skip_empty_bin: bool | None = None,
 ) -> AcquisitionReplayMetrics:
     """Replay buffer rows through predict + policy (offline proxy metrics)."""
@@ -82,7 +87,16 @@ def evaluate_acquisition_replay(
         from dataclasses import replace
 
         effective_policy = replace(policy, never_skip_empty_bin=never_skip_empty_bin)
-    archive = GridArchive(grid_resolution)
+    effective_n_cells = (
+        grid_resolution * grid_resolution if n_cells is None else int(n_cells)
+    )
+    archive = _replay_archive(
+        archive_type=archive_type,
+        grid_resolution=grid_resolution,
+        n_cells=effective_n_cells,
+        cvt_seed=cvt_seed,
+        lloyd_iterations=lloyd_iterations,
+    )
     n_rows = int(feature_matrix.shape[0])
     policy_skips = 0
     false_skips = 0
@@ -102,10 +116,9 @@ def evaluate_acquisition_replay(
             )
         )
         pred_uncertainties.append(prediction.uncertainty)
-        i = row_index % grid_resolution
-        j = (row_index // grid_resolution) % grid_resolution
+        cell_id = row_index % effective_n_cells
         target = TargetBin(
-            bin=(i, j),
+            bin=archive.bin_from_cell_id(cell_id),
             target_stability=0.5,
             target_diversity=0.5,
         )
@@ -143,6 +156,10 @@ def estimate_false_skip_rate(
     *,
     calibrator: UncertaintyCalibrator | None = None,
     grid_resolution: int = 10,
+    n_cells: int | None = None,
+    archive_type: Literal["grid", "cvt"] = "grid",
+    cvt_seed: int = 0,
+    lloyd_iterations: int = 50,
 ) -> float:
     """Fraction of policy skips that look like false positives on buffer replay."""
     metrics = evaluate_acquisition_replay(
@@ -152,6 +169,10 @@ def estimate_false_skip_rate(
         policy,
         calibrator=calibrator,
         grid_resolution=grid_resolution,
+        n_cells=n_cells,
+        archive_type=archive_type,
+        cvt_seed=cvt_seed,
+        lloyd_iterations=lloyd_iterations,
         never_skip_empty_bin=False,
     )
     return metrics.false_skip_rate_estimate
@@ -165,6 +186,10 @@ def recommended_skip_rate_at_policy(
     *,
     calibrator: UncertaintyCalibrator | None = None,
     grid_resolution: int = 10,
+    n_cells: int | None = None,
+    archive_type: Literal["grid", "cvt"] = "grid",
+    cvt_seed: int = 0,
+    lloyd_iterations: int = 50,
 ) -> float:
     """Fraction of replay rows where the policy recommends skip."""
     metrics = evaluate_acquisition_replay(
@@ -174,6 +199,10 @@ def recommended_skip_rate_at_policy(
         policy,
         calibrator=calibrator,
         grid_resolution=grid_resolution,
+        n_cells=n_cells,
+        archive_type=archive_type,
+        cvt_seed=cvt_seed,
+        lloyd_iterations=lloyd_iterations,
         never_skip_empty_bin=False,
     )
     return metrics.recommended_skip_rate
@@ -231,6 +260,31 @@ def load_calibration_for_report(
     if not stripped:
         return None
     return load_uncertainty_calibration(stripped)
+
+
+def _replay_archive(
+    *,
+    archive_type: Literal["grid", "cvt"],
+    grid_resolution: int,
+    n_cells: int,
+    cvt_seed: int,
+    lloyd_iterations: int,
+) -> ArchiveProtocol:
+    if archive_type == "cvt":
+        return create_archive(
+            ArchiveFactoryConfig(
+                archive_type="cvt",
+                n_centroids=n_cells,
+                cvt_seed=cvt_seed,
+                lloyd_iterations=lloyd_iterations,
+            )
+        )
+    return create_archive(
+        ArchiveFactoryConfig(
+            archive_type="grid",
+            resolution=grid_resolution,
+        )
+    )
 
 
 def _predict_row(

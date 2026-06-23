@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from pathlib import Path
 
 _dashboard_dir = Path(__file__).resolve().parent.parent
@@ -30,24 +31,22 @@ from dashboard.components.surrogate_widget import (
     feature_importance_from_model,
     load_surrogate,
     predict_world_spec_dict,
+    render_surrogate_checkpoint_selector,
     render_surrogate_status_banner,
-    resolve_checkpoint_path,
     surrogate_model_from_handle,
 )
 from dashboard.components.visualizations import (
     plot_calibration_by_uncertainty,
     plot_real_vs_predicted,
 )
-from dashboard.utils.config import (
-    DASHBOARD_ARCHIVE_SESSION_KEY,
-    existing_archive_paths,
-    load_config,
-    repo_root,
-)
+from dashboard.components.artifact_selectors import render_archive_selector
+from dashboard.utils.config import load_config
 from dashboard.utils.surrogate_analysis import (
     build_prediction_frame,
+    load_checkpoint_training_summary,
     regression_metrics,
     sample_collapsed_rows,
+    training_summary_holdout_metrics,
 )
 
 
@@ -61,7 +60,8 @@ def _cached_prediction_frame(
     max_rows: int,
     checkpoint_key: str,
 ) -> pd.DataFrame:
-    del mtime, checkpoint_key
+    del mtime
+    cfg = load_config()
     bundle = get_archive_bundle(Path(archive_path_str))
     frame = bundle.collapsed
     mask = frame["fitness"] >= min_fitness
@@ -71,7 +71,14 @@ def _cached_prediction_frame(
         mask &= frame["emitter_type"] == emitter_type
     filtered = frame.loc[mask].reset_index(drop=True)
     sample = sample_collapsed_rows(filtered, max_rows=max_rows, seed=0)
-    return build_prediction_frame(sample, predict_world_spec_dict)
+    checkpoint_path = Path(checkpoint_key) if checkpoint_key else None
+    predict_fn = partial(
+        predict_world_spec_dict,
+        cfg=cfg,
+        archive_path=Path(archive_path_str),
+        checkpoint_path=checkpoint_path,
+    )
+    return build_prediction_frame(sample, predict_fn)
 
 
 st.set_page_config(page_title="Surrogate Analysis", layout="wide")
@@ -79,24 +86,20 @@ st.title("Surrogate Analysis")
 
 cfg = load_config()
 
-archives = existing_archive_paths(cfg)
-if not archives:
-    st.error("No archive JSONL found. Update dashboard config or run MAP-Elites.")
+selected_path = render_archive_selector(cfg)
+if selected_path is None:
+    st.error("No archive JSONL found under scan roots.")
     st.stop()
 
-
-def _archive_label(path: Path) -> str:
-    return str(path.relative_to(repo_root()))
-
-
-selected_path = st.sidebar.selectbox(
-    "Archive JSONL",
-    archives,
-    format_func=_archive_label,
-    key=DASHBOARD_ARCHIVE_SESSION_KEY,
+selected_checkpoint = render_surrogate_checkpoint_selector(
+    cfg,
+    archive_path=selected_path,
 )
-
-status = render_surrogate_status_banner(cfg, archive_path=selected_path)
+status = render_surrogate_status_banner(
+    cfg,
+    archive_path=selected_path,
+    checkpoint_path=selected_checkpoint,
+)
 
 bundle = get_archive_bundle(selected_path)
 show_large_archive_warning(bundle, cfg)
@@ -112,6 +115,57 @@ st.metric("Elites after filters", len(filtered))
 if status.is_stub:
     st.stop()
 
+training_summary = (
+    load_checkpoint_training_summary(selected_checkpoint)
+    if selected_checkpoint is not None
+    else None
+)
+if training_summary is not None:
+    holdout_meta = training_summary_holdout_metrics(training_summary)
+    st.subheader("Training hold-out (checkpoint summary)")
+    st.caption(
+        "Metrics from the surrogate training run (hold-out split on the training "
+        "buffer). Distinct from archive eval below."
+    )
+    train_col_a, train_col_b, train_col_c, train_col_d = st.columns(4)
+    train_col_a.metric(
+        "Hold-out R² (fitness)",
+        (
+            f"{holdout_meta['r2_fitness']:.4f}"
+            if isinstance(holdout_meta["r2_fitness"], float)
+            else "—"
+        ),
+    )
+    train_col_b.metric(
+        "Hold-out MAE (fitness)",
+        (
+            f"{holdout_meta['mae_fitness']:.4f}"
+            if isinstance(holdout_meta["mae_fitness"], float)
+            else "—"
+        ),
+    )
+    train_col_c.metric(
+        "Training samples",
+        (
+            holdout_meta["sample_count"]
+            if holdout_meta["sample_count"] is not None
+            else "—"
+        ),
+    )
+    train_col_d.metric(
+        "Quality gate",
+        (
+            "pass"
+            if holdout_meta["quality_passed"] is True
+            else ("fail" if holdout_meta["quality_passed"] is False else "—")
+        ),
+    )
+else:
+    st.info(
+        "No training summary JSON found beside the selected checkpoint "
+        "(expected `*.summary.json`)."
+    )
+
 prediction_frame = _cached_prediction_frame(
     str(selected_path.resolve()),
     float(selected_path.stat().st_mtime),
@@ -119,7 +173,7 @@ prediction_frame = _cached_prediction_frame(
     filter_state.seed,
     filter_state.emitter_type,
     max_rows,
-    str(resolve_checkpoint_path(cfg, archive_path=selected_path) or ""),
+    str(selected_checkpoint.resolve()) if selected_checkpoint is not None else "",
 )
 
 if prediction_frame.empty:
@@ -131,6 +185,10 @@ y_pred = prediction_frame["pred_fitness"].to_numpy(dtype=np.float64)
 uncertainty = prediction_frame["pred_uncertainty"].to_numpy(dtype=np.float64)
 
 mae, r2 = regression_metrics(y_true, y_pred)
+st.subheader("Archive eval (simulated vs predicted)")
+st.caption(
+    "Compares simulated archive fitness to surrogate predictions on filtered elites."
+)
 col_mae, col_r2, col_n = st.columns(3)
 col_mae.metric("MAE", f"{mae:.4f}")
 col_r2.metric("R²", f"{r2:.4f}" if np.isfinite(r2) else "—")
@@ -161,7 +219,13 @@ else:
     )
     st.plotly_chart(calibration_fig, width="stretch")
 
-model = surrogate_model_from_handle(load_surrogate(cfg, archive_path=selected_path))
+model = surrogate_model_from_handle(
+    load_surrogate(
+        cfg,
+        archive_path=selected_path,
+        checkpoint_path=selected_checkpoint,
+    )
+)
 importances = feature_importance_from_model(model) if model is not None else None
 if importances:
     st.subheader("Feature importance (LightGBM)")

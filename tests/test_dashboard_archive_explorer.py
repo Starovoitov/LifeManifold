@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -50,8 +51,8 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
         frame = self._smoke_collapsed()
         bins = list_bins_from_frame(frame)
         self.assertEqual(len(bins), len(frame))
-        first = frame.iloc[0]
-        self.assertEqual(bins[0], (int(first.at["bin_x"]), int(first.at["bin_y"])))
+        best = frame.loc[frame["fitness"].idxmax()]
+        self.assertEqual(bins[0], (int(best.at["bin_x"]), int(best.at["bin_y"])))
 
     def test_format_elite_bin_label_contains_fitness(self) -> None:
         from dashboard.components.archive_explorer import format_elite_bin_label
@@ -64,6 +65,106 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
         )
         self.assertIn("fitness=", label)
         self.assertIn("bin (", label)
+
+    def test_list_cells_from_cvt_frame(self) -> None:
+        from dashboard.components.archive_explorer import (
+            format_elite_cell_label,
+            list_cells_from_frame,
+        )
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.utils.config import load_config
+        from tests.test_dashboard_archive_loader import _cvt_fixture_dir
+
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+            cells = list_cells_from_frame(bundle.collapsed)
+            self.assertEqual(cells, [5, 3, 0])
+            label = format_elite_cell_label(bundle.collapsed, cells[0])
+            self.assertIn("cell 5", label)
+            self.assertIn("(s=", label)
+            self.assertIn("fitness=", label)
+
+    def test_format_elite_cell_label_epic_format(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_explorer import format_elite_cell_label
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "cell_id": 42,
+                    "centroid_s": 0.55,
+                    "centroid_d": 0.68,
+                    "fitness": 0.71,
+                }
+            ]
+        )
+        label = format_elite_cell_label(frame, 42)
+        self.assertIn("cell 42 (s=0.55, d=0.68)", label)
+
+    def test_sync_selected_niche_selectbox_delegates_by_type(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_explorer import (
+            list_niches_from_frame,
+            sync_selected_niche_selectbox,
+        )
+
+        frame = pd.DataFrame(
+            {
+                "cell_id": [1, 2],
+                "bin_x": [1, 2],
+                "bin_y": [0, 0],
+                "fitness": [0.4, 0.9],
+            }
+        )
+        self.assertEqual(list_niches_from_frame(frame, "cvt"), [2, 1])
+        with patch(
+            "dashboard.components.archive_explorer.sync_selected_cell_selectbox"
+        ) as mock_cell:
+            mock_cell.return_value = None
+            sync_selected_niche_selectbox(frame, "cvt")
+            mock_cell.assert_called_once()
+
+    def test_diagnostic_chart_key_uses_bin_for_grid_schema_1_3(self) -> None:
+        from dashboard.components.archive_explorer import (
+            _diagnostic_niche_label,
+            diagnostic_chart_key,
+        )
+
+        row = {
+            "archive_type": "grid",
+            "cell_id": 23,
+            "bin_x": 2,
+            "bin_y": 3,
+            "fitness": 0.5,
+        }
+        self.assertEqual(_diagnostic_niche_label(row), "bin (2, 3)")
+        self.assertEqual(
+            diagnostic_chart_key(row, "abcdef0123456789"),
+            "explorer_diagnostic_bin_2_3_abcdef0123456789",
+        )
+
+    def test_diagnostic_chart_key_uses_cell_for_cvt(self) -> None:
+        from dashboard.components.archive_explorer import (
+            _diagnostic_niche_label,
+            diagnostic_chart_key,
+        )
+
+        row = {
+            "archive_type": "cvt",
+            "cell_id": 7,
+            "bin_x": 7,
+            "bin_y": 0,
+            "fitness": 0.5,
+        }
+        self.assertEqual(_diagnostic_niche_label(row), "cell 7")
+        self.assertEqual(
+            diagnostic_chart_key(row, "deadbeef01234567"),
+            "explorer_diagnostic_cell_7_deadbeef01234567",
+        )
 
 
 if __name__ == "__main__":

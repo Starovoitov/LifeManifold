@@ -56,7 +56,9 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             elapsed_seconds=1.5,
         )
         self.assertEqual(report.filled_cells, report.jsonl_collapsed_cells)
-        self.assertLessEqual(report.jsonl_collapsed_cells, config.grid_resolution**2)
+        self.assertLessEqual(report.jsonl_collapsed_cells, config.n_cells)
+        self.assertEqual(report.archive_type, "grid")
+        self.assertEqual(report.n_cells, config.grid_resolution**2)
         self.assertFalse(report.llm_enabled)
         self.assertFalse(report.surrogate_enabled)
         self.assertGreater(report.jsonl_raw_lines, 0)
@@ -67,6 +69,8 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             payload = json.loads(summary_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["filled_cells"], report.filled_cells)
             self.assertIn("coverage", payload)
+            self.assertEqual(payload["archive_type"], "grid")
+            self.assertEqual(payload["n_cells"], report.n_cells)
             self.assertEqual(
                 payload["jsonl_collapsed_cells"], report.jsonl_collapsed_cells
             )
@@ -142,7 +146,7 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             )
             merged = _collapsed_archive_for_validation(
                 run_path,
-                resolution=config.grid_resolution,
+                config=config,
                 resume_archive_path=base_path,
             )
             self.assertEqual(merged.filled_count(), 3)

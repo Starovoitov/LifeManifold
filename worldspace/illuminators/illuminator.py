@@ -5,13 +5,17 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 
-from worldspace.illuminators.archive import (
-    GridArchive,
-    load_and_collapse_jsonl,
+from worldspace.illuminators.archive import load_and_collapse_jsonl
+from worldspace.illuminators.archive_factory import (
+    archive_factory_config_from_scheduler,
+    create_archive,
 )
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.cvt import centroids_path_for_output
 from worldspace.illuminators.emitters.base import CandidateEmitter, MapElitesEmitter
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS
 from worldspace.illuminators.loop import run_scheduler
@@ -50,6 +54,7 @@ class MapElitesIlluminator:
         steps: int = 300,
         iterations: int | None = None,
         load_archive_path: str | Path | None = None,
+        archive_type: Literal["grid", "cvt"] | None = None,
         emitter: CandidateEmitter | None = None,
         llm_spec_path: str | Path | None = None,
         require_surrogate_quality_gate: bool = False,
@@ -60,7 +65,15 @@ class MapElitesIlluminator:
             scheduler_path or DEFAULT_SCHEDULER_PATH,
             iterations_override=iterations,
         )
-        if grid_resolution is not None:
+        if archive_type is not None:
+            if config.schema_version != "1.3":
+                msg = (
+                    "--archive-type override requires scheduler schema_version 1.3, "
+                    f"got {config.schema_version!r}"
+                )
+                raise ValueError(msg)
+            config = replace(config, archive_type=archive_type)
+        if grid_resolution is not None and config.archive_type == "grid":
             config = replace(config, grid_resolution=grid_resolution)
         if surrogate_checkpoint_override is not None:
             config = replace(
@@ -75,6 +88,7 @@ class MapElitesIlluminator:
         archive, counters = _load_archive_and_counters(
             config,
             load_archive_path=load_archive_path,
+            output_dir=out_dir,
         )
         start_evaluated = counters.candidates_evaluated
         rng = np.random.default_rng(seed)
@@ -196,11 +210,15 @@ def _load_archive_and_counters(
     config: SchedulerConfig,
     *,
     load_archive_path: str | Path | None,
-) -> tuple[GridArchive, RunCounters]:
+    output_dir: Path,
+) -> tuple[ArchiveProtocol, RunCounters]:
     if load_archive_path is not None:
+        load_path = Path(load_archive_path).expanduser()
         archive = load_and_collapse_jsonl(
-            load_archive_path,
+            load_path,
+            archive_type=config.archive_type,
             resolution=config.grid_resolution,
+            centroids_path=_centroids_path_for_archive_dir(load_path.parent, config),
         )
         if archive.filled_count() > 0:
             counters = RunCounters(
@@ -209,7 +227,20 @@ def _load_archive_and_counters(
         else:
             counters = RunCounters()
         return archive, counters
-    return GridArchive(config.grid_resolution), RunCounters()
+    archive = create_archive(
+        archive_factory_config_from_scheduler(config),
+        output_dir=output_dir,
+    )
+    return archive, RunCounters()
+
+
+def _centroids_path_for_archive_dir(
+    archive_dir: Path,
+    config: SchedulerConfig,
+) -> Path | None:
+    if config.archive_type != "cvt":
+        return None
+    return centroids_path_for_output(archive_dir)
 
 
 def _cli_main() -> None:

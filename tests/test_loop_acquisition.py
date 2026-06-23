@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -188,6 +189,100 @@ class TestLoopAcquisition(unittest.TestCase):
         self.assertEqual(stats.evaluated, 2)
         self.assertEqual(stats.skipped, 0)
         self.assertEqual(counters.candidates_evaluated, 2)
+
+    def test_filter_skips_cvt_archive_without_eval(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        config = replace(
+            _filter_config(batch_size=2),
+            schema_version="1.3",
+            archive_type="cvt",
+            n_centroids=9,
+            cvt_seed=0,
+            lloyd_iterations=5,
+        )
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        counters = RunCounters()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "surrogate_archive.jsonl"
+            archive_writer = SurrogateArchiveWriter(
+                path=archive_path,
+                run_id="cvt-filter-run",
+                flush_every=32,
+            )
+            stats, outcomes = run_iteration(
+                config,
+                archive,
+                np.random.default_rng(3),
+                counters,
+                StubCandidateEmitter(),
+                iteration_index=1,
+                grid_size=8,
+                steps=200,
+                surrogate=_LowFitnessSurrogate(),
+                surrogate_archive=archive_writer,
+            )
+            archive_writer.close()
+            self.assertEqual(stats.evaluated, 0)
+            self.assertEqual(stats.skipped, 2)
+            self.assertTrue(all(o.skipped for o in outcomes))
+            lines = archive_path.read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(lines), 2)
+            for line in lines:
+                record = json.loads(line)
+                self.assertIn("target_cell_id", record)
+                self.assertIsInstance(record["target_cell_id"], int)
+
+    def test_shadow_always_evaluates_on_cvt_archive(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        config = replace(
+            _filter_config(batch_size=2),
+            schema_version="1.3",
+            archive_type="cvt",
+            n_centroids=9,
+            cvt_seed=0,
+            lloyd_iterations=5,
+            acquisition=AcquisitionConfig(
+                mode="shadow",
+                never_skip_empty_bin=False,
+            ),
+        )
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        counters = RunCounters()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "surrogate_archive.jsonl"
+            archive_writer = SurrogateArchiveWriter(
+                path=archive_path,
+                run_id="cvt-shadow-run",
+                flush_every=32,
+            )
+            stats, outcomes = run_iteration(
+                config,
+                archive,
+                np.random.default_rng(4),
+                counters,
+                StubCandidateEmitter(),
+                iteration_index=1,
+                grid_size=8,
+                steps=200,
+                surrogate=_LowFitnessSurrogate(),
+                surrogate_archive=archive_writer,
+            )
+            archive_writer.close()
+            self.assertEqual(stats.evaluated, 2)
+            self.assertEqual(stats.skipped, 0)
+            self.assertEqual(stats.shadow_would_skip, 2)
+            self.assertTrue(all(not o.skipped for o in outcomes))
+            records = [
+                json.loads(line)
+                for line in archive_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(records), 2)
+            self.assertTrue(all("target_cell_id" in record for record in records))
 
 
 if __name__ == "__main__":

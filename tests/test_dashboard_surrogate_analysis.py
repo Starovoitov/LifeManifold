@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -75,6 +78,51 @@ class TestDashboardSurrogateAnalysis(unittest.TestCase):
         )
         sample = sample_collapsed_rows(frame, max_rows=5, seed=1)
         self.assertEqual(len(sample), 5)
+
+    def test_load_checkpoint_training_summary(self) -> None:
+        from dashboard.utils.surrogate_analysis import (
+            checkpoint_summary_path,
+            load_checkpoint_training_summary,
+            training_summary_holdout_metrics,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = root / "nightly_v2.pkl"
+            checkpoint.write_bytes(b"placeholder")
+            summary_path = checkpoint_summary_path(checkpoint)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "sample_count": 1088,
+                        "train_count": 870,
+                        "holdout_count": 218,
+                        "quality_passed": True,
+                        "hints_ok": False,
+                        "holdout_metrics": {
+                            "r2_fitness": 0.91,
+                            "mae_fitness": 0.02,
+                            "mae_stability": 0.03,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            loaded = load_checkpoint_training_summary(checkpoint)
+            assert loaded is not None
+            meta = training_summary_holdout_metrics(loaded)
+            self.assertEqual(meta["sample_count"], 1088)
+            self.assertAlmostEqual(float(meta["r2_fitness"]), 0.91)
+            self.assertTrue(meta["quality_passed"])
+            self.assertFalse(meta["hints_ok"])
+
+    def test_load_checkpoint_training_summary_missing_returns_none(self) -> None:
+        from dashboard.utils.surrogate_analysis import load_checkpoint_training_summary
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "missing.pkl"
+            checkpoint.write_bytes(b"x")
+            self.assertIsNone(load_checkpoint_training_summary(checkpoint))
 
 
 if __name__ == "__main__":

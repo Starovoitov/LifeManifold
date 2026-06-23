@@ -168,5 +168,65 @@ class TestSurrogateAcquisition(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class TestSurrogateAcquisitionCvt(unittest.TestCase):
+    """E5.5 CVT acquisition policy contract."""
+
+    def test_empty_cell_forces_eval(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        decision = decide(
+            _config(),
+            _prediction(0.0, 0.0),
+            _target((3, 0)),
+            archive,
+        )
+        self.assertEqual(decision.action, "eval")
+        self.assertEqual(decision.reason, REASON_EMPTY_BIN_EXPLORE)
+
+    def test_threshold_skip_on_filled_cvt_cell(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        archive.try_insert(ArchiveElite(bin=(2, 0), fitness=0.5))
+        decision = decide(
+            _config(),
+            _prediction(0.1, 0.1),
+            _target((2, 0)),
+            archive,
+        )
+        self.assertEqual(decision.action, "skip")
+        self.assertEqual(decision.reason, REASON_BELOW_FITNESS_THRESHOLD)
+
+    def test_never_skip_empty_cell_false_allows_skip(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        decision = decide(
+            _config(never_skip_empty_bin=False),
+            _prediction(0.0, 0.0),
+            _target((4, 0)),
+            archive,
+        )
+        self.assertEqual(decision.action, "skip")
+        self.assertEqual(decision.reason, REASON_BELOW_FITNESS_THRESHOLD)
+
+    def test_decide_is_deterministic_on_cvt(self) -> None:
+        from worldspace.illuminators.cvt import generate_centroids
+        from worldspace.illuminators.cvt_archive import CvtArchive
+
+        archive = CvtArchive(generate_centroids(9, seed=0, lloyd_iterations=5))
+        archive.try_insert(ArchiveElite(bin=(1, 0), fitness=0.5))
+        config = _config()
+        prediction = _prediction(0.1, 0.2)
+        target = _target((1, 0))
+        first = decide(config, prediction, target, archive)
+        second = decide(config, prediction, target, archive)
+        self.assertEqual(first, second)
+
+
 if __name__ == "__main__":
     unittest.main()

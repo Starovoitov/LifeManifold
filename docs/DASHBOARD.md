@@ -2,8 +2,7 @@
 
 Interactive research UI for MAP-Elites archives, surrogate predictions, and metrics.
 
-Design spec: `artifacts/STREAMLIT_DASHBOARD_TZ_v1.0.md`  
-Task breakdown: `artifacts/STREAMLIT_DASHBOARD_EPICS_AND_TASKS_v1.0.md`
+CVT manual checks: [DASHBOARD_PARITY_CHECKLIST.md](DASHBOARD_PARITY_CHECKLIST.md)
 
 ## Data sources
 

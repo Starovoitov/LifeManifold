@@ -32,7 +32,9 @@ from worldspace.scripts.run_map_elites_nightly import (
 from worldspace.surrogate.checkpoint_quality import checkpoint_quality_allows_hints
 
 _NIGHTLY_ROOT = _REPO_ROOT / "artifacts" / "map_elites_nightly"
-_BASELINE_SUBDIR = "baseline"
+_BASELINE_ARCHIVE_NAME = "map_elites_archive.jsonl"
+_GRID_BASELINE_LEGACY_SUBDIR = Path("baseline")
+_CVT_BASELINE_SUBDIR = Path("cvt") / "baseline"
 
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_github_llm"
 _DEFAULT_GRID_RESOLUTION = 50
@@ -44,8 +46,10 @@ from worldspace.surrogate.checkpoint_paths import STUB_CHECKPOINT_SENTINEL
 
 __all__ = [
     "main",
+    "resolve_baseline_archive_for_scheduler",
     "resolve_effective_surrogate_checkpoint",
     "resolve_llm_spec_path",
+    "resolve_nightly_baseline_archive",
     "resolve_nightly_grid_resolution",
     "resolve_nightly_resume_archive",
     "resolve_surrogate_quality_gate",
@@ -70,12 +74,35 @@ def resolve_llm_spec_path(provider: str) -> Path:
     raise FileNotFoundError(msg)
 
 
-def resolve_nightly_resume_archive() -> Path | None:
-    """Baseline archive from a downloaded or local nightly pipeline."""
-    baseline = _NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
-    if baseline.is_file():
-        return baseline
+def resolve_nightly_baseline_archive(archive_type: str) -> Path | None:
+    """Baseline archive for ``grid`` or ``cvt`` under the nightly artifact root."""
+    typed = _NIGHTLY_ROOT / archive_type / "baseline" / _BASELINE_ARCHIVE_NAME
+    if typed.is_file():
+        return typed
+    if archive_type == "grid":
+        legacy = _NIGHTLY_ROOT / _GRID_BASELINE_LEGACY_SUBDIR / _BASELINE_ARCHIVE_NAME
+        if legacy.is_file():
+            return legacy
     return None
+
+
+def resolve_baseline_archive_for_scheduler(scheduler_path: str | Path) -> Path:
+    """Return the nightly baseline archive matching the scheduler ``archive_type``."""
+    sched_path = Path(scheduler_path)
+    config = load_scheduler(sched_path)
+    baseline = resolve_nightly_baseline_archive(config.archive_type)
+    if baseline is None:
+        msg = (
+            f"no {config.archive_type} baseline archive for scheduler {sched_path}; "
+            f"expected {_NIGHTLY_ROOT / config.archive_type / 'baseline' / _BASELINE_ARCHIVE_NAME}"
+        )
+        raise FileNotFoundError(msg)
+    return baseline
+
+
+def resolve_nightly_resume_archive() -> Path | None:
+    """Default resume archive for GitHub LLM runs (CVT nightly baseline)."""
+    return resolve_nightly_baseline_archive("cvt")
 
 
 def resolve_nightly_grid_resolution(archive_path: Path | str) -> int | None:
@@ -139,11 +166,14 @@ def ensure_nightly_surrogate_checkpoint(*, train_if_missing: bool) -> Path:
         )
         raise FileNotFoundError(msg)
     if not _ensure_nightly_buffer_from_baseline():
-        baseline = _NIGHTLY_ROOT / _BASELINE_SUBDIR / "map_elites_archive.jsonl"
+        baseline = resolve_nightly_baseline_archive("cvt")
         if _NIGHTLY_BUFFER_PATH.is_file() and _NIGHTLY_BUFFER_PATH.stat().st_size == 0:
             detail = f"buffer is empty at {_NIGHTLY_BUFFER_PATH}"
-        elif not baseline.is_file():
-            detail = f"no baseline archive at {baseline}"
+        elif baseline is None:
+            detail = (
+                f"no CVT baseline archive under "
+                f"{_NIGHTLY_ROOT / 'cvt' / 'baseline' / _BASELINE_ARCHIVE_NAME}"
+            )
         else:
             detail = "buffer backfill produced no rows"
         msg = (
@@ -205,7 +235,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--no-resume-nightly",
         action="store_true",
-        help="Do not resume from artifacts/map_elites_nightly/baseline/.",
+        help="Do not resume from artifacts/map_elites_nightly/cvt/baseline/.",
     )
     parser.add_argument(
         "--train-surrogate-if-missing",
@@ -279,12 +309,16 @@ def main(argv: list[str] | None = None) -> None:
 
     import time
 
+    grid_resolution = args.grid_resolution
+    if config.archive_type == "cvt":
+        grid_resolution = None
+
     started = time.perf_counter()
     result = MapElitesIlluminator().run(
         scheduler_path=sched_path,
         output_dir=out_dir,
         seed=args.seed,
-        grid_resolution=args.grid_resolution,
+        grid_resolution=grid_resolution,
         grid_size=args.grid,
         steps=args.steps,
         iterations=args.iterations,

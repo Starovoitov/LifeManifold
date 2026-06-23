@@ -52,8 +52,11 @@ def get_buffer_bundle(path: Path | None = None) -> BufferBundle:
     """Load the training buffer with Streamlit disk cache (path + mtime)."""
     cfg = load_config()
     target = path if path is not None else resolve_surrogate_buffer_path(cfg)
-    if not target.is_file():
-        msg = f"surrogate buffer file not found: {target}"
+    if target is None or not target.is_file():
+        detail = (
+            str(target) if target is not None else "no buffer selected or discovered"
+        )
+        msg = f"surrogate buffer file not found: {detail}"
         raise FileNotFoundError(msg)
     mtime = float(target.stat().st_mtime)
     performance_digest = _performance_digest(cfg)

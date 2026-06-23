@@ -35,9 +35,25 @@ def render_runs_overview(runs: list[RunInfo]) -> None:
         return
 
     st.subheader("Recent MAP-Elites runs")
+    st.caption(
+        "Each row is one discovered run directory (see `paths.run_scan_dirs` in config). "
+        "Expand a run for archive paths, coverage, and emitter breakdown. "
+        "Titles use `nightly_run_summary.json` / `smoke_run_summary.json` when present; "
+        "otherwise stats are taken from the archive JSONL (first "
+        f"{_MAX_ARCHIVE_STATS} runs only)."
+    )
     for index, run in enumerate(runs[:_MAX_RUNS_ON_HOME]):
-        with st.expander(_run_expander_title(run), expanded=index == 0):
-            render_run_card(run, load_stats=index < _MAX_ARCHIVE_STATS)
+        stats: dict[str, Any] = {}
+        if index < _MAX_ARCHIVE_STATS:
+            stats = archive_run_stats(
+                str(run.archive_path.resolve()),
+                run.archive_mtime,
+            )
+        with st.expander(
+            _run_expander_title(run, stats=stats or None),
+            expanded=index == 0,
+        ):
+            render_run_card(run, stats=stats or None)
 
     summary_for_repro = _first_summary(runs)
     if summary_for_repro is not None:
@@ -45,55 +61,84 @@ def render_runs_overview(runs: list[RunInfo]) -> None:
         render_reproducibility_block(summary_for_repro)
 
 
-def render_run_card(run: RunInfo, *, load_stats: bool = True) -> None:
+def render_run_card(
+    run: RunInfo,
+    *,
+    stats: dict[str, Any] | None = None,
+    load_stats: bool = True,
+) -> None:
     """Show summary metrics and optional archive-derived stats for one run."""
+    del load_stats
     rel_archive = run.archive_path.relative_to(repo_root())
     st.markdown(f"**Archive:** `{rel_archive}`")
     if run.summary_path is not None:
         rel_summary = run.summary_path.relative_to(repo_root())
         st.markdown(f"**Summary:** `{rel_summary}`")
     else:
-        st.caption("No nightly/smoke summary JSON next to this archive.")
+        st.caption(
+            "No nightly/smoke summary JSON next to this archive — run metadata "
+            "and expander title fall back to archive JSONL where loaded."
+        )
 
     summary = run.summary
-    col1, col2, col3, col4 = st.columns(4)
-    filled = summary_get(summary, "filled_cells", default=None)
-    coverage = summary_get(summary, "coverage", default=None)
-    evaluations = summary_get(summary, "evaluations", default=None)
-    elapsed = summary_get(summary, "elapsed_seconds", default=None)
-
-    col1.metric("Filled cells", _format_int(filled))
-    col2.metric("Coverage", _format_percent(coverage))
-    col3.metric("Evaluations", _format_int(evaluations))
-    col4.metric("Elapsed (s)", _format_float(elapsed))
-
-    if load_stats:
+    if stats is None:
         stats = archive_run_stats(
             str(run.archive_path.resolve()),
             run.archive_mtime,
         )
-        if stats.get("mean_fitness") is not None:
-            st.metric("Mean fitness (archive)", f"{stats['mean_fitness']:.4f}")
-        breakdown = stats.get("emitter_breakdown")
-        if isinstance(breakdown, dict) and breakdown:
-            st.markdown("**Emitter breakdown**")
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {"emitter_type": key, "count": value}
-                        for key, value in breakdown.items()
-                    ]
-                ),
-                width="stretch",
-                hide_index=True,
-            )
+
+    archive_type = _first_non_none(
+        summary_get(summary, "archive_type", default=None),
+        stats.get("archive_type"),
+        "grid",
+    )
+    n_cells = _first_non_none(
+        summary_get(summary, "n_cells", default=None),
+        stats.get("n_cells"),
+    )
+    filled = _first_non_none(
+        summary_get(summary, "filled_cells", default=None),
+        stats.get("filled_cells"),
+    )
+    coverage = _first_non_none(
+        summary_get(summary, "coverage", default=None),
+        stats.get("coverage"),
+    )
+    evaluations = summary_get(summary, "evaluations", default=None)
+    elapsed = summary_get(summary, "elapsed_seconds", default=None)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Archive type", str(archive_type))
+    col2.metric("Niches", _format_int(n_cells))
+    col3.metric("Filled cells", _format_int(filled))
+    col4.metric("Coverage", _format_percent(coverage))
+    col5.metric("Evaluations", _format_int(evaluations))
+    st.metric("Elapsed (s)", _format_float(elapsed))
+
+    if stats.get("mean_fitness") is not None:
+        st.metric("Mean fitness (archive)", f"{stats['mean_fitness']:.4f}")
+    breakdown = stats.get("emitter_breakdown")
+    if isinstance(breakdown, dict) and breakdown:
+        st.markdown("**Emitter breakdown**")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"emitter_type": key, "count": value}
+                    for key, value in breakdown.items()
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
 
 
 def render_reproducibility_block(summary: dict[str, Any]) -> None:
-    """Display scheduler, seed, grid, schema, and feature flags from summary JSON."""
+    """Display scheduler, seed, archive metadata, and feature flags from summary JSON."""
     scheduler = summary_get(summary, "scheduler", default="—")
     seed = summary_get(summary, "seed", default="—")
     resolution = summary_get(summary, "grid_resolution", default="—")
+    archive_type = summary_get(summary, "archive_type", default="—")
+    n_cells = summary_get(summary, "n_cells", default="—")
     schema = summary_get(summary, "schema_version", default="—")
     llm = summary_get(summary, "llm_enabled", default="—")
     surrogate = summary_get(summary, "surrogate_enabled", default="—")
@@ -107,6 +152,8 @@ def render_reproducibility_block(summary: dict[str, Any]) -> None:
     st.markdown(
         f"- **Scheduler:** `{scheduler}`\n"
         f"- **Seed:** `{seed}`\n"
+        f"- **Archive type:** `{archive_type}`\n"
+        f"- **Niches (n_cells):** `{n_cells}`\n"
         f"- **Grid resolution:** `{resolution}`\n"
         f"- **Schema version:** `{schema}`\n"
         f"- **LLM enabled:** `{llm}`\n"
@@ -118,20 +165,32 @@ def render_reproducibility_block(summary: dict[str, Any]) -> None:
 def render_page_links() -> None:
     """Quick navigation to dashboard pages."""
     st.subheader("Pages")
+    st.caption(
+        "Sidebar pages for exploring archives, surrogate quality, metrics, LLM prompts, "
+        "training buffers, and acquisition logs. Pick an archive JSONL in the sidebar on "
+        "each page (discovery uses the same scan roots as above)."
+    )
     st.page_link("pages/1_Archive_Explorer.py", label="Archive Explorer")
     st.page_link("pages/2_Surrogate_Analysis.py", label="Surrogate Analysis")
     st.page_link("pages/3_Metrics_Dashboard.py", label="Metrics Dashboard")
     st.page_link("pages/4_LLM_Prompt_Tester.py", label="LLM Prompt Tester")
     st.page_link("pages/5_Training_Buffer.py", label="Training Buffer")
+    st.page_link("pages/6_Acquisition_Log.py", label="Acquisition Log")
 
 
 @st.cache_data(show_spinner=False)
 def archive_run_stats(archive_path_str: str, mtime: float) -> dict[str, Any]:
-    """Mean fitness and emitter counts from a collapsed archive (cached)."""
+    """Archive-derived stats including dual-mode coverage (cached)."""
     del mtime
     bundle = get_archive_bundle(Path(archive_path_str))
     frame = bundle.collapsed
-    stats: dict[str, Any] = {}
+    stats: dict[str, Any] = {
+        "archive_type": bundle.archive_type,
+        "n_cells": bundle.n_cells,
+        "filled_cells": len(frame),
+    }
+    if bundle.n_cells > 0:
+        stats["coverage"] = float(len(frame)) / float(bundle.n_cells)
     if frame.empty or "fitness" not in frame.columns:
         return stats
     stats["mean_fitness"] = float(np.mean(frame["fitness"].to_numpy(dtype=np.float64)))
@@ -143,18 +202,43 @@ def archive_run_stats(archive_path_str: str, mtime: float) -> dict[str, Any]:
     return stats
 
 
-def _run_expander_title(run: RunInfo) -> str:
+def _run_expander_title(
+    run: RunInfo,
+    *,
+    stats: dict[str, Any] | None = None,
+) -> str:
     rel = run.run_dir.relative_to(repo_root())
-    filled = summary_get(run.summary, "filled_cells", default="?")
-    coverage = summary_get(run.summary, "coverage", default=None)
+    summary = run.summary
+    archive_type = _first_non_none(
+        summary_get(summary, "archive_type", default=None),
+        stats.get("archive_type") if stats else None,
+        "?",
+    )
+    filled = _first_non_none(
+        summary_get(summary, "filled_cells", default=None),
+        stats.get("filled_cells") if stats else None,
+        "?",
+    )
+    coverage = _first_non_none(
+        summary_get(summary, "coverage", default=None),
+        stats.get("coverage") if stats else None,
+    )
     cov_text = f"{float(coverage) * 100:.1f}%" if coverage is not None else "n/a"
-    return f"{rel} — filled={filled}, coverage={cov_text}"
+    type_text = str(archive_type)
+    return f"{rel} — {type_text}, filled={filled}, coverage={cov_text}"
 
 
 def _first_summary(runs: list[RunInfo]) -> dict[str, Any] | None:
     for run in runs:
         if run.summary is not None:
             return run.summary
+    return None
+
+
+def _first_non_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
     return None
 
 
@@ -171,6 +255,7 @@ def _format_float(value: Any) -> str:
 
 
 def _format_percent(value: Any) -> str:
+    """Format a coverage ratio in [0, 1] as a percentage string."""
     if value is None:
         return "—"
     return f"{float(value) * 100:.2f}%"

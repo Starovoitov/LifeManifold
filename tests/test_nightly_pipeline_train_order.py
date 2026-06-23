@@ -19,6 +19,8 @@ def _fake_report(*, surrogate_enabled: bool, archive_path: str) -> NightlyRunRep
         evaluations=10,
         filled_cells=5,
         grid_resolution=50,
+        archive_type="grid",
+        n_cells=50 * 50,
         coverage=0.01,
         jsonl_raw_lines=10,
         jsonl_collapsed_cells=5,
