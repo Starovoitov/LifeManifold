@@ -29,6 +29,13 @@ def rule_count_masks(
     return birth_mask, survival_mask
 
 
+def langton_lambda_runtime(activity_sum: float, activity_steps: int) -> float:
+    """Mean per-step life flip fraction (runtime Langton activity proxy, in [0, 1])."""
+    if activity_steps <= 0:
+        return 0.0
+    return float(np.clip(activity_sum / activity_steps, 0.0, 1.0))
+
+
 def kmeans_lloyd_on_memmap(
     mm: np.memmap,
     labels: np.memmap,

@@ -100,6 +100,7 @@ def _example_metrics(**overrides: float) -> WorldMetrics:
         "compressibility_score": 0.5,
         "ecology_state_entropy_norm": 0.6,
         "ecology_resource_adjacency": 0.2,
+        "langton_lambda_runtime": 0.15,
     }
     defaults.update(overrides)
     return WorldMetrics(
@@ -115,6 +116,7 @@ def _example_metrics(**overrides: float) -> WorldMetrics:
         compressibility_score=defaults["compressibility_score"],
         ecology_state_entropy_norm=defaults["ecology_state_entropy_norm"],
         ecology_resource_adjacency=defaults["ecology_resource_adjacency"],
+        langton_lambda_runtime=defaults["langton_lambda_runtime"],
     )
 
 

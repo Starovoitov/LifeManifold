@@ -572,7 +572,7 @@ def _elite_metadata_from_dict(data: dict) -> EliteMetadata:
 
 def _world_metrics_from_dict(data: dict) -> WorldMetrics:
     return WorldMetrics(
-        **{key: float(data[key]) for key in METRIC_KEYS},
+        **{key: float(data.get(key, 0.0)) for key in METRIC_KEYS},
     )
 
 

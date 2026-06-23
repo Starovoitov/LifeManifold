@@ -145,6 +145,7 @@ class TestSurrogateArchive(unittest.TestCase):
             compressibility_score=0.1,
             ecology_state_entropy_norm=0.1,
             ecology_resource_adjacency=0.1,
+            langton_lambda_runtime=0.1,
         )
         eval_result = EvalResult(
             world_spec=_SPEC,

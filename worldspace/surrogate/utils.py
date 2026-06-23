@@ -44,6 +44,7 @@ def compute_fitness_from_prediction(
         compressibility_score=0.0,
         ecology_state_entropy_norm=0.0,
         ecology_resource_adjacency=0.0,
+        langton_lambda_runtime=0.0,
     )
     measures = {
         "stability": float(components["stability"]),
@@ -76,6 +77,7 @@ def compute_soft_fitness_from_prediction(pred: SurrogatePrediction) -> float:
         compressibility_score=0.0,
         ecology_state_entropy_norm=0.0,
         ecology_resource_adjacency=0.0,
+        langton_lambda_runtime=0.0,
     )
     measures = {
         "stability": float(components["stability"]),

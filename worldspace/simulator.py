@@ -144,6 +144,8 @@ def _run_world_impl(
     death_age_sum = 0
     death_count = 0
     density_tail: deque[float] = deque(maxlen=ws_math.OSCILLATION_DENSITY_WINDOW)
+    activity_sum = 0.0
+    activity_steps = 0
     early_extinct = False
 
     run_ca_loop = True
@@ -181,6 +183,8 @@ def _run_world_impl(
                 tail_buf,
                 tail_len,
                 tail_start,
+                activity_sum,
+                activity_steps,
                 early_extinct,
             ) = sim_numba.run_ca_loop_numba(
                 life,
@@ -210,6 +214,8 @@ def _run_world_impl(
                 death_age_sum,
                 death_count,
                 density_tail,
+                activity_sum,
+                activity_steps,
                 early_extinct,
             ) = _run_ca_loop_numpy(
                 rng,
@@ -228,6 +234,8 @@ def _run_world_impl(
                 death_age_sum=death_age_sum,
                 death_count=death_count,
                 density_tail=density_tail,
+                activity_sum=activity_sum,
+                activity_steps=activity_steps,
             )
 
     metrics = _metrics_from_final_state(
@@ -239,6 +247,8 @@ def _run_world_impl(
         density_tail,
         death_age_sum,
         death_count,
+        activity_sum=activity_sum,
+        activity_steps=activity_steps,
     )
     return SimulationResult(
         world=world,
@@ -267,6 +277,8 @@ def _run_ca_loop_numpy(
     death_age_sum: int,
     death_count: int,
     density_tail: deque[float],
+    activity_sum: float = 0.0,
+    activity_steps: int = 0,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -277,6 +289,8 @@ def _run_ca_loop_numpy(
     int,
     int,
     deque[float],
+    float,
+    int,
     bool,
 ]:
     early_extinct = False
@@ -285,6 +299,8 @@ def _run_ca_loop_numpy(
         next_life = _next_life_from_rules(
             rng, life, neighbors, birth_mask, survival_mask, world
         )
+        activity_sum += float((life != next_life).mean())
+        activity_steps += 1
         food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
 
         died_now = (life == 1) & (next_life == 0)
@@ -311,6 +327,8 @@ def _run_ca_loop_numpy(
                 density_tail,
                 death_age_sum,
                 death_count,
+                activity_sum=activity_sum,
+                activity_steps=activity_steps,
             )
             row = {
                 "yield_index": ca_step_trace_yield_index,
@@ -339,6 +357,8 @@ def _run_ca_loop_numpy(
         death_age_sum,
         death_count,
         density_tail,
+        activity_sum,
+        activity_steps,
         early_extinct,
     )
 
@@ -426,6 +446,9 @@ def _metrics_from_final_state(
     density_tail: deque[float],
     death_age_sum: int,
     death_count: int,
+    *,
+    activity_sum: float = 0.0,
+    activity_steps: int = 0,
 ) -> WorldMetrics:
     """Aggregate scalar metrics from the final grids and online statistics."""
     density_std = (
@@ -455,6 +478,7 @@ def _metrics_from_final_state(
     comp = ws_math.compressibility_score_joint(life, food)
     eco_h = ws_math.ecology_state_entropy_norm(life, food)
     eco_adj = ws_math.ecology_resource_adjacency(life, food)
+    lambda_runtime = ws_math.langton_lambda_runtime(activity_sum, activity_steps)
     return WorldMetrics(
         entropy=entropy,
         stability=stability,
@@ -468,4 +492,5 @@ def _metrics_from_final_state(
         compressibility_score=comp,
         ecology_state_entropy_norm=eco_h,
         ecology_resource_adjacency=eco_adj,
+        langton_lambda_runtime=lambda_runtime,
     )

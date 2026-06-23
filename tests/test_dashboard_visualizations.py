@@ -59,6 +59,27 @@ class TestDashboardVisualizations(unittest.TestCase):
         fig = create_metrics_radar(metrics)
         self.assertEqual(_figure_traces(fig)[0].type, "scatterpolar")
 
+    def test_diagnostic_metric_bar_colors_cover_all_metrics(self) -> None:
+        from dashboard.components.visualizations import _diagnostic_metric_bar_colors
+        from worldspace.metrics import METRIC_KEYS
+
+        colors = _diagnostic_metric_bar_colors(list(METRIC_KEYS))
+        self.assertEqual(len(colors), len(METRIC_KEYS))
+        langton_index = METRIC_KEYS.index("langton_lambda_runtime")
+        self.assertEqual(colors[langton_index], "#c77dff")
+        self.assertNotEqual(colors[langton_index], colors[0])
+
+    def test_interpret_langton_lambda_runtime_bands(self) -> None:
+        from dashboard.components.visualizations import interpret_langton_lambda_runtime
+
+        low = interpret_langton_lambda_runtime(0.02)
+        mid = interpret_langton_lambda_runtime(0.25)
+        high = interpret_langton_lambda_runtime(0.6)
+        self.assertIn("λ_runtime", low)
+        self.assertIn("frozen", low)
+        self.assertIn("moderate", mid)
+        self.assertIn("very high", high)
+
     def test_add_boundary_overlay_skips_none(self) -> None:
         from dashboard.components.visualizations import add_boundary_overlay
 

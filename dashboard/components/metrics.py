@@ -60,6 +60,10 @@ METRIC_HELP: dict[str, str] = {
         "On live cells only: mean Moore fraction of food neighbors. "
         "Consumers near resources → high."
     ),
+    "langton_lambda_runtime": (
+        "Runtime Langton activity proxy: mean per-step fraction of life cells that flip. "
+        "Higher → more dynamic field (noise/predation increase it)."
+    ),
     "fitness": (
         "MAP-Elites archive fitness (weighted stability, diversity, oscillation, topology)."
     ),

@@ -342,6 +342,83 @@ def render_diagnostic_panel(
             block = paragraph.strip()
             if block:
                 st.markdown(block)
+        rules_text = format_world_spec_rules(
+            world_spec,
+            langton_lambda_runtime=(
+                float(sim_result.metrics.langton_lambda_runtime)
+                if sim_result.metrics is not None
+                else None
+            ),
+        )
+        if rules_text:
+            st.markdown(rules_text)
+
+
+def format_world_spec_rules(
+    world_spec: Mapping[str, Any],
+    *,
+    langton_lambda_runtime: float | None = None,
+) -> str:
+    """Markdown summary of CA birth/survival and ecology fields."""
+    birth = _rule_index_list(world_spec.get("birth"))
+    survival = _rule_index_list(world_spec.get("survival"))
+    notation = _rule_set_notation(birth, survival)
+    if langton_lambda_runtime is not None:
+        notation = f"{notation} · λ_runtime={langton_lambda_runtime:.4f}"
+    lines = [
+        "**Rules**",
+        f"- **Notation:** {notation}",
+        f"- **Birth** {_format_rule_indices(birth)}",
+        f"- **Survival** {_format_rule_indices(survival)}",
+    ]
+    ecology_parts: list[str] = []
+    if "noise" in world_spec:
+        ecology_parts.append(f"noise={_format_rule_scalar(world_spec['noise'])}")
+    if "predation" in world_spec:
+        ecology_parts.append(
+            f"predation={_format_rule_scalar(world_spec['predation'])}"
+        )
+    if "resource_regen" in world_spec:
+        ecology_parts.append(
+            f"resource_regen={_format_rule_scalar(world_spec['resource_regen'])}"
+        )
+    if ecology_parts:
+        lines.append(f"- **Ecology** {', '.join(ecology_parts)}")
+    neighborhood = world_spec.get("neighborhood")
+    if isinstance(neighborhood, str) and neighborhood:
+        lines.append(f"- **Neighborhood** {neighborhood}")
+    return "\n".join(lines)
+
+
+def _format_rule_indices(indices: list[int]) -> str:
+    if not indices:
+        return "[]"
+    return "[" + ", ".join(str(index) for index in indices) + "]"
+
+
+def _rule_index_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    return sorted(int(item) for item in value)
+
+
+def _rule_set_notation(birth: list[int], survival: list[int]) -> str:
+    birth_label = ",".join(str(index) for index in birth) or "—"
+    survival_label = ",".join(str(index) for index in survival) or "—"
+    return f"B[{birth_label}] / S[{survival_label}]"
+
+
+def _format_rule_scalar(value: object) -> str:
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and pd.isna(value):
+            return str(value)
+        return f"{float(value):.4f}"
+    if isinstance(value, str):
+        try:
+            return f"{float(value):.4f}"
+        except ValueError:
+            return value
+    return str(value)
 
 
 def _row_int(row: pd.Series, key: str) -> int:

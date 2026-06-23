@@ -75,6 +75,8 @@ def run_ca_loop_numba(
     np.ndarray,
     int,
     int,
+    float,
+    int,
     bool,
 ]:
     """Run the fused CA loop; ``random_buf`` must follow the numpy RNG stream after init."""
@@ -95,6 +97,8 @@ def run_ca_loop_numba(
         tail_buf,
         tail_len,
         tail_start,
+        activity_sum,
+        activity_steps,
         early_extinct,
     ) = kernel(
         life,
@@ -125,6 +129,8 @@ def run_ca_loop_numba(
         tail_buf,
         tail_len,
         tail_start,
+        activity_sum,
+        activity_steps,
         early_extinct,
     )
 
@@ -231,6 +237,8 @@ def _run_ca_loop_numba_impl(
     tail_start = 0
     tail_cap = tail_buf.shape[0]
     early_extinct = False
+    activity_sum = 0.0
+    activity_steps = 0
 
     for step in range(steps):
         next_life = np.empty((n, n), dtype=np.uint8)
@@ -266,6 +274,14 @@ def _run_ca_loop_numba_impl(
                         cell = 0
 
                 next_life[i, j] = cell
+
+        flip_count = 0
+        for i in range(n):
+            for j in range(n):
+                if life[i, j] != next_life[i, j]:
+                    flip_count += 1
+        activity_sum += flip_count / (n * n)
+        activity_steps += 1
 
         for i in range(n):
             for j in range(n):
@@ -320,5 +336,7 @@ def _run_ca_loop_numba_impl(
         tail_buf,
         tail_len,
         tail_start,
+        activity_sum,
+        activity_steps,
         early_extinct,
     )

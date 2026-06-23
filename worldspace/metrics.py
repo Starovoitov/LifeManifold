@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 # Length of ``WorldMetrics.as_vector()`` — keep mmap / PCA / k-means in sync.
-METRICS_VECTOR_DIM = 12
+METRICS_VECTOR_DIM = 13
 METRIC_KEYS = (
     "entropy",
     "stability",
@@ -19,6 +19,7 @@ METRIC_KEYS = (
     "compressibility_score",
     "ecology_state_entropy_norm",
     "ecology_resource_adjacency",
+    "langton_lambda_runtime",
 )
 
 
@@ -38,6 +39,7 @@ class WorldMetrics:
     compressibility_score: float
     ecology_state_entropy_norm: float
     ecology_resource_adjacency: float
+    langton_lambda_runtime: float
 
     def as_vector(self) -> np.ndarray:
         """Return metrics as a fixed-order numeric vector."""
@@ -55,6 +57,7 @@ class WorldMetrics:
                 self.compressibility_score,
                 self.ecology_state_entropy_norm,
                 self.ecology_resource_adjacency,
+                self.langton_lambda_runtime,
             ],
             dtype=float,
         )

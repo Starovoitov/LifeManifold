@@ -166,6 +166,44 @@ class TestDashboardArchiveExplorer(unittest.TestCase):
             "explorer_diagnostic_cell_7_deadbeef01234567",
         )
 
+    def test_format_world_spec_rules_renders_ca_notation(self) -> None:
+        from dashboard.components.archive_explorer import format_world_spec_rules
+
+        text = format_world_spec_rules(
+            {
+                "birth": [0, 5, 7],
+                "survival": [0],
+                "noise": 0.0,
+                "predation": 0.1197,
+                "resource_regen": 0.1825,
+                "neighborhood": "moore",
+            }
+        )
+        self.assertIn("B[0,5,7] / S[0]", text)
+        self.assertIn("Birth** [0, 5, 7]", text)
+        self.assertIn("predation=0.1197", text)
+        self.assertIn("resource_regen=0.1825", text)
+        self.assertIn("Neighborhood** moore", text)
+        self.assertNotIn("`", text)
+
+    def test_format_world_spec_rules_shows_lambda_runtime(self) -> None:
+        from dashboard.components.archive_explorer import format_world_spec_rules
+
+        text = format_world_spec_rules(
+            {"birth": [3], "survival": [2, 3]},
+            langton_lambda_runtime=0.0425,
+        )
+        self.assertIn("λ_runtime=0.0425", text)
+        self.assertIn("B[3] / S[2,3]", text)
+
+    def test_format_rule_scalar_handles_object_types(self) -> None:
+        from dashboard.components.archive_explorer import _format_rule_scalar
+
+        self.assertEqual(_format_rule_scalar(0.1197), "0.1197")
+        self.assertEqual(_format_rule_scalar("0.1825"), "0.1825")
+        self.assertEqual(_format_rule_scalar("not-a-number"), "not-a-number")
+        self.assertEqual(_format_rule_scalar(None), "None")
+
 
 if __name__ == "__main__":
     unittest.main()

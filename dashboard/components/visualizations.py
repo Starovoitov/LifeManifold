@@ -57,6 +57,10 @@ _LIFE_FOOD_BOTH = np.array([0.43, 0.48, 0.31], dtype=np.float32)
 _BOUNDARY_WARM_MAX = np.array([1.0, 0.42, 0.12], dtype=np.float32) * 0.42
 _FOOD_NEIGHBOR_BLEND = 0.48
 
+_METRIC_BAR_PRIMARY = "#4a6fa5"
+_METRIC_BAR_SECONDARY = "#b85c38"
+_METRIC_BAR_LANGTON = "#c77dff"  # violet accent for λ_runtime (distinct on dark theme)
+
 _HETERO_LABELS: dict[float, str] = {
     0.0: "Uniform 2×2 window",
     1.0: "Mixed corners",
@@ -76,7 +80,7 @@ DIAGNOSTIC_PANEL_HELP: dict[str, str] = {
     "food_neighbor": (
         "Food density in 8 Moore neighbors; tint on live cells only (cool → warm)."
     ),
-    "metrics": "All 12 world metrics on a 0–1 display scale (some rescaled for bars).",
+    "metrics": "All world metrics on a 0–1 display scale (some rescaled for bars).",
     "radar": "Subset of metrics on the radar (values clipped to [0, 1]).",
 }
 
@@ -98,6 +102,7 @@ __all__ = [
     "DIAGNOSTIC_PANEL_HELP",
     "METRIC_HELP",
     "format_diagnostic_interpretation",
+    "interpret_langton_lambda_runtime",
     "create_metric_histogram",
     "create_metrics_radar",
     "plot_calibration_by_uncertainty",
@@ -685,6 +690,40 @@ def format_diagnostic_interpretation(metrics: WorldMetrics) -> str:
     return _interpretation_block(metrics)
 
 
+def interpret_langton_lambda_runtime(value: float) -> str:
+    """Plain-language reading of runtime Langton activity (λ_runtime)."""
+    lam = float(np.clip(value, 0.0, 1.0))
+    if lam < 0.05:
+        band = (
+            "very low step-to-step activity — the field is mostly frozen or "
+            "already extinct; few life cells flip each CA step."
+        )
+    elif lam < 0.15:
+        band = (
+            "low activity — largely stable patches with occasional births/deaths; "
+            "closer to ordered than chaotic dynamics."
+        )
+    elif lam < 0.35:
+        band = (
+            "moderate activity — sustained local turnover without domination by "
+            "noise; typical of non-trivial CA behavior."
+        )
+    elif lam < 0.55:
+        band = (
+            "high activity — many cells flip each step; check noise and "
+            "predation if the rule set alone looks calm."
+        )
+    else:
+        band = (
+            "very high activity — stochastic flips likely dominate; interpret "
+            "together with ecology scalars, not as structural Langton λ."
+        )
+    return (
+        f"**Langton λ_runtime = {lam:.3f}** — mean per-step life flip fraction. "
+        f"{band}"
+    )
+
+
 def create_diagnostic_dashboard(
     result: SimulationResult,
     *,
@@ -785,7 +824,7 @@ def create_diagnostic_dashboard(
     )
 
     names, bar_vals = _metrics_bar_values(metrics)
-    bar_colors = ["#4a6fa5"] * 7 + ["#b85c38"] * 5
+    bar_colors = _diagnostic_metric_bar_colors(names)
     bar_help = [metric_help_text(name) for name in names]
     fig.add_trace(
         go.Bar(
@@ -1191,8 +1230,25 @@ def _metrics_bar_values(metrics: WorldMetrics) -> tuple[list[str], np.ndarray]:
     return names, np.clip(scaled, 0.0, 1.0)
 
 
+def _diagnostic_metric_bar_colors(metric_names: list[str]) -> list[str]:
+    """One bar color per metric; ``langton_lambda_runtime`` uses a dedicated accent."""
+    primary_split = 7
+    return [
+        (
+            _METRIC_BAR_LANGTON
+            if name == "langton_lambda_runtime"
+            else (
+                _METRIC_BAR_PRIMARY if index < primary_split else _METRIC_BAR_SECONDARY
+            )
+        )
+        for index, name in enumerate(metric_names)
+    ]
+
+
 def _interpretation_block(metrics: WorldMetrics) -> str:
-    lines: list[str] = []
+    lines: list[str] = [
+        interpret_langton_lambda_runtime(metrics.langton_lambda_runtime)
+    ]
     if (
         metrics.ecology_resource_adjacency > 0.35
         and metrics.topology_interface_index > 0.25
