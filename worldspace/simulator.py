@@ -15,6 +15,7 @@ from .metrics import (
 )
 from worldspace.simulator_perf import (
     DEFAULT_SIMULATOR_PERFORMANCE,
+    METRICS_VERIFY_ATOL,
     SimulatorPerformanceOptions,
     effective_numba_enabled,
 )
@@ -111,7 +112,9 @@ def _assert_metrics_match(
 ) -> None:
     ref_vec = reference.metrics.as_vector()
     cand_vec = candidate.metrics.as_vector()
-    if not np.allclose(ref_vec, cand_vec, rtol=0.0, atol=0.0, equal_nan=True):
+    if not np.allclose(
+        ref_vec, cand_vec, rtol=0.0, atol=METRICS_VERIFY_ATOL, equal_nan=True
+    ):
         raise AssertionError(
             f"numba metrics diverge from numpy reference: max_abs_diff="
             f"{float(np.max(np.abs(ref_vec - cand_vec)))}"

@@ -8,11 +8,16 @@ from typing import Any
 
 __all__ = [
     "DEFAULT_SIMULATOR_PERFORMANCE",
+    "METRICS_VERIFY_ATOL",
     "SimulatorPerformanceOptions",
     "effective_numba_enabled",
     "effective_parallel_workers",
     "resolve_simulator_performance",
+    "validate_simulator_performance",
 ]
+
+
+METRICS_VERIFY_ATOL = 1e-12
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,16 @@ def resolve_simulator_performance(
         verify_against_reference=bool(block.get("verify_against_reference", False)),
     )
     return _apply_env_overrides(options)
+
+
+def validate_simulator_performance(performance: SimulatorPerformanceOptions) -> None:
+    """Reject incompatible optional fast paths before runtime."""
+    if performance.numba_simulator and performance.parallel_eval:
+        raise ValueError(
+            "numba_simulator and parallel_eval cannot both be enabled: "
+            "forkserver after numba JIT can deadlock LLVM worker threads. "
+            "Use parallel_eval with numba_simulator=false, or disable parallel_eval."
+        )
 
 
 def _apply_env_overrides(

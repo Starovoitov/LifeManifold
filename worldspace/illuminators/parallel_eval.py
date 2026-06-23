@@ -11,6 +11,7 @@ from worldspace.illuminators.evaluation import SimulationOutcome, simulate_candi
 from worldspace.simulator_perf import (
     SimulatorPerformanceOptions,
     effective_parallel_workers,
+    validate_simulator_performance,
 )
 from worldspace.specs.spec import WorldSpec
 
@@ -69,6 +70,7 @@ def parallel_eval_context(
     """Create a persistent pool when parallel eval is enabled."""
     if not performance.parallel_eval:
         return None
+    validate_simulator_performance(performance)
     workers = effective_parallel_workers(performance, batch_size=batch_size)
     if workers <= 1:
         return None
@@ -98,6 +100,7 @@ def evaluate_batch_parallel(
     ]
     if workers <= 1 or len(jobs) <= 1:
         return [_parallel_eval_worker(job) for job in jobs]
+    validate_simulator_performance(performance)
     if eval_pool is not None:
         return eval_pool.map_simulations(jobs)
     pool_holder = ParallelEvalPool(workers)

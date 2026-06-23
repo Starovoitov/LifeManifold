@@ -57,7 +57,9 @@ class TestSimulatorNumba(unittest.TestCase):
                     early_extinction_step=case.early_extinction_step,
                     performance=_VERIFY_PERF,
                 )
-                self.assertEqual(METRICS_VECTOR_DIM, result.metrics.as_vector().shape[0])
+                self.assertEqual(
+                    METRICS_VECTOR_DIM, result.metrics.as_vector().shape[0]
+                )
                 np.testing.assert_allclose(
                     result.metrics.as_vector(),
                     case.expected,

@@ -12,6 +12,7 @@ from worldspace.simulator_perf import (
     effective_numba_enabled,
     effective_parallel_workers,
     resolve_simulator_performance,
+    validate_simulator_performance,
 )
 
 
@@ -43,15 +44,23 @@ class TestSimulatorPerformanceOptions(unittest.TestCase):
         resolved = resolve_simulator_performance(
             {
                 "numba_simulator": True,
-                "parallel_eval": True,
                 "parallel_workers": 4,
                 "verify_against_reference": True,
             }
         )
         self.assertTrue(resolved.numba_simulator)
-        self.assertTrue(resolved.parallel_eval)
+        self.assertFalse(resolved.parallel_eval)
         self.assertEqual(resolved.parallel_workers, 4)
         self.assertTrue(resolved.verify_against_reference)
+
+    def test_validate_rejects_numba_with_parallel_eval(self) -> None:
+        perf = SimulatorPerformanceOptions(
+            numba_simulator=True,
+            parallel_eval=True,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            validate_simulator_performance(perf)
+        self.assertIn("numba_simulator and parallel_eval", str(ctx.exception))
 
     def test_env_overrides_yaml(self) -> None:
         env = {
