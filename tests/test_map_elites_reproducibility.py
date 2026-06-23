@@ -187,6 +187,24 @@ class TestColdStartReproducibility(unittest.TestCase):
         self.assertEqual(snap_a, snap_b)
         self.assertGreater(len(snap_a), 0)
 
+    def test_parallel_eval_matches_sequential(self) -> None:
+        base = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)
+        sequential = replace(
+            base,
+            performance=replace(base.performance, parallel_eval=False),
+        )
+        parallel = replace(
+            base,
+            performance=replace(
+                base.performance,
+                parallel_eval=True,
+                parallel_workers=2,
+            ),
+        )
+        snap_seq = _run_cold_start(seed=_MINI_SEED, config=sequential)
+        snap_par = _run_cold_start(seed=_MINI_SEED, config=parallel)
+        self.assertEqual(snap_seq, snap_par)
+
     def test_different_seeds_differ(self) -> None:
         config = load_scheduler(DEFAULT_MINI_SCHEDULER_PATH)
         snap_a = _run_cold_start(seed=1, config=config)

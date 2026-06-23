@@ -378,13 +378,15 @@ surrogate:
 | --- | --- | --- |
 | `numba_simulator` | `false` | Fused numba step in `run_world` (off = numpy) |
 | `numba_cache` | `true` | `@njit(cache=True)` when numba is enabled |
-| `parallel_eval` | `false` | Parallel `evaluate_candidate` batch (not yet implemented) |
-| `parallel_workers` | `0` | `0` = auto CPU count when parallel eval is enabled |
+| `parallel_eval` | `false` | Parallel `evaluate_candidate` batch in `run_iteration` |
+| `parallel_workers` | `0` | `0` = auto CPU count (capped by `batch_size`) when parallel eval is enabled |
 | `verify_against_reference` | `false` | Dual-run numpy vs numba and assert metrics equal |
 
 Environment overrides (win over YAML): `LIFEMANIFOLD_NUMBA_SIM`, `LIFEMANIFOLD_PARALLEL_EVAL`, `LIFEMANIFOLD_VERIFY_SIM` (`0`/`1`). Per-step `ca_step_trace` in the legacy pipeline always uses numpy regardless of `numba_simulator`.
 
 Numba is an optional dependency: `uv sync --group perf`. First run with `numba_simulator: true` may spend ~1–2 s on JIT compile when `numba_cache: true` (cached on disk thereafter).
+
+`parallel_eval: true` uses a `forkserver` process pool reused across iterations. First parallel batch may pay one-time worker import cost (numpy/torch); simulations themselves are deterministic and match sequential runs when acquisition is off.
 
 **Emitter overrides by phase:**
 

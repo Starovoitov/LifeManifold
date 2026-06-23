@@ -26,6 +26,9 @@ jobs:
       - name: Run numba simulator smoke
         run: uv run python -m unittest tests.test_simulator_numba -v
 
+      - name: Run parallel eval smoke
+        run: uv run python -m unittest tests.test_parallel_eval -v
+
       - name: Run surrogate acquisition reproducibility
         run: |
           uv run python -m unittest \
