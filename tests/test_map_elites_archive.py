@@ -8,14 +8,18 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
+
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
+    ARCHIVE_SCHEMA_VERSION_V1_3,
     DEFAULT_GRID_RESOLUTION,
     ArchiveElite,
     GridArchive,
     InsertResult,
     append_archive_line,
     archive_record_to_elite,
+    flat_cell_id,
     elite_from_eval,
     elite_to_archive_record,
     insert_and_persist,
@@ -25,6 +29,8 @@ from worldspace.illuminators.archive import (
     merge_archives,
     new_elite_metadata,
 )
+from worldspace.illuminators.cvt import save_centroids
+from worldspace.illuminators.cvt_archive import CvtArchive
 from worldspace.illuminators.evaluation import evaluate_candidate
 from worldspace.metrics import METRIC_KEYS, WorldMetrics
 from worldspace.specs.spec import WorldSpec
@@ -288,6 +294,52 @@ class TestArchiveJsonl(unittest.TestCase):
             parsed = json.loads(lines[0])
             self.assertEqual(parsed["schema_version"], ARCHIVE_SCHEMA_VERSION)
 
+    def test_elite_to_archive_record_schema_1_3_grid_includes_cell_id(self) -> None:
+        elite = _minimal_elite((2, 3), 0.61, elite_id="grid-13")
+        record = elite_to_archive_record(
+            elite,
+            archive_type="grid",
+            schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+            resolution=10,
+        )
+        self.assertEqual(record["schema_version"], ARCHIVE_SCHEMA_VERSION_V1_3)
+        self.assertEqual(record["archive_type"], "grid")
+        self.assertEqual(record["cell_id"], 23)
+        self.assertEqual(record["bin"], [2, 3])
+
+    def test_elite_to_archive_record_schema_1_3_cvt_includes_cell_id(self) -> None:
+        elite = _minimal_elite((7, 0), 0.42, elite_id="cvt-13")
+        record = elite_to_archive_record(
+            elite,
+            archive_type="cvt",
+            schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+        )
+        self.assertEqual(record["schema_version"], ARCHIVE_SCHEMA_VERSION_V1_3)
+        self.assertEqual(record["archive_type"], "cvt")
+        self.assertEqual(record["cell_id"], 7)
+        self.assertNotIn("bin", record)
+
+    def test_count_archive_jsonl_lines_uses_grid_resolution_for_schema_1_3(
+        self,
+    ) -> None:
+        resolution = 100
+        record = elite_to_archive_record(
+            _minimal_elite((60, 40), 0.55, elite_id="large-grid"),
+            archive_type="grid",
+            schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+            resolution=resolution,
+        )
+        record.pop("bin")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive.jsonl"
+            _write_jsonl(path, [record])
+            with self.assertRaises(IndexError):
+                count_archive_jsonl_lines(path, resolution=DEFAULT_GRID_RESOLUTION)
+            self.assertEqual(
+                count_archive_jsonl_lines(path, resolution=resolution),
+                1,
+            )
+
     def test_insert_and_persist_rejected_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "archive.jsonl"
@@ -374,7 +426,7 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
                 ],
             )
             archive = load_and_collapse_jsonl(path, resolution=10)
-            stored = archive.get(2, 3)
+            stored = archive.get_cell(flat_cell_id((2, 3), resolution=10))
             assert stored is not None
             assert stored.metadata is not None
             self.assertEqual(stored.fitness, 0.8)
@@ -391,7 +443,7 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
                 ],
             )
             archive = load_and_collapse_jsonl(path, resolution=5)
-            stored = archive.get(1, 1)
+            stored = archive.get_cell(flat_cell_id((1, 1), resolution=5))
             assert stored is not None
             assert stored.metadata is not None
             self.assertEqual(stored.metadata.id, "first")
@@ -408,7 +460,7 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
             with self.assertLogs("worldspace.illuminators.archive", level="WARNING"):
                 archive = load_and_collapse_jsonl(path, resolution=5)
                 line_count = count_archive_jsonl_lines(path)
-            stored = archive.get(0, 0)
+            stored = archive.get_cell(flat_cell_id((0, 0), resolution=5))
             assert stored is not None
             self.assertEqual(stored.fitness, 0.4)
             self.assertEqual(line_count, 1)
@@ -421,7 +473,7 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
             path.write_text(f"\n{record_line}\n\n\n", encoding="utf-8")
             archive = load_and_collapse_jsonl(path, resolution=5)
             line_count = count_archive_jsonl_lines(path)
-            stored = archive.get(0, 0)
+            stored = archive.get_cell(flat_cell_id((0, 0), resolution=5))
             assert stored is not None
             self.assertEqual(stored.fitness, 0.4)
             self.assertEqual(line_count, 1)
@@ -437,6 +489,49 @@ class TestLoadAndCollapseJsonl(unittest.TestCase):
     def test_load_missing_file_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
             load_and_collapse_jsonl("/nonexistent/archive.jsonl", resolution=5)
+
+    def test_load_schema_1_3_grid_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive13_grid.jsonl"
+            record = elite_to_archive_record(
+                _minimal_elite((1, 4), 0.73, elite_id="grid13"),
+                archive_type="grid",
+                schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+                resolution=10,
+            )
+            _write_jsonl(path, [record])
+            archive = load_and_collapse_jsonl(path, archive_type="grid", resolution=10)
+            stored = archive.get_cell(flat_cell_id((1, 4), resolution=10))
+            assert stored is not None
+            self.assertEqual(stored.fitness, 0.73)
+            assert stored.metadata is not None
+            self.assertEqual(stored.metadata.id, "grid13")
+
+    def test_load_schema_1_3_cvt_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "archive13_cvt.jsonl"
+            centroids_path = Path(tmp) / "cvt_centroids.json"
+            save_centroids(
+                centroids_path,
+                np.array([[0.1, 0.1], [0.3, 0.7], [0.8, 0.2]], dtype=np.float64),
+            )
+            record = elite_to_archive_record(
+                _minimal_elite((1, 0), 0.81, elite_id="cvt13"),
+                archive_type="cvt",
+                schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+            )
+            _write_jsonl(path, [record])
+            archive = load_and_collapse_jsonl(
+                path,
+                archive_type="cvt",
+                centroids_path=centroids_path,
+            )
+            self.assertIsInstance(archive, CvtArchive)
+            stored = archive.get_cell(1)
+            assert stored is not None
+            self.assertEqual(stored.fitness, 0.81)
+            assert stored.metadata is not None
+            self.assertEqual(stored.metadata.id, "cvt13")
 
 
 class TestMergeArchives(unittest.TestCase):
@@ -475,6 +570,33 @@ class TestMergeArchives(unittest.TestCase):
     def test_merge_resolution_mismatch_raises(self) -> None:
         with self.assertRaises(ValueError):
             merge_archives(GridArchive(5), GridArchive(8))
+
+    def test_merge_cvt_prefers_higher_fitness(self) -> None:
+        centroids = np.array([[0.1, 0.2], [0.4, 0.6], [0.9, 0.8]], dtype=np.float64)
+        base = CvtArchive(centroids)
+        incoming = CvtArchive(centroids.copy())
+        base.try_insert(_minimal_elite((1, 0), 0.25, elite_id="base"))
+        incoming.try_insert(_minimal_elite((1, 0), 0.55, elite_id="incoming"))
+        merge_archives(base, incoming)
+        stored = base.get_cell(1)
+        assert stored is not None
+        self.assertEqual(stored.fitness, 0.55)
+        assert stored.metadata is not None
+        self.assertEqual(stored.metadata.id, "incoming")
+
+    def test_merge_cvt_centroid_mismatch_raises(self) -> None:
+        base = CvtArchive(np.array([[0.1, 0.2], [0.4, 0.6]], dtype=np.float64))
+        incoming = CvtArchive(np.array([[0.1, 0.2], [0.5, 0.6]], dtype=np.float64))
+        with self.assertRaises(ValueError):
+            merge_archives(base, incoming)
+
+    def test_merge_archive_type_mismatch_raises(self) -> None:
+        grid = GridArchive(2)
+        cvt = CvtArchive(
+            np.array([[0.1, 0.2], [0.4, 0.6], [0.7, 0.9], [0.9, 0.1]], dtype=np.float64)
+        )
+        with self.assertRaises(ValueError):
+            merge_archives(grid, cvt)
 
 
 if __name__ == "__main__":

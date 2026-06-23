@@ -25,6 +25,8 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             evaluations=100,
             filled_cells=10,
             grid_resolution=50,
+            archive_type="grid",
+            n_cells=50 * 50,
             coverage=0.004,
             jsonl_raw_lines=12,
             jsonl_collapsed_cells=10,
@@ -47,6 +49,8 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             evaluations=100,
             filled_cells=11,
             grid_resolution=50,
+            archive_type="grid",
+            n_cells=50 * 50,
             coverage=0.0044,
             jsonl_raw_lines=13,
             jsonl_collapsed_cells=11,
@@ -67,6 +71,7 @@ class TestNightlyPipelineSummary(unittest.TestCase):
             out = Path(tmp) / "nightly_pipeline_summary.json"
             _write_pipeline_summary(
                 out,
+                archive_type="grid",
                 baseline=baseline,
                 surrogate=surrogate,
                 training_summary_path=training_path,

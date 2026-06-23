@@ -28,6 +28,7 @@ jobs:
 
       - name: Run MAP-Elites nightly
         run: |
+          # UTC day: odd → grid, even → CVT (see run_map_elites_nightly.resolve_nightly_archive_type)
           ARGS=()
           if [ -n "${{ github.event.inputs.iterations }}" ]; then
             ARGS+=(--iterations "${{ github.event.inputs.iterations }}")

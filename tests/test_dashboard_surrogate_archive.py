@@ -45,6 +45,12 @@ class TestSurrogateArchiveLoader(unittest.TestCase):
         self.assertEqual(row["target_bin_label"], "2,3")
         self.assertFalse(row["has_eval"])
 
+    def test_flatten_archive_record_includes_target_cell_id(self) -> None:
+        from dashboard.components.surrogate_archive_loader import flatten_archive_record
+
+        row = flatten_archive_record(_sample_record(target_cell_id=17))
+        self.assertEqual(row["target_cell_id"], 17)
+
     def test_load_smoke_fixture(self) -> None:
         from dashboard.components.surrogate_archive_loader import (
             load_surrogate_archive,
@@ -85,12 +91,13 @@ class TestSurrogateArchiveLoader(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
-    def test_resolve_surrogate_archive_path(self) -> None:
-        from dashboard.utils.config import load_config, resolve_surrogate_archive_path
+    def test_resolve_surrogate_archive_path_requires_archive(self) -> None:
+        from dashboard.utils.config import resolve_surrogate_archive_path
 
-        path = resolve_surrogate_archive_path(load_config())
-        self.assertTrue(path.name.endswith(".jsonl"))
-        self.assertIn("surrogate_archive", str(path))
+        with self.assertRaises(KeyError):
+            resolve_surrogate_archive_path(
+                archive_path=Path("/nonexistent/map_elites_archive.jsonl")
+            )
 
     def test_resolve_surrogate_archive_path_prefers_co_located(self) -> None:
         import tempfile
@@ -147,11 +154,52 @@ class TestSurrogateArchiveLoader(unittest.TestCase):
             )
             self.assertTrue(resolved.is_file())
 
-    def test_resolve_raises_when_config_and_archive_missing(self) -> None:
+    def test_resolve_raises_when_archive_not_selected(self) -> None:
         from dashboard.utils.config import resolve_surrogate_archive_path
 
         with self.assertRaises(KeyError):
-            resolve_surrogate_archive_path({"paths": {}})
+            resolve_surrogate_archive_path(
+                archive_path=Path("/missing/run/map_elites_archive.jsonl")
+            )
+
+    def test_get_archive_log_bundle_without_archive_raises_file_not_found(
+        self,
+    ) -> None:
+        import tempfile
+        from unittest import mock
+
+        from dashboard.components.surrogate_archive_loader import get_archive_log_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "surrogate_archive.jsonl"
+            log_path.write_text(
+                json.dumps(_sample_record()) + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "dashboard.components.surrogate_archive_loader.active_archive_path",
+                return_value=None,
+            ):
+                with self.assertRaises(FileNotFoundError) as ctx:
+                    get_archive_log_bundle()
+                self.assertIn("Select a MAP-Elites archive", str(ctx.exception))
+
+            bundle = get_archive_log_bundle(log_path)
+            self.assertEqual(bundle.line_count_raw, 1)
+
+    def test_get_archive_log_bundle_missing_co_located_log(self) -> None:
+        import tempfile
+
+        from dashboard.components.surrogate_archive_loader import get_archive_log_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir()
+            map_archive = run_dir / "map_elites_archive.jsonl"
+            map_archive.write_text("{}\n", encoding="utf-8")
+            with self.assertRaises(FileNotFoundError) as ctx:
+                get_archive_log_bundle(run_dir / "surrogate_archive.jsonl")
+            self.assertIn("Surrogate archive not found", str(ctx.exception))
 
 
 class TestAcquisitionMetrics(unittest.TestCase):

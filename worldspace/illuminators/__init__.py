@@ -21,6 +21,15 @@ from .archive import (
     merge_archives,
     new_elite_metadata,
 )
+from .archive_factory import (
+    ArchiveFactoryConfig,
+    archive_factory_config_from_scheduler,
+    create_archive,
+    create_empty_archive,
+    create_grid_archive,
+    normalize_archive_type,
+)
+from .archive_protocol import ArchiveProtocol
 from .evaluation import (
     MEASURE_KEYS,
     ILLUMINATOR_MIN_STEPS,
@@ -54,25 +63,31 @@ from .illuminator import (
 )
 from .loop import IterationStats, SlotOutcome, run_iteration, run_scheduler
 from .scheduler import (
+    DEFAULT_MINI_CVT_SCHEDULER_PATH,
     DEFAULT_MINI_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
     RunCounters,
     SchedulerConfig,
     TargetBin,
+    TargetCell,
     load_scheduler,
     resolve_emitter_for_slot,
     resolve_emitter_kind,
     select_target_bin,
+    select_target_cell,
     slot_emitter_for_candidate,
 )
 
 __all__ = [
+    "ArchiveFactoryConfig",
+    "ArchiveProtocol",
     "ARCHIVE_SCHEMA_VERSION",
     "BC_MAX",
     "BC_MIN",
     "DEFAULT_ARCHIVE_JSONL_PATH",
     "DEFAULT_GRID_RESOLUTION",
+    "DEFAULT_MINI_CVT_SCHEDULER_PATH",
     "DEFAULT_MINI_SCHEDULER_PATH",
     "DEFAULT_SCHEDULER_PATH",
     "ArchiveElite",
@@ -109,8 +124,13 @@ __all__ = [
     "MapElitesEmitter",
     "MapElitesIlluminator",
     "MapElitesRunResult",
+    "archive_factory_config_from_scheduler",
     "archive_jsonl_path",
+    "create_archive",
+    "create_empty_archive",
+    "create_grid_archive",
     "merge_archives",
+    "normalize_archive_type",
     "normalize_illuminator_steps",
     "new_elite_metadata",
     "RandomEmitter",
@@ -121,10 +141,12 @@ __all__ = [
     "RunCounters",
     "SchedulerConfig",
     "select_target_bin",
+    "select_target_cell",
     "SlotOutcome",
     "slot_emitter_for_candidate",
     "strip_seed",
     "StubCandidateEmitter",
     "TargetBin",
+    "TargetCell",
     "topology_complexity",
 ]

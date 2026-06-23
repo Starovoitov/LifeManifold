@@ -15,7 +15,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.llm_prompts import system_prompt_version
-from worldspace.illuminators.scheduler import SchedulerConfig, TargetBin
+from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
@@ -23,7 +23,12 @@ from worldspace.specs.world_spec_from_llm import (
 )
 from worldspace.surrogate.types import SurrogatePrediction
 
-_TARGET = TargetBin(bin=(1, 1), target_stability=0.5, target_diversity=0.6)
+_TARGET = TargetCell(
+    cell_id=6,
+    target_stability=0.5,
+    target_diversity=0.6,
+    bin_ij=(1, 1),
+)
 _BASE = WorldSpec(
     birth=[1, 3],
     survival=[2, 3],

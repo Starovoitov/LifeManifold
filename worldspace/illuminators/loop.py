@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from worldspace.illuminators.archive import (
-    GridArchive,
+    ARCHIVE_SCHEMA_VERSION,
+    ARCHIVE_SCHEMA_VERSION_V1_3,
     InsertResult,
     insert_and_persist,
     insert_evaluated,
 )
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import CandidateEmitter
 from worldspace.illuminators.evaluation import (
     ILLUMINATOR_MIN_STEPS,
@@ -27,7 +29,7 @@ from worldspace.illuminators.scheduler import (
     SchedulerConfig,
     TargetBin,
     resolve_emitter_for_slot,
-    select_target_bin,
+    select_target_cell,
 )
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition import (
@@ -89,7 +91,7 @@ class SlotOutcome:
 
 def run_iteration(
     config: SchedulerConfig,
-    archive: GridArchive,
+    archive: ArchiveProtocol,
     rng: np.random.Generator,
     counters: RunCounters,
     emitter: CandidateEmitter,
@@ -123,10 +125,11 @@ def run_iteration(
             candidate_id=candidate_id,
             candidates_evaluated=counters.candidates_evaluated,
         )
-        target = select_target_bin(archive, rng)
+        target_cell = select_target_cell(archive, rng)
+        target_bin = TargetBin.from_target_cell(target_cell)
         output = emitter.emit(
             emitter_kind=emitter_kind,
-            target=target,
+            target=target_cell,
             archive=archive,
             rng=rng,
             grid_size=grid_size,
@@ -141,7 +144,7 @@ def run_iteration(
         if config.surrogate_enabled and surrogate is not None:
             prediction = surrogate.predict(spec)
             if acquisition_active:
-                decision = decide(config.acquisition, prediction, target, archive)
+                decision = decide(config.acquisition, prediction, target_bin, archive)
                 runtime_action = effective_action(
                     config.acquisition.mode,
                     decision,
@@ -157,7 +160,8 @@ def run_iteration(
                     iteration=iteration_index,
                     candidate_id=candidate_id,
                     emitter_type=output.metadata.emitter_type,
-                    target=target,
+                    target=target_bin,
+                    target_cell_id=target_cell.cell_id,
                     world_spec_hash=world_spec_canonical_hash(spec),
                     prediction=prediction,
                     decision=decision,
@@ -167,7 +171,7 @@ def run_iteration(
                 SlotOutcome(
                     candidate_id=candidate_id,
                     emitter_kind=emitter_kind,
-                    target_bin=target,
+                    target_bin=target_bin,
                     skipped=True,
                     eval_result=None,
                     insert=None,
@@ -180,6 +184,7 @@ def run_iteration(
         eval_result = evaluate_candidate(
             spec,
             resolution=config.grid_resolution,
+            archive=archive,
             early_extinction_step=config.early_extinction_step,
             enforce_min_steps=True,
         )
@@ -191,9 +196,14 @@ def run_iteration(
                 eval_result,
                 emitter_type=output.metadata.emitter_type,
             )
+        jsonl_schema_version = _jsonl_schema_version_for_archive(archive)
         if jsonl_path is not None:
             insert = insert_and_persist(
-                archive, eval_result, output.metadata, jsonl_path
+                archive,
+                eval_result,
+                output.metadata,
+                jsonl_path,
+                schema_version=jsonl_schema_version,
             )
         else:
             insert = insert_evaluated(archive, eval_result, output.metadata)
@@ -217,7 +227,8 @@ def run_iteration(
                 iteration=iteration_index,
                 candidate_id=candidate_id,
                 emitter_type=output.metadata.emitter_type,
-                target=target,
+                target=target_bin,
+                target_cell_id=target_cell.cell_id,
                 world_spec_hash=world_spec_canonical_hash(spec),
                 prediction=prediction,
                 decision=decision,
@@ -230,7 +241,7 @@ def run_iteration(
             SlotOutcome(
                 candidate_id=candidate_id,
                 emitter_kind=emitter_kind,
-                target_bin=target,
+                target_bin=target_bin,
                 skipped=False,
                 eval_result=eval_result,
                 insert=insert,
@@ -260,7 +271,7 @@ def run_iteration(
 
 def run_scheduler(
     config: SchedulerConfig,
-    archive: GridArchive,
+    archive: ArchiveProtocol,
     rng: np.random.Generator,
     emitter: CandidateEmitter,
     *,
@@ -317,6 +328,12 @@ def run_scheduler(
 
 def _acquisition_logging_active(config: SchedulerConfig) -> bool:
     return config.surrogate_enabled and config.acquisition.mode != "off"
+
+
+def _jsonl_schema_version_for_archive(archive: ArchiveProtocol) -> str:
+    if archive.archive_type == "cvt":
+        return ARCHIVE_SCHEMA_VERSION_V1_3
+    return ARCHIVE_SCHEMA_VERSION
 
 
 def _prepare_world_spec(spec: WorldSpec, *, grid_size: int, steps: int) -> WorldSpec:

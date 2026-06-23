@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-dashboard activate lint fix smoke-map-elites nightly-map-elites github-llm-map-elites github-llm-map-elites-full surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline migrate-surrogate-buffer calibrate-surrogate
+.PHONY: install install-dashboard activate lint fix smoke-map-elites smoke-map-elites-cvt nightly-map-elites github-llm-map-elites github-llm-map-elites-full surrogate-artifacts surrogate-artifacts-quick surrogate-acquisition-baseline migrate-surrogate-buffer calibrate-surrogate
 
 install:
 	$(UV) venv
@@ -26,6 +26,9 @@ fix:
 
 smoke-map-elites:
 	$(UV) run python -m unittest tests.test_map_elites_smoke -v
+
+smoke-map-elites-cvt:
+	$(UV) run python -m unittest tests.test_map_elites_smoke.TestMapElitesSmoke.test_mini_cvt_scheduler_smoke_leaves_artifacts -v
 
 nightly-map-elites:
 	$(UV) run python -m worldspace.scripts.run_map_elites_nightly

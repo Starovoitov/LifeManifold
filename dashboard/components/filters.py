@@ -51,7 +51,9 @@ def render_archive_filters(
             else 0
         )
         heatmap_metric = st.selectbox(
-            "Heatmap metric", metric_options, index=metric_index
+            "Chart metric" if bundle.archive_type == "cvt" else "Heatmap metric",
+            metric_options,
+            index=metric_index,
         )
         min_fitness = st.slider(
             "Min fitness",

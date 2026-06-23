@@ -22,10 +22,15 @@ from worldspace.illuminators.emitters import (
     strip_seed,
 )
 from worldspace.illuminators.emitters.genetics import uniform_crossover
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
-_TARGET = TargetBin(bin=(2, 3), target_stability=0.5, target_diversity=0.6)
+_TARGET = TargetCell(
+    cell_id=13,
+    target_stability=0.5,
+    target_diversity=0.6,
+    bin_ij=(2, 3),
+)
 _BASE_SPEC = WorldSpec(
     birth=[1, 3],
     survival=[2, 3, 4],
@@ -144,7 +149,12 @@ class TestGeneticEmitter(unittest.TestCase):
             _elite((2, 2), 0.2, replace(_BASE_SPEC, birth=[2]), elite_id="parent-two")
         )
         output = GeneticEmitter(mutation_scale=0.0).emit(
-            target=TargetBin(bin=(2, 3), target_stability=0.5, target_diversity=0.5),
+            target=TargetCell(
+                cell_id=13,
+                target_stability=0.5,
+                target_diversity=0.5,
+                bin_ij=(2, 3),
+            ),
             archive=archive,
             rng=np.random.default_rng(5),
             grid_size=8,
@@ -171,7 +181,12 @@ class TestGeneticEmitter(unittest.TestCase):
             _elite((3, 3), 0.3, replace(_BASE_SPEC, noise=0.02), elite_id="low-b")
         )
         output = GeneticEmitter(mutation_scale=0.0).emit(
-            target=TargetBin(bin=(1, 1), target_stability=0.5, target_diversity=0.5),
+            target=TargetCell(
+                cell_id=5,
+                target_stability=0.5,
+                target_diversity=0.5,
+                bin_ij=(1, 1),
+            ),
             archive=archive,
             rng=np.random.default_rng(99),
             grid_size=8,
@@ -197,7 +212,12 @@ class TestMapElitesEmitter(unittest.TestCase):
         archive.try_insert(_elite((2, 2), 0.4, _BASE_SPEC, elite_id="n"))
         genetic_out = emitter.emit(
             emitter_kind="genetic",
-            target=TargetBin(bin=(2, 3), target_stability=0.5, target_diversity=0.5),
+            target=TargetCell(
+                cell_id=13,
+                target_stability=0.5,
+                target_diversity=0.5,
+                bin_ij=(2, 3),
+            ),
             archive=archive,
             rng=np.random.default_rng(2),
             grid_size=8,

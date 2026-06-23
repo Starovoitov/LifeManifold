@@ -45,6 +45,7 @@ class TestDashboardVisualizations(unittest.TestCase):
         y_title = layout.yaxis.title.text
         self.assertIn("Diversity", x_title)
         self.assertIn("Stability", y_title)
+        self.assertNotEqual(getattr(layout.yaxis, "autorange", None), "reversed")
 
     def test_create_metrics_radar_with_enough_keys(self) -> None:
         from dashboard.components.visualizations import create_metrics_radar
@@ -182,6 +183,61 @@ class TestDashboardVisualizations(unittest.TestCase):
         grid = _pivot_from_dataframe(df, metric="fitness", resolution=50)
         self.assertEqual(grid.shape, (50, 50))
         self.assertEqual(grid[1, 1], 0.9)
+
+    def test_create_archive_scatter_cvt_trace_types(self) -> None:
+        import tempfile
+
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.components.visualizations import create_archive_scatter
+        from dashboard.utils.config import load_config
+        from tests.test_dashboard_archive_loader import _cvt_fixture_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+            fig = create_archive_scatter(
+                bundle.collapsed,
+                bundle.centroids,
+                metric="fitness",
+            )
+        trace_types = {trace.type for trace in _figure_traces(fig)}
+        self.assertIn("scatter", trace_types)
+        self.assertGreaterEqual(len(_figure_traces(fig)), 1)
+
+    def test_create_archive_scatter_shows_empty_and_filled_traces(self) -> None:
+
+        from dashboard.components.visualizations import create_archive_scatter
+        from worldspace.illuminators.cvt import generate_centroids
+
+        centroids = generate_centroids(9, seed=0, lloyd_iterations=5)
+        collapsed = __import__("pandas").DataFrame(
+            {
+                "cell_id": [0, 3],
+                "fitness": [0.2, 0.8],
+                "measure_stability": [0.4, 0.6],
+                "measure_diversity": [0.5, 0.7],
+            }
+        )
+        fig = create_archive_scatter(collapsed, centroids, metric="fitness")
+        trace_names = {trace.name for trace in _figure_traces(fig)}
+        self.assertIn("empty niche", trace_names)
+        self.assertIn("elite", trace_names)
+
+    def test_create_archive_scatter_metric_from_measure_columns(self) -> None:
+        from dashboard.components.visualizations import create_archive_scatter
+        from worldspace.illuminators.cvt import generate_centroids
+
+        centroids = generate_centroids(4, seed=1, lloyd_iterations=5)
+        collapsed = __import__("pandas").DataFrame(
+            {
+                "cell_id": [0, 1],
+                "measure_stability": [0.3, 0.7],
+                "measure_diversity": [0.4, 0.6],
+            }
+        )
+        fig = create_archive_scatter(collapsed, centroids, metric="stability")
+        self.assertGreaterEqual(len(_figure_traces(fig)), 1)
 
 
 if __name__ == "__main__":

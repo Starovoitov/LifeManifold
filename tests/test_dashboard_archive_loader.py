@@ -7,10 +7,60 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
+from worldspace.illuminators.archive import (
+    ARCHIVE_SCHEMA_VERSION_V1_3,
+    ArchiveElite,
+    elite_to_archive_record,
+    new_elite_metadata,
+)
+from worldspace.illuminators.cvt import save_centroids
+from worldspace.specs.spec import WorldSpec
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SMOKE_ARCHIVE = (
     _REPO_ROOT / "artifacts" / "map_elites_smoke" / "map_elites_archive.jsonl"
 )
+
+
+def _cvt_fixture_dir(tmp: str, *, n_centroids: int = 9) -> Path:
+    from worldspace.illuminators.cvt import generate_centroids
+
+    root = Path(tmp)
+    centroids = generate_centroids(n_centroids, seed=0, lloyd_iterations=5)
+    save_centroids(root / "cvt_centroids.json", centroids)
+    spec = WorldSpec(
+        birth=[1],
+        survival=[2],
+        noise=0.0,
+        resource_regen=0.0,
+        predation=0.0,
+        cell_types=["life", "food"],
+        grid_size=50,
+        steps=200,
+        seed=1,
+    )
+    archive_path = root / "map_elites_archive.jsonl"
+    with archive_path.open("w", encoding="utf-8") as handle:
+        for cell_id in (0, 0, 3, 5):
+            record = elite_to_archive_record(
+                ArchiveElite(
+                    bin=(cell_id, 0),
+                    fitness=0.3 + 0.1 * cell_id,
+                    world_spec=spec,
+                    measures={"stability": 0.4, "diversity": 0.6},
+                    metadata=new_elite_metadata(
+                        generated_by="random",
+                        emitter_type="random",
+                        elite_id=f"cvt-{cell_id}",
+                        timestamp="2026-01-01T00:00:00+00:00",
+                    ),
+                ),
+                archive_type="cvt",
+                schema_version=ARCHIVE_SCHEMA_VERSION_V1_3,
+            )
+            handle.write(json.dumps(record) + "\n")
+    return archive_path
 
 
 class TestDashboardArchiveLoader(unittest.TestCase):
@@ -176,6 +226,13 @@ class TestDashboardArchiveLoader(unittest.TestCase):
             self.assertEqual(bundle.line_count_raw, 160)
             self.assertGreater(len(bundle.collapsed), 0)
 
+            from dashboard.components.archive_loader import _read_jsonl_polars
+
+            polars_frame = _read_jsonl_polars(path, line_count=160)
+            if polars_frame is None:
+                self.fail("_read_jsonl_polars returned None")
+            self.assertFalse(polars_frame.empty)
+
     def test_synthetic_jsonl_triggers_large_mode(self) -> None:
         from dashboard.components.archive_loader import load_archive_bundle
         from dashboard.utils.config import load_config
@@ -193,6 +250,70 @@ class TestDashboardArchiveLoader(unittest.TestCase):
             bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
             self.assertTrue(bundle.large_archive_mode)
             self.assertEqual(bundle.line_count_raw, 5001)
+
+    def test_detect_grid_on_smoke_archive(self) -> None:
+        from dashboard.components.archive_loader import detect_archive_type_from_jsonl
+
+        self.assertEqual(detect_archive_type_from_jsonl(_SMOKE_ARCHIVE), "grid")
+
+    def test_load_cvt_bundle_has_centroid_columns(self) -> None:
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.utils.config import load_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+        self.assertEqual(bundle.archive_type, "cvt")
+        self.assertEqual(bundle.n_cells, 9)
+        self.assertFalse(bundle.centroids_missing)
+        self.assertIsNotNone(bundle.centroids)
+        self.assertIn("centroid_s", bundle.collapsed.columns)
+        self.assertIn("centroid_d", bundle.collapsed.columns)
+        self.assertEqual(len(bundle.collapsed), 3)
+
+    def test_cvt_missing_centroids_sets_flag(self) -> None:
+        from dashboard.components.archive_loader import load_archive_bundle
+        from dashboard.utils.config import load_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _cvt_fixture_dir(tmp)
+            (Path(tmp) / "cvt_centroids.json").unlink()
+            cfg = load_config()
+            bundle = load_archive_bundle(path, path.stat().st_mtime, cfg)
+        self.assertTrue(bundle.centroids_missing)
+        self.assertIsNone(bundle.centroids)
+
+    def test_cvt_n_cells_hint_ignores_nan_cell_id(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_loader import _cvt_n_cells_hint
+
+        frame = pd.DataFrame({"cell_id": [float("nan"), 3.0, 5.0]})
+        self.assertEqual(_cvt_n_cells_hint(frame), 6)
+
+    def test_cvt_n_cells_hint_all_nan_returns_one(self) -> None:
+        import pandas as pd
+
+        from dashboard.components.archive_loader import _cvt_n_cells_hint
+
+        frame = pd.DataFrame({"cell_id": [float("nan"), float("nan")]})
+        self.assertEqual(_cvt_n_cells_hint(frame), 1)
+
+    def test_worldspace_fallback_marks_cvt_archive_type(self) -> None:
+        from dashboard.components.archive_loader import _read_jsonl_via_worldspace
+
+        archive_path = (
+            _REPO_ROOT
+            / "artifacts"
+            / "map_elites_smoke_cvt"
+            / "map_elites_archive.jsonl"
+        )
+        if not archive_path.is_file():
+            self.skipTest("CVT smoke archive missing")
+        frame, _ = _read_jsonl_via_worldspace(archive_path, archive_type="cvt")
+        self.assertFalse(frame.empty)
+        self.assertTrue((frame["archive_type"] == "cvt").all())
 
 
 if __name__ == "__main__":

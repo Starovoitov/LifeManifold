@@ -92,6 +92,7 @@ __all__ = [
     "RADAR_METRIC_KEYS",
     "add_boundary_overlay",
     "create_archive_heatmap",
+    "create_archive_scatter",
     "create_correlation_heatmap",
     "create_diagnostic_dashboard",
     "DIAGNOSTIC_PANEL_HELP",
@@ -133,9 +134,40 @@ def create_archive_heatmap(
         height=default_figure_height(heatmap=True),
         width=680,
         xaxis=dict(title="Diversity bin", ticks="outside"),
-        yaxis=dict(title="Stability bin", ticks="outside", autorange="reversed"),
+        yaxis=dict(title="Stability bin", ticks="outside"),
     )
     return apply_dark_theme(fig)
+
+
+def create_archive_scatter(
+    collapsed: pd.DataFrame,
+    centroids: np.ndarray | None,
+    metric: str = "fitness",
+    *,
+    title: str | None = None,
+) -> go.Figure:
+    """CVT archive scatter: BC niche centers colored by ``metric``; empty niches are hollow."""
+    display_title = title or f"CVT archive — {metric.replace('_', ' ').title()}"
+    colorscale = METRIC_COLORSCALES.get(metric, "Viridis")
+    fig = go.Figure()
+
+    if centroids is not None and centroids.ndim == 2 and centroids.shape[1] == 2:
+        return _create_cvt_centroid_scatter(
+            fig,
+            collapsed=collapsed,
+            centroids=centroids,
+            metric=metric,
+            title=display_title,
+            colorscale=colorscale,
+        )
+
+    return _create_cvt_elite_only_scatter(
+        fig,
+        collapsed=collapsed,
+        metric=metric,
+        title=display_title,
+        colorscale=colorscale,
+    )
 
 
 def create_correlation_heatmap(
@@ -356,7 +388,12 @@ def plot_real_vs_predicted(
     if uncertainty is not None:
         marker_kwargs["color"] = np.asarray(uncertainty, dtype=np.float64)
         marker_kwargs["colorscale"] = "Turbo"
-        marker_kwargs["colorbar"] = dict(title="uncertainty")
+        marker_kwargs["colorbar"] = dict(
+            title="uncertainty",
+            x=1.12,
+            xanchor="left",
+            xpad=12,
+        )
 
     fig = go.Figure()
     fig.add_trace(
@@ -390,6 +427,7 @@ def plot_real_vs_predicted(
         xaxis_title=f"Real {label}",
         yaxis_title=f"Predicted {label}",
         height=default_figure_height(),
+        margin=dict(r=110),
     )
     return apply_dark_theme(fig)
 
@@ -851,6 +889,217 @@ def create_diagnostic_dashboard(
     themed = apply_dark_theme(fig)
     themed.update_layout(title=dict(font=dict(color="#ffffff")))
     return themed
+
+
+def _create_cvt_centroid_scatter(
+    fig: go.Figure,
+    *,
+    collapsed: pd.DataFrame,
+    centroids: np.ndarray,
+    metric: str,
+    title: str,
+    colorscale: str,
+) -> go.Figure:
+    n_cells = centroids.shape[0]
+    stability = centroids[:, 0]
+    diversity = centroids[:, 1]
+    cell_ids = np.arange(n_cells, dtype=np.int64)
+
+    metric_values = np.full(n_cells, np.nan, dtype=np.float64)
+    if not collapsed.empty and "cell_id" in collapsed.columns:
+        metric_col = _scatter_metric_column(collapsed, metric)
+        if metric_col is not None:
+            lookup = collapsed.set_index("cell_id")[metric_col]
+            for cell_id in lookup.index:
+                idx = int(cell_id)
+                if 0 <= idx < n_cells:
+                    metric_values[idx] = float(lookup.loc[cell_id])
+
+    filled_mask = ~np.isnan(metric_values)
+    empty_mask = ~filled_mask
+
+    if np.any(empty_mask):
+        fig.add_trace(
+            go.Scatter(
+                x=diversity[empty_mask],
+                y=stability[empty_mask],
+                mode="markers",
+                name="empty niche",
+                marker=dict(
+                    size=9,
+                    color="rgba(180, 180, 180, 0.35)",
+                    symbol="circle-open",
+                    line=dict(width=1.5, color="rgba(200, 200, 200, 0.8)"),
+                ),
+                hovertemplate=(
+                    "cell %{customdata}<br>"
+                    "stability=%{y:.3f}<br>"
+                    "diversity=%{x:.3f}<br>"
+                    "empty<extra></extra>"
+                ),
+                customdata=cell_ids[empty_mask],
+            )
+        )
+
+    if np.any(filled_mask):
+        filled_values = metric_values[filled_mask]
+        fig.add_trace(
+            go.Scatter(
+                x=diversity[filled_mask],
+                y=stability[filled_mask],
+                mode="markers",
+                name="elite",
+                marker=dict(
+                    size=11,
+                    color=filled_values,
+                    colorscale=colorscale,
+                    colorbar=_scatter_metric_colorbar(metric),
+                    cmin=float(np.nanmin(filled_values)),
+                    cmax=float(np.nanmax(filled_values)),
+                    line=dict(width=0.5, color="rgba(255, 255, 255, 0.35)"),
+                ),
+                hovertemplate=(
+                    "cell %{customdata}<br>"
+                    "stability=%{y:.3f}<br>"
+                    "diversity=%{x:.3f}<br>"
+                    f"{metric}=%{{marker.color:.3f}}<extra></extra>"
+                ),
+                customdata=cell_ids[filled_mask],
+            )
+        )
+
+    if not np.any(filled_mask) and not np.any(empty_mask):
+        fig.add_annotation(
+            text="No CVT niches to display.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+
+    fig.update_layout(
+        title=title,
+        height=default_figure_height(heatmap=True),
+        width=680,
+        margin=dict(r=110),
+        xaxis=dict(title="Diversity (niche center)", range=[0.0, 1.0]),
+        yaxis=dict(title="Stability (niche center)", range=[0.0, 1.0]),
+    )
+    return apply_dark_theme(fig)
+
+
+def _create_cvt_elite_only_scatter(
+    fig: go.Figure,
+    *,
+    collapsed: pd.DataFrame,
+    metric: str,
+    title: str,
+    colorscale: str,
+) -> go.Figure:
+    if collapsed.empty:
+        fig.add_annotation(
+            text="No elites to display (centroids file missing).",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(height=default_figure_height(heatmap=True), width=680)
+        return apply_dark_theme(fig)
+
+    x_col = _scatter_axis_column(collapsed, "diversity")
+    y_col = _scatter_axis_column(collapsed, "stability")
+    metric_col = _scatter_metric_column(collapsed, metric)
+    if x_col is None or y_col is None or metric_col is None:
+        fig.add_annotation(
+            text="Missing stability/diversity columns for degraded CVT scatter.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=14),
+        )
+        fig.update_layout(height=default_figure_height(heatmap=True), width=680)
+        return apply_dark_theme(fig)
+
+    x_values = collapsed[x_col].to_numpy(dtype=np.float64)
+    y_values = collapsed[y_col].to_numpy(dtype=np.float64)
+    color_values = collapsed[metric_col].to_numpy(dtype=np.float64)
+    customdata = (
+        collapsed["cell_id"].to_numpy(dtype=np.int64)
+        if "cell_id" in collapsed.columns
+        else np.arange(len(collapsed), dtype=np.int64)
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode="markers",
+            name="elite",
+            marker=dict(
+                size=11,
+                color=color_values,
+                colorscale=colorscale,
+                colorbar=_scatter_metric_colorbar(metric),
+                cmin=float(np.nanmin(color_values)),
+                cmax=float(np.nanmax(color_values)),
+            ),
+            hovertemplate=(
+                "cell %{customdata}<br>"
+                "stability=%{y:.3f}<br>"
+                "diversity=%{x:.3f}<br>"
+                f"{metric}=%{{marker.color:.3f}}<extra></extra>"
+            ),
+            customdata=customdata,
+        )
+    )
+    fig.update_layout(
+        title=title,
+        height=default_figure_height(heatmap=True),
+        width=680,
+        margin=dict(r=110),
+        xaxis=dict(title="Diversity", range=[0.0, 1.0]),
+        yaxis=dict(title="Stability", range=[0.0, 1.0]),
+    )
+    return apply_dark_theme(fig)
+
+
+def _scatter_metric_colorbar(metric: str) -> dict[str, Any]:
+    """Colorbar layout for CVT archive scatter plots."""
+    return dict(
+        title=metric,
+        x=1.12,
+        xanchor="left",
+        xpad=12,
+    )
+
+
+def _scatter_metric_column(frame: pd.DataFrame, metric: str) -> str | None:
+    if metric in frame.columns:
+        return metric
+    measure_key = f"measure_{metric}"
+    if measure_key in frame.columns:
+        return measure_key
+    return None
+
+
+def _scatter_axis_column(frame: pd.DataFrame, axis: str) -> str | None:
+    if axis in frame.columns:
+        return axis
+    measure_key = f"measure_{axis}"
+    if measure_key in frame.columns:
+        return measure_key
+    if axis == "stability" and "centroid_s" in frame.columns:
+        return "centroid_s"
+    if axis == "diversity" and "centroid_d" in frame.columns:
+        return "centroid_d"
+    return None
 
 
 def _resolve_pivot(

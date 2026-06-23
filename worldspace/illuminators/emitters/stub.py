@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from worldspace.generators import RandomWorldGenerator
-from worldspace.illuminators.archive import GridArchive, new_elite_metadata
+from worldspace.illuminators.archive import new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
-from worldspace.illuminators.scheduler import EmitterKind, TargetBin
+from worldspace.illuminators.scheduler import EmitterKind, TargetCell
 
 __all__ = ["StubCandidateEmitter"]
 
@@ -19,8 +20,8 @@ class StubCandidateEmitter:
         self,
         *,
         emitter_kind: EmitterKind,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,

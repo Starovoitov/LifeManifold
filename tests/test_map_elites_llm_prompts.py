@@ -15,18 +15,20 @@ from worldspace.illuminators.archive import (
     GridArchive,
     new_elite_metadata,
 )
+from worldspace.illuminators.emitters.archive_neighbors import moore_neighbor_elites
 from worldspace.illuminators.emitters.llm_emitter import (
     build_user_prompt,
     format_few_shot_block,
-    moore_neighbor_elites,
 )
 from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
+    DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     load_system_prompt_template,
+    render_cvt_system_prompt,
     render_system_prompt,
     system_prompt_version,
 )
-from worldspace.illuminators.scheduler import TargetBin
+from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_param_bounds import NOISE_MAX, NOISE_MIN
 from worldspace.specs.world_spec_constraints import (
@@ -86,6 +88,24 @@ class TestSystemPrompt(unittest.TestCase):
         self.assertIn("diversity", text)
         self.assertIn("0.45*diversity", text)
 
+    def test_cvt_render_substitutes_n_centroids(self) -> None:
+        rendered = render_cvt_system_prompt(25)
+        self.assertIn("25", rendered)
+        self.assertIn("Voronoi", rendered)
+        self.assertNotIn("{n_centroids}", rendered)
+
+    def test_cvt_system_prompt_version_is_sha256_prefix(self) -> None:
+        expected = hashlib.sha256(
+            DEFAULT_SYSTEM_PROMPT_PATH_CVT.read_bytes()
+        ).hexdigest()[:8]
+        self.assertEqual(system_prompt_version(archive_type="cvt"), expected)
+
+    def test_cvt_prompt_version_differs_from_grid(self) -> None:
+        self.assertNotEqual(
+            system_prompt_version(archive_type="grid"),
+            system_prompt_version(archive_type="cvt"),
+        )
+
 
 class TestUserPrompt(unittest.TestCase):
     def test_user_prompt_template_keeps_surrogate_placeholders(self) -> None:
@@ -96,7 +116,12 @@ class TestUserPrompt(unittest.TestCase):
 
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
         archive = GridArchive(5)
-        target = TargetBin(bin=(2, 2), target_stability=0.42, target_diversity=0.57)
+        target = TargetCell(
+            cell_id=12,
+            target_stability=0.42,
+            target_diversity=0.57,
+            bin_ij=(2, 2),
+        )
         prompt = build_user_prompt(
             target=target,
             archive=archive,

@@ -15,6 +15,11 @@ path_setup.install_paths(__file__)
 
 import streamlit as st
 
+from dashboard.components.artifact_selectors import (
+    format_repo_relative_path,
+    render_archive_selector,
+    render_buffer_selector,
+)
 from dashboard.components.training_buffer_loader import (
     apply_buffer_filters,
     get_buffer_bundle,
@@ -26,7 +31,7 @@ from dashboard.components.training_buffer_view import (
     render_buffer_stats,
     render_buffer_table,
 )
-from dashboard.utils.config import load_config, repo_root, resolve_surrogate_buffer_path
+from dashboard.utils.config import load_config
 
 st.set_page_config(page_title="Training Buffer", layout="wide")
 st.title("Training Buffer")
@@ -34,21 +39,21 @@ st.caption("View surrogate training buffer JSONL (read-only; no training from UI
 
 cfg = load_config()
 
-try:
-    buffer_path = resolve_surrogate_buffer_path(cfg)
-except KeyError as exc:
-    st.error(f"Dashboard config error: {exc}")
+selected_archive = render_archive_selector(cfg)
+if selected_archive is None:
+    st.error("No archive JSONL found under scan roots.")
     st.stop()
 
-if not buffer_path.is_file():
-    st.error(f"Buffer file not found: {buffer_path.relative_to(repo_root())}")
+buffer_path = render_buffer_selector(selected_archive, cfg)
+if buffer_path is None:
+    st.error("No training buffer JSONL found near the selected archive.")
     st.info(
-        "Run MAP-Elites with surrogate buffer enabled or point "
-        "`paths.surrogate_buffer` in dashboard config to an existing JSONL file."
+        "Expected `buffer.jsonl` or other `*buffer*.jsonl` in the run directory "
+        "or parent when checkpoints exist."
     )
     st.stop()
 
-st.sidebar.caption(str(buffer_path.relative_to(repo_root())))
+st.sidebar.caption(format_repo_relative_path(buffer_path))
 
 try:
     bundle = get_buffer_bundle(buffer_path)

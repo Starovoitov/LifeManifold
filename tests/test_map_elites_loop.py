@@ -11,13 +11,14 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.base import EmitterOutput
 from worldspace.illuminators.emitters.stub import StubCandidateEmitter
 from worldspace.illuminators.loop import run_iteration, run_scheduler
 from worldspace.illuminators.scheduler import (
     RunCounters,
     SchedulerConfig,
-    TargetBin,
+    TargetCell,
 )
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
@@ -67,8 +68,8 @@ class FixedSpecEmitter:
         self,
         *,
         emitter_kind: str,
-        target: TargetBin,
-        archive: GridArchive,
+        target: TargetCell,
+        archive: ArchiveProtocol,
         rng: np.random.Generator,
         grid_size: int,
         steps: int,
@@ -208,6 +209,47 @@ class TestBatchEqualFitness(unittest.TestCase):
                 line for line in path.read_text(encoding="utf-8").splitlines() if line
             ]
             self.assertEqual(len(lines), 1)
+
+
+class TestMiniCvtLoop(unittest.TestCase):
+    def test_run_scheduler_with_map_elites_emitter_fills_archive(self) -> None:
+        from worldspace.illuminators.archive_factory import (
+            archive_factory_config_from_scheduler,
+            create_archive,
+        )
+        from worldspace.illuminators.cvt import centroids_path_for_output
+        from worldspace.illuminators.emitters.base import MapElitesEmitter
+        from worldspace.illuminators.scheduler import (
+            DEFAULT_MINI_CVT_SCHEDULER_PATH,
+            load_scheduler,
+        )
+
+        config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            archive = create_archive(
+                archive_factory_config_from_scheduler(config),
+                output_dir=out,
+            )
+            emitter = MapElitesEmitter(
+                mutation_scale=config.genetic_mutation_scale,
+                scheduler=config,
+            )
+            counters = run_scheduler(
+                config,
+                archive,
+                np.random.default_rng(42),
+                emitter,
+                grid_size=8,
+                steps=200,
+            )
+            self.assertEqual(
+                counters.candidates_evaluated,
+                config.iterations * config.batch_size,
+            )
+            self.assertGreater(archive.filled_count(), 0)
+            self.assertLessEqual(archive.filled_count(), config.n_centroids)
+            self.assertTrue(centroids_path_for_output(out).is_file())
 
 
 if __name__ == "__main__":

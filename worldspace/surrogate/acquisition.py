@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from worldspace.illuminators.archive import GridArchive
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import TargetBin
 from worldspace.surrogate.acquisition_config import (
     AcquisitionConfig,
@@ -58,7 +58,7 @@ class AcquisitionDecision:
 
 
 PolicyFn = Callable[
-    [AcquisitionConfig, SurrogatePrediction, TargetBin, GridArchive],
+    [AcquisitionConfig, SurrogatePrediction, TargetBin, ArchiveProtocol],
     AcquisitionDecision,
 ]
 
@@ -67,7 +67,7 @@ def decide(
     config: AcquisitionConfig,
     prediction: SurrogatePrediction,
     target: TargetBin,
-    archive: GridArchive,
+    archive: ArchiveProtocol,
 ) -> AcquisitionDecision:
     """Return the policy-layer recommendation for one candidate slot."""
     if config.mode == "off":
@@ -98,10 +98,10 @@ def _decide_threshold_gate(
     config: AcquisitionConfig,
     prediction: SurrogatePrediction,
     target: TargetBin,
-    archive: GridArchive,
+    archive: ArchiveProtocol,
 ) -> AcquisitionDecision:
-    i, j = target.bin
-    if config.never_skip_empty_bin and archive.is_empty(i, j):
+    cell_id = archive.cell_id_from_bin(target.bin)
+    if config.never_skip_empty_bin and archive.is_empty_cell(cell_id):
         return _eval_decision(REASON_EMPTY_BIN_EXPLORE, THRESHOLD_GATE_POLICY_VERSION)
 
     low_fitness = prediction.fitness < config.min_predicted_fitness

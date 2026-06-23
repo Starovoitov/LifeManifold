@@ -5,15 +5,22 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
-from worldspace.illuminators.archive import GridArchive
-from worldspace.illuminators.evaluation import bin_center
-from worldspace.illuminators.grid_neighbors import cardinal_neighbors_bounded
+from worldspace.illuminators.archive import DEFAULT_GRID_RESOLUTION, GridArchive
+from worldspace.illuminators.archive_protocol import ArchiveProtocol
+from worldspace.illuminators.cvt import DEFAULT_LLOYD_ITERATIONS
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition_config import (
     AcquisitionConfig,
@@ -26,10 +33,21 @@ from worldspace.surrogate.types import SurrogateConfig, SurrogateProtocol
 logger = logging.getLogger(__name__)
 
 EmitterKind = Literal["random", "genetic", "llm"]
+ArchiveType = Literal["grid", "cvt"]
 _SCHEDULER_SCHEMA_VERSION = "1.2"
+_SCHEDULER_SCHEMA_VERSIONS = ("1.2", "1.3")
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
 DEFAULT_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler.yaml"
 DEFAULT_MINI_SCHEDULER_PATH = _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini.yaml"
+DEFAULT_MINI_CVT_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_mini_cvt.yaml"
+)
+DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_cvt.yaml"
+)
+DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate_cvt.yaml"
+)
 DEFAULT_NIGHTLY_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly.yaml"
 )
@@ -37,15 +55,22 @@ DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_nightly_surrogate.yaml"
 )
 DEFAULT_GITHUB_LLM_SCHEDULER_PATH = (
+    _DEFAULT_SPECS_DIR / "map_elites_scheduler_github_llm_cvt.yaml"
+)
+DEFAULT_GITHUB_LLM_GRID_SCHEDULER_PATH = (
     _DEFAULT_SPECS_DIR / "map_elites_scheduler_github_llm.yaml"
 )
 DEFAULT_QWEN_LLM_SPEC_PATH = _DEFAULT_SPECS_DIR / "llm_world_generator_qwen.yaml"
 
 __all__ = [
     "AcquisitionConfig",
+    "DEFAULT_MINI_CVT_SCHEDULER_PATH",
     "DEFAULT_MINI_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_CVT_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SCHEDULER_PATH",
+    "DEFAULT_GITHUB_LLM_GRID_SCHEDULER_PATH",
     "DEFAULT_GITHUB_LLM_SCHEDULER_PATH",
+    "DEFAULT_NIGHTLY_SURROGATE_CVT_SCHEDULER_PATH",
     "DEFAULT_NIGHTLY_SURROGATE_SCHEDULER_PATH",
     "DEFAULT_QWEN_LLM_SPEC_PATH",
     "DEFAULT_SCHEDULER_PATH",
@@ -54,11 +79,13 @@ __all__ = [
     "RunCounters",
     "SchedulerConfig",
     "TargetBin",
+    "TargetCell",
     "load_scheduler",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
     "resolve_surrogate_stub",
     "select_target_bin",
+    "select_target_cell",
     "slot_emitter_for_candidate",
     "surrogate_config_from_scheduler",
 ]
@@ -91,6 +118,27 @@ class SchedulerConfig:
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
     surrogate_calibration: str | None = None
     surrogate_use_soft_extinction: bool = False
+    archive_type: ArchiveType = "grid"
+    n_centroids: int = DEFAULT_GRID_RESOLUTION * DEFAULT_GRID_RESOLUTION
+    cvt_seed: int = 0
+    lloyd_iterations: int = DEFAULT_LLOYD_ITERATIONS
+
+    @property
+    def n_cells(self) -> int:
+        """Number of behavioral niches for the configured archive."""
+        if self.archive_type == "grid":
+            return self.grid_resolution * self.grid_resolution
+        return self.n_centroids
+
+
+@dataclass(frozen=True)
+class TargetCell:
+    """Archive niche chosen for the next candidate and its BC center."""
+
+    cell_id: int
+    target_stability: float
+    target_diversity: float
+    bin_ij: tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -100,6 +148,15 @@ class TargetBin:
     bin: tuple[int, int]
     target_stability: float
     target_diversity: float
+
+    @classmethod
+    def from_target_cell(cls, cell: TargetCell) -> TargetBin:
+        """Bridge ``TargetCell`` to acquisition and logging APIs that use bins."""
+        return cls(
+            bin=cell.bin_ij,
+            target_stability=cell.target_stability,
+            target_diversity=cell.target_diversity,
+        )
 
 
 @dataclass
@@ -111,6 +168,15 @@ class RunCounters:
     def record_evaluation(self) -> None:
         """Increment after each completed real simulation (skipped slots excluded)."""
         self.candidates_evaluated += 1
+
+
+@dataclass(frozen=True)
+class _ArchiveSettings:
+    archive_type: ArchiveType
+    resolution: int
+    n_centroids: int
+    cvt_seed: int
+    lloyd_iterations: int
 
 
 def load_scheduler(
@@ -129,9 +195,9 @@ def load_scheduler(
         doc = _MapElitesSchedulerYaml.model_validate(raw)
     except ValidationError as exc:
         raise ValueError(f"Invalid scheduler YAML at {src}:\n{exc}") from exc
-    if doc.schema_version != _SCHEDULER_SCHEMA_VERSION:
+    if doc.schema_version not in _SCHEDULER_SCHEMA_VERSIONS:
         msg = (
-            f"schema_version must be {_SCHEDULER_SCHEMA_VERSION!r}, "
+            f"schema_version must be one of {_SCHEDULER_SCHEMA_VERSIONS!r}, "
             f"got {doc.schema_version!r}"
         )
         raise ValueError(msg)
@@ -149,11 +215,12 @@ def load_scheduler(
     archive_path = (
         doc.surrogate.surrogate_archive_path or DEFAULT_SURROGATE_ARCHIVE_PATH
     )
+    archive_settings = _archive_settings_from_yaml(doc)
     config = SchedulerConfig(
         schema_version=doc.schema_version,
         iterations=iterations,
         batch_size=doc.batch_size,
-        grid_resolution=doc.grid_resolution,
+        grid_resolution=archive_settings.resolution,
         early_extinction_step=doc.early_extinction_step,
         min_steps=doc.min_steps,
         batch_emitters=tuple(doc.batch_emitters),
@@ -171,16 +238,35 @@ def load_scheduler(
         surrogate_archive_path=archive_path,
         retrain=retrain,
         surrogate_calibration=_normalize_calibration_path(doc.surrogate.calibration),
+        archive_type=archive_settings.archive_type,
+        n_centroids=archive_settings.n_centroids,
+        cvt_seed=archive_settings.cvt_seed,
+        lloyd_iterations=archive_settings.lloyd_iterations,
     )
     return _normalize_acquisition_config(config)
 
 
-def _normalize_calibration_path(value: str | None) -> str | None:
-    """Return a non-empty calibration path or None when calibration is disabled."""
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
+def select_target_cell(
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+) -> TargetCell:
+    """Choose a target archive niche and BC center for the next candidate."""
+    if archive.filled_count() == 0:
+        cell_id = int(rng.integers(0, archive.n_cells))
+    else:
+        frontier = _frontier_cell_ids(archive)
+        if frontier:
+            cell_id = _min_fitness_cell(frontier, archive)
+        else:
+            cell_id = int(rng.integers(0, archive.n_cells))
+    stability, diversity = archive.cell_center(cell_id)
+    bin_ij = archive.bin_from_cell_id(cell_id)
+    return TargetCell(
+        cell_id=cell_id,
+        target_stability=stability,
+        target_diversity=diversity,
+        bin_ij=bin_ij,
+    )
 
 
 def select_target_bin(
@@ -188,19 +274,13 @@ def select_target_bin(
     rng: np.random.Generator,
 ) -> TargetBin:
     """Choose a target archive cell and BC niche center for the next candidate."""
-    resolution = archive.resolution
-    if archive.filled_count() == 0:
-        flat_index = int(rng.integers(0, resolution * resolution))
-        i, j = divmod(flat_index, resolution)
-    else:
-        boundary = _boundary_bins(archive)
-        if boundary:
-            i, j = _min_fitness_bin(boundary, archive)
-        else:
-            flat_index = int(rng.integers(0, resolution * resolution))
-            i, j = divmod(flat_index, resolution)
-    stability, diversity = bin_center(i, j, resolution)
-    return TargetBin(bin=(i, j), target_stability=stability, target_diversity=diversity)
+    target = select_target_cell(archive, rng)
+    i, j = target.bin_ij
+    return TargetBin(
+        bin=(i, j),
+        target_stability=target.target_stability,
+        target_diversity=target.target_diversity,
+    )
 
 
 def slot_emitter_for_candidate(
@@ -338,13 +418,36 @@ class _GeneticSchedulerBlock(BaseModel):
     mutation_scale: float = Field(default=0.02, ge=0.0)
 
 
+class _GridArchiveYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["grid"]
+    resolution: int = Field(..., ge=1)
+
+
+class _CvtArchiveYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["cvt"]
+    n_centroids: int = Field(..., ge=1)
+    cvt_seed: int = 0
+    lloyd_iterations: int = Field(default=DEFAULT_LLOYD_ITERATIONS, ge=1)
+
+
+_ArchiveYamlBlock = Annotated[
+    _GridArchiveYamlBlock | _CvtArchiveYamlBlock,
+    Field(discriminator="type"),
+]
+
+
 class _MapElitesSchedulerYaml(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: str
     iterations: int = Field(..., ge=1)
     batch_size: int = Field(..., ge=1)
-    grid_resolution: int = Field(..., ge=1)
+    grid_resolution: int | None = Field(default=None, ge=1)
+    archive: _ArchiveYamlBlock | None = None
     early_extinction_step: int = Field(..., ge=1)
     min_steps: int = Field(..., ge=200)
     batch_emitters: list[EmitterKind]
@@ -352,6 +455,74 @@ class _MapElitesSchedulerYaml(BaseModel):
     llm: _LlmSchedulerBlock
     surrogate: _SurrogateSchedulerBlock
     genetic: _GeneticSchedulerBlock = Field(default_factory=_GeneticSchedulerBlock)
+
+    @model_validator(mode="after")
+    def _validate_archive_fields(self) -> _MapElitesSchedulerYaml:
+        if self.schema_version == _SCHEDULER_SCHEMA_VERSION:
+            if self.grid_resolution is None:
+                msg = "grid_resolution is required for schema_version 1.2"
+                raise ValueError(msg)
+            if self.archive is not None:
+                msg = "archive block is not supported for schema_version 1.2"
+                raise ValueError(msg)
+            return self
+        if self.schema_version == "1.3":
+            if self.archive is None and self.grid_resolution is None:
+                msg = (
+                    "schema_version 1.3 requires archive block or grid_resolution "
+                    "for implicit grid archive"
+                )
+                raise ValueError(msg)
+            if isinstance(self.archive, _GridArchiveYamlBlock):
+                if self.grid_resolution is not None and (
+                    self.grid_resolution != self.archive.resolution
+                ):
+                    msg = (
+                        "grid_resolution conflicts with archive.resolution; "
+                        "use one source of truth"
+                    )
+                    raise ValueError(msg)
+            return self
+        return self
+
+
+def _archive_settings_from_yaml(doc: _MapElitesSchedulerYaml) -> _ArchiveSettings:
+    if doc.schema_version == _SCHEDULER_SCHEMA_VERSION:
+        assert doc.grid_resolution is not None
+        return _ArchiveSettings(
+            archive_type="grid",
+            resolution=doc.grid_resolution,
+            n_centroids=doc.grid_resolution * doc.grid_resolution,
+            cvt_seed=0,
+            lloyd_iterations=DEFAULT_LLOYD_ITERATIONS,
+        )
+
+    if isinstance(doc.archive, _CvtArchiveYamlBlock):
+        return _ArchiveSettings(
+            archive_type="cvt",
+            resolution=DEFAULT_GRID_RESOLUTION,
+            n_centroids=doc.archive.n_centroids,
+            cvt_seed=doc.archive.cvt_seed,
+            lloyd_iterations=doc.archive.lloyd_iterations,
+        )
+
+    if isinstance(doc.archive, _GridArchiveYamlBlock):
+        return _ArchiveSettings(
+            archive_type="grid",
+            resolution=doc.archive.resolution,
+            n_centroids=doc.archive.resolution * doc.archive.resolution,
+            cvt_seed=0,
+            lloyd_iterations=DEFAULT_LLOYD_ITERATIONS,
+        )
+
+    assert doc.grid_resolution is not None
+    return _ArchiveSettings(
+        archive_type="grid",
+        resolution=doc.grid_resolution,
+        n_centroids=doc.grid_resolution * doc.grid_resolution,
+        cvt_seed=0,
+        lloyd_iterations=DEFAULT_LLOYD_ITERATIONS,
+    )
 
 
 def _acquisition_config_from_yaml(
@@ -377,6 +548,14 @@ def _retrain_config_from_yaml(block: _RetrainYamlBlock | None) -> RetrainConfig:
         every_iterations=block.every_iterations,
         min_new_buffer_rows=block.min_new_buffer_rows,
     )
+
+
+def _normalize_calibration_path(value: str | None) -> str | None:
+    """Return a non-empty calibration path or None when calibration is disabled."""
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped or None
 
 
 def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
@@ -406,36 +585,34 @@ def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
     )
 
 
-def _boundary_bins(archive: GridArchive) -> list[tuple[int, int]]:
-    resolution = archive.resolution
-    boundary: list[tuple[int, int]] = []
-    for i in range(resolution):
-        for j in range(resolution):
-            if archive.is_empty(i, j):
-                continue
-            for ni, nj in cardinal_neighbors_bounded(i, j, resolution):
-                if archive.is_empty(ni, nj):
-                    boundary.append((i, j))
-                    break
-    return boundary
+def _frontier_cell_ids(archive: ArchiveProtocol) -> list[int]:
+    frontier: list[int] = []
+    for cell_id in range(archive.n_cells):
+        if archive.is_empty_cell(cell_id):
+            continue
+        for neighbor in archive.neighbors(cell_id):
+            if archive.is_empty_cell(neighbor):
+                frontier.append(cell_id)
+                break
+    return frontier
 
 
-def _min_fitness_bin(
-    bins: list[tuple[int, int]],
-    archive: GridArchive,
-) -> tuple[int, int]:
-    best: tuple[int, int] | None = None
+def _min_fitness_cell(
+    cell_ids: list[int],
+    archive: ArchiveProtocol,
+) -> int:
+    best: int | None = None
     best_fitness = float("inf")
-    for i, j in bins:
-        elite = archive.get(i, j)
+    for cell_id in cell_ids:
+        elite = archive.get_cell(cell_id)
         if elite is None:
             continue
         if elite.fitness < best_fitness or (
-            elite.fitness == best_fitness and (best is None or (i, j) < best)
+            elite.fitness == best_fitness and (best is None or cell_id < best)
         ):
-            best = (i, j)
+            best = cell_id
             best_fitness = elite.fitness
     if best is None:
-        msg = "boundary bins must contain elites"
+        msg = "frontier cells must contain elites"
         raise RuntimeError(msg)
     return best

@@ -10,7 +10,11 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from dashboard.utils.config import load_config, resolve_surrogate_archive_path
+from dashboard.utils.config import (
+    active_archive_path,
+    load_config,
+    resolve_surrogate_archive_path,
+)
 
 SURROGATE_ARCHIVE_SCHEMA_VERSION = "1.0"
 
@@ -44,13 +48,17 @@ def load_surrogate_archive(path: Path) -> pd.DataFrame:
 
 def get_archive_log_bundle(path: Path | None = None) -> ArchiveLogBundle:
     """Load acquisition log with Streamlit disk cache (path + mtime)."""
-    cfg = load_config()
-    target = path if path is not None else resolve_surrogate_archive_path(cfg)
-    if not target.is_file():
-        msg = f"surrogate archive file not found: {target}"
+    if path is None:
+        archive = active_archive_path()
+        if archive is None or not archive.is_file():
+            msg = "Select a MAP-Elites archive JSONL first"
+            raise FileNotFoundError(msg)
+        path = resolve_surrogate_archive_path(archive_path=archive)
+    if not path.is_file():
+        msg = f"Surrogate archive not found: {path}"
         raise FileNotFoundError(msg)
-    mtime = float(target.stat().st_mtime)
-    return _cached_load_archive_log_bundle(str(target.resolve()), mtime)
+    mtime = float(path.stat().st_mtime)
+    return _cached_load_archive_log_bundle(str(path.resolve()), mtime)
 
 
 @st.cache_data(show_spinner=False)
@@ -130,6 +138,7 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
     candidate_id = record.get("candidate_id")
     emitter_type = record.get("emitter_type")
     target_bin = record.get("target_bin")
+    raw_target_cell_id = record.get("target_cell_id")
     decision = record.get("decision")
     decision_reason = record.get("decision_reason")
     acquisition_mode = record.get("acquisition_mode")
@@ -144,13 +153,24 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not isinstance(emitter_type, str) or not emitter_type.strip():
         return None
-    if not isinstance(target_bin, list) or len(target_bin) != 2:
+    has_target_bin = isinstance(target_bin, list) and len(target_bin) == 2
+    if not has_target_bin and raw_target_cell_id is None:
         return None
-    try:
-        bin_i = int(target_bin[0])
-        bin_j = int(target_bin[1])
-    except (TypeError, ValueError):
-        return None
+    bin_i: int | None = None
+    bin_j: int | None = None
+    if has_target_bin:
+        assert isinstance(target_bin, list)
+        try:
+            bin_i = int(target_bin[0])
+            bin_j = int(target_bin[1])
+        except (TypeError, ValueError):
+            return None
+    target_cell_id: int | None = None
+    if raw_target_cell_id is not None:
+        try:
+            target_cell_id = int(raw_target_cell_id)
+        except (TypeError, ValueError):
+            return None
     if decision not in ("eval", "skip"):
         return None
     if not isinstance(decision_reason, str):
@@ -174,9 +194,6 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "iteration": iteration,
         "candidate_id": candidate_id,
         "emitter_type": emitter_type,
-        "target_bin_i": bin_i,
-        "target_bin_j": bin_j,
-        "target_bin_label": f"{bin_i},{bin_j}",
         "world_spec_hash": world_spec_hash,
         "pred_fitness": pred_fitness,
         "pred_uncertainty": pred_uncertainty,
@@ -184,6 +201,12 @@ def try_flatten_archive_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "decision_reason": decision_reason,
         "acquisition_mode": acquisition_mode,
     }
+    if bin_i is not None and bin_j is not None:
+        row["target_bin_i"] = bin_i
+        row["target_bin_j"] = bin_j
+        row["target_bin_label"] = f"{bin_i},{bin_j}"
+    if target_cell_id is not None:
+        row["target_cell_id"] = target_cell_id
 
     outcome = record.get("eval_outcome")
     if outcome is None:
