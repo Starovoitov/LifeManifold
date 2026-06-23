@@ -6,8 +6,6 @@ import zlib
 
 import numpy as np
 
-from .metrics import METRICS_VECTOR_DIM
-
 # Trailing mean-density samples kept for oscillation autocorrelation (O(1) vs. step count).
 OSCILLATION_DENSITY_WINDOW = 512
 
@@ -30,34 +28,22 @@ def kmeans_lloyd_on_memmap(
     k: int,
     max_iter: int = 30,
 ) -> None:
-    """Lloyd k-means reading one row at a time from ``mm``; centroids stay in RAM (small ``k``)."""
-    rng = np.random.default_rng(42)
+    """Assign k-means cluster labels in place; ``mm`` may be a memmap (sklearn mini-batches)."""
+    if n <= 0:
+        return
+
+    from sklearn.cluster import MiniBatchKMeans
+
     k = max(1, min(k, n))
-    centroids = np.stack([mm[i].astype(np.float64).copy() for i in range(k)])
-
-    for _it in range(max_iter):
-        changed = False
-        for i in range(n):
-            v = mm[i].astype(np.float64)
-            d2 = ((centroids - v) ** 2).sum(axis=1)
-            new_lab = int(np.argmin(d2))
-            if int(labels[i]) != new_lab:
-                changed = True
-            labels[i] = new_lab
-
-        centroids.fill(0.0)
-        cnt = np.zeros(k, dtype=np.float64)
-        for i in range(n):
-            lab = int(labels[i])
-            centroids[lab] += mm[i].astype(np.float64)
-            cnt[lab] += 1.0
-        for j in range(k):
-            if cnt[j] > 0:
-                centroids[j] /= cnt[j]
-            else:
-                centroids[j] = rng.standard_normal(METRICS_VECTOR_DIM) * 0.01
-        if not changed:
-            break
+    model = MiniBatchKMeans(
+        n_clusters=k,
+        max_iter=max_iter,
+        random_state=42,
+        batch_size=min(256, n),
+        n_init="auto",
+    )
+    assigned = model.fit_predict(mm[:n])
+    labels[:n] = assigned.astype(np.int32, copy=False)
 
 
 def binary_entropy(p: float) -> float:
