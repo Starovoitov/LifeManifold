@@ -106,5 +106,99 @@ class TestKmeansLloydOnMemmap(unittest.TestCase):
             os.unlink(labels_path)
 
 
+def _neighbor_count_roll_reference(grid: np.ndarray) -> np.ndarray:
+    """Legacy double-np.roll Moore count (reference for stencil equivalence tests)."""
+    total = np.zeros_like(grid, dtype=np.int16)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            total += np.roll(np.roll(grid, dx, axis=0), dy, axis=1)
+    return total
+
+
+def _topology_interface_index_roll_reference(life: np.ndarray) -> float:
+    if life.size == 0:
+        return 0.0
+    g = life.astype(np.float32)
+    diff_sum = np.zeros_like(g, dtype=np.float32)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
+            diff_sum += (nb != g).astype(np.float32)
+    return float(np.clip(diff_sum.mean() / 8.0, 0.0, 1.0))
+
+
+def _topology_interface_strength_map_roll_reference(life: np.ndarray) -> np.ndarray:
+    if life.size == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    g = life.astype(np.float32)
+    diff_sum = np.zeros_like(g, dtype=np.float32)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            nb = np.roll(np.roll(g, dx, axis=0), dy, axis=1)
+            diff_sum += (nb != g).astype(np.float32)
+    return np.clip(diff_sum / 8.0, 0.0, 1.0).astype(np.float64)
+
+
+class TestMooreStencil(unittest.TestCase):
+    def test_neighbor_count_small_grid_manual(self) -> None:
+        grid = np.array(
+            [
+                [1, 0, 0, 1],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [1, 0, 0, 1],
+            ],
+            dtype=np.uint8,
+        )
+        np.testing.assert_array_equal(
+            ws_math.neighbor_count(grid),
+            _neighbor_count_roll_reference(grid),
+        )
+
+    def test_neighbor_count_matches_roll_reference(self) -> None:
+        rng = np.random.default_rng(0)
+        for n in (4, 8, 32):
+            with self.subTest(n=n):
+                grid = rng.integers(0, 2, size=(n, n), dtype=np.uint8)
+                np.testing.assert_array_equal(
+                    ws_math.neighbor_count(grid),
+                    _neighbor_count_roll_reference(grid),
+                )
+
+    def test_topology_interface_index_matches_roll_reference(self) -> None:
+        rng = np.random.default_rng(1)
+        for n in (4, 16, 32):
+            with self.subTest(n=n):
+                life = rng.integers(0, 2, size=(n, n), dtype=np.uint8)
+                self.assertAlmostEqual(
+                    ws_math.topology_interface_index(life),
+                    _topology_interface_index_roll_reference(life),
+                )
+
+    def test_topology_interface_strength_map_matches_roll_reference(self) -> None:
+        rng = np.random.default_rng(2)
+        for n in (4, 16, 32):
+            with self.subTest(n=n):
+                life = rng.integers(0, 2, size=(n, n), dtype=np.uint8)
+                np.testing.assert_allclose(
+                    ws_math.topology_interface_strength_map(life),
+                    _topology_interface_strength_map_roll_reference(life),
+                )
+
+    def test_empty_grid_topology_helpers(self) -> None:
+        empty = np.zeros((0, 0), dtype=np.uint8)
+        self.assertEqual(ws_math.topology_interface_index(empty), 0.0)
+        np.testing.assert_array_equal(
+            ws_math.topology_interface_strength_map(empty),
+            np.zeros((0, 0), dtype=np.float64),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
