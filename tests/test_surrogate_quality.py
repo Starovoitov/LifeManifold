@@ -112,6 +112,8 @@ class TestSurrogateHoldoutQuality(unittest.TestCase):
                     "--summary-path",
                     str(summary_path),
                     "--micro",
+                    "--model-type",
+                    "lightgbm",
                 ],
                 cwd=repo_root,
                 env=env,

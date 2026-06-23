@@ -538,7 +538,9 @@ def _classify_iteration_slots(
         runtime_action = "eval"
         if config.surrogate_enabled and prediction is not None:
             if acquisition_active:
-                decision = decide(config.acquisition, prediction, draft.target_bin, archive)
+                decision = decide(
+                    config.acquisition, prediction, draft.target_bin, archive
+                )
                 runtime_action = effective_action(
                     config.acquisition.mode,
                     decision,
