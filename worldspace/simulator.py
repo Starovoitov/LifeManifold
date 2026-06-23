@@ -20,6 +20,11 @@ from worldspace.simulator_perf import (
 )
 from .specs.spec import WorldSpec
 
+__all__ = [
+    "SimulationResult",
+    "run_world",
+]
+
 
 @dataclass
 class SimulationResult:
@@ -54,9 +59,79 @@ def run_world(
     standard numpy. Per-step trace forces numpy regardless of ``numba_simulator``.
     """
     perf = performance if performance is not None else DEFAULT_SIMULATOR_PERFORMANCE
-    _ = effective_numba_enabled(perf, ca_step_trace=ca_step_trace_file is not None)
-    if perf.verify_against_reference:
-        pass  # dual-run numpy vs numba when numba path is enabled
+    use_numba = effective_numba_enabled(
+        perf, ca_step_trace=ca_step_trace_file is not None
+    )
+    if use_numba:
+        _require_numba()
+
+    if perf.verify_against_reference and use_numba:
+        reference = _run_world_impl(
+            world,
+            ca_step_trace_file=ca_step_trace_file,
+            ca_step_trace_yield_index=ca_step_trace_yield_index,
+            early_extinction_step=early_extinction_step,
+            use_numba=False,
+            numba_cache=perf.numba_cache,
+        )
+        result = _run_world_impl(
+            world,
+            ca_step_trace_file=ca_step_trace_file,
+            ca_step_trace_yield_index=ca_step_trace_yield_index,
+            early_extinction_step=early_extinction_step,
+            use_numba=True,
+            numba_cache=perf.numba_cache,
+        )
+        _assert_metrics_match(reference, result)
+        return result
+
+    return _run_world_impl(
+        world,
+        ca_step_trace_file=ca_step_trace_file,
+        ca_step_trace_yield_index=ca_step_trace_yield_index,
+        early_extinction_step=early_extinction_step,
+        use_numba=use_numba,
+        numba_cache=perf.numba_cache,
+    )
+
+
+def _require_numba() -> None:
+    try:
+        import numba  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            "numba_simulator requires the optional perf dependency group; "
+            "install with: uv sync --group perf"
+        ) from exc
+
+
+def _assert_metrics_match(
+    reference: SimulationResult,
+    candidate: SimulationResult,
+) -> None:
+    ref_vec = reference.metrics.as_vector()
+    cand_vec = candidate.metrics.as_vector()
+    if not np.allclose(ref_vec, cand_vec, rtol=0.0, atol=0.0, equal_nan=True):
+        raise AssertionError(
+            f"numba metrics diverge from numpy reference: max_abs_diff="
+            f"{float(np.max(np.abs(ref_vec - cand_vec)))}"
+        )
+    if reference.early_extinct != candidate.early_extinct:
+        raise AssertionError(
+            f"early_extinct mismatch: numpy={reference.early_extinct}, "
+            f"numba={candidate.early_extinct}"
+        )
+
+
+def _run_world_impl(
+    world: WorldSpec,
+    *,
+    ca_step_trace_file: TextIO | None,
+    ca_step_trace_yield_index: int,
+    early_extinction_step: int | None,
+    use_numba: bool,
+    numba_cache: bool,
+) -> SimulationResult:
     rng = np.random.default_rng(world.seed)
     life, food, ages = _initial_grids(rng, world)
 
@@ -82,54 +157,66 @@ def run_world(
         birth_mask, survival_mask = ws_math.rule_count_masks(
             world.birth, world.survival
         )
-        for step in range(world.steps):
-            neighbors = ws_math.neighbor_count(life)
-            next_life = _next_life_from_rules(
-                rng, life, neighbors, birth_mask, survival_mask, world
+        if use_numba:
+            from . import simulator_numba as sim_numba
+
+            rnd_per_step = sim_numba.random_draws_per_step(
+                world.grid_size,
+                noise=world.noise,
+                predation=world.predation,
             )
-            food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
-
-            died_now = (life == 1) & (next_life == 0)
-            death_age_sum, death_count = _accumulate_deaths(
-                died_now, ages, death_age_sum, death_count
+            random_buf = rng.random(world.steps * rnd_per_step)
+            (
+                life,
+                food,
+                ages,
+                density_mean,
+                density_m2,
+                density_n,
+                death_age_sum,
+                death_count,
+                tail_buf,
+                tail_len,
+                tail_start,
+                early_extinct,
+            ) = sim_numba.run_ca_loop_numba(
+                life,
+                food,
+                ages,
+                birth_mask,
+                survival_mask,
+                noise=world.noise,
+                predation=world.predation,
+                resource_regen=world.resource_regen,
+                steps=world.steps,
+                early_extinction_step=early_extinction_step,
+                random_buf=random_buf,
+                use_cache=numba_cache,
             )
-
-            ages = np.where(next_life == 1, ages + 1 + feed_bonus, 0).astype(np.int16)
-            life = next_life
-
-            d = float(life.mean())
-            density_tail.append(d)
-            density_mean, density_m2, density_n = _welford_append(
-                d, density_mean, density_m2, density_n
+            density_tail = sim_numba.density_tail_from_buffer(
+                tail_buf, tail_len, tail_start
             )
-
-            if ca_step_trace_file is not None:
-                snap = _metrics_from_final_state(
+        else:
+            life, food, ages, density_mean, density_m2, density_n, death_age_sum, death_count, density_tail, early_extinct = (
+                _run_ca_loop_numpy(
+                    rng,
                     life,
                     food,
-                    density_mean,
-                    density_m2,
-                    density_n,
-                    density_tail,
-                    death_age_sum,
-                    death_count,
+                    ages,
+                    birth_mask,
+                    survival_mask,
+                    world,
+                    early_extinction_step=early_extinction_step,
+                    ca_step_trace_file=ca_step_trace_file,
+                    ca_step_trace_yield_index=ca_step_trace_yield_index,
+                    density_mean=density_mean,
+                    density_m2=density_m2,
+                    density_n=density_n,
+                    death_age_sum=death_age_sum,
+                    death_count=death_count,
+                    density_tail=density_tail,
                 )
-                row = {
-                    "yield_index": ca_step_trace_yield_index,
-                    "ca_step": step,
-                    "metrics": metrics_vector_to_dict(snap.as_vector()),
-                }
-                ca_step_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
-                ca_step_trace_file.flush()
-
-            t = step + 1
-            if (
-                early_extinction_step is not None
-                and t < early_extinction_step
-                and float(life.mean()) == 0.0
-            ):
-                early_extinct = True
-                break
+            )
 
     metrics = _metrics_from_final_state(
         life,
@@ -147,6 +234,100 @@ def run_world(
         final_life=life.copy(),
         final_food=food.copy(),
         early_extinct=early_extinct,
+    )
+
+
+def _run_ca_loop_numpy(
+    rng: np.random.Generator,
+    life: np.ndarray,
+    food: np.ndarray,
+    ages: np.ndarray,
+    birth_mask: np.ndarray,
+    survival_mask: np.ndarray,
+    world: WorldSpec,
+    *,
+    early_extinction_step: int | None,
+    ca_step_trace_file: TextIO | None,
+    ca_step_trace_yield_index: int,
+    density_mean: float,
+    density_m2: float,
+    density_n: int,
+    death_age_sum: int,
+    death_count: int,
+    density_tail: deque[float],
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+    int,
+    int,
+    int,
+    deque[float],
+    bool,
+]:
+    early_extinct = False
+    for step in range(world.steps):
+        neighbors = ws_math.neighbor_count(life)
+        next_life = _next_life_from_rules(
+            rng, life, neighbors, birth_mask, survival_mask, world
+        )
+        food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
+
+        died_now = (life == 1) & (next_life == 0)
+        death_age_sum, death_count = _accumulate_deaths(
+            died_now, ages, death_age_sum, death_count
+        )
+
+        ages = np.where(next_life == 1, ages + 1 + feed_bonus, 0).astype(np.int16)
+        life = next_life
+
+        d = float(life.mean())
+        density_tail.append(d)
+        density_mean, density_m2, density_n = _welford_append(
+            d, density_mean, density_m2, density_n
+        )
+
+        if ca_step_trace_file is not None:
+            snap = _metrics_from_final_state(
+                life,
+                food,
+                density_mean,
+                density_m2,
+                density_n,
+                density_tail,
+                death_age_sum,
+                death_count,
+            )
+            row = {
+                "yield_index": ca_step_trace_yield_index,
+                "ca_step": step,
+                "metrics": metrics_vector_to_dict(snap.as_vector()),
+            }
+            ca_step_trace_file.write(json.dumps(row, ensure_ascii=True) + "\n")
+            ca_step_trace_file.flush()
+
+        t = step + 1
+        if (
+            early_extinction_step is not None
+            and t < early_extinction_step
+            and float(life.mean()) == 0.0
+        ):
+            early_extinct = True
+            break
+
+    return (
+        life,
+        food,
+        ages,
+        density_mean,
+        density_m2,
+        density_n,
+        death_age_sum,
+        death_count,
+        density_tail,
+        early_extinct,
     )
 
 

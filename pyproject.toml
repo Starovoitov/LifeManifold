@@ -29,6 +29,9 @@ dashboard = [
     "polars",
     "plotly",
 ]
+perf = [
+    "numba>=0.60",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "dashboard/**" = ["E402"]
