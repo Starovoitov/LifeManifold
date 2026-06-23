@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal, Protocol, Sequence
 
 from worldspace.specs.spec import WorldSpec
 
@@ -46,4 +46,10 @@ class SurrogateProtocol(Protocol):
 
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         """Return deterministic surrogate estimation for one world spec."""
+        ...
+
+    def predict_batch(
+        self, world_specs: Sequence[WorldSpec]
+    ) -> list[SurrogatePrediction]:
+        """Return predictions in the same order as ``world_specs``."""
         ...
