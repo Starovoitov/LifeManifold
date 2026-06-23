@@ -66,9 +66,14 @@ def run_world(
         )
 
     if run_ca_loop:
+        birth_mask, survival_mask = ws_math.rule_count_masks(
+            world.birth, world.survival
+        )
         for step in range(world.steps):
             neighbors = ws_math.neighbor_count(life)
-            next_life = _next_life_from_rules(rng, life, neighbors, world)
+            next_life = _next_life_from_rules(
+                rng, life, neighbors, birth_mask, survival_mask, world
+            )
             food, feed_bonus = _tick_food(rng, food, next_life, world.resource_regen)
 
             died_now = (life == 1) & (next_life == 0)
@@ -147,11 +152,13 @@ def _next_life_from_rules(
     rng: np.random.Generator,
     life: np.ndarray,
     neighbors: np.ndarray,
+    birth_mask: np.ndarray,
+    survival_mask: np.ndarray,
     world: WorldSpec,
 ) -> np.ndarray:
     """Apply birth/survival rules, stochastic noise, and predation for one sub-step."""
-    born = ((life == 0) & np.isin(neighbors, world.birth)).astype(np.uint8)
-    survive = ((life == 1) & np.isin(neighbors, world.survival)).astype(np.uint8)
+    born = ((life == 0) & birth_mask[neighbors]).astype(np.uint8)
+    survive = ((life == 1) & survival_mask[neighbors]).astype(np.uint8)
     next_life = np.maximum(born, survive)
     if world.noise > 0:
         flip = rng.random(life.shape) < world.noise
