@@ -447,19 +447,19 @@ def load_and_collapse_jsonl(
         resolution=resolution,
         on_invalid_line=on_invalid_line,
     )
-    if archive_type == "grid":
-        archive: ArchiveProtocol = GridArchive(resolution)
-    elif archive_type == "cvt":
-        if centroids_path is None:
-            msg = "centroids_path is required when loading a CVT archive"
-            raise ValueError(msg)
-        from worldspace.illuminators.cvt import load_centroids
-        from worldspace.illuminators.cvt_archive import CvtArchive
+    from worldspace.illuminators.archive_factory import (
+        ArchiveFactoryConfig,
+        create_empty_archive,
+        normalize_archive_type,
+    )
 
-        archive = CvtArchive(load_centroids(centroids_path))
-    else:
-        msg = f"unsupported archive_type {archive_type!r}"
-        raise ValueError(msg)
+    archive = create_empty_archive(
+        ArchiveFactoryConfig(
+            archive_type=normalize_archive_type(archive_type),
+            resolution=resolution,
+        ),
+        centroids_path=centroids_path,
+    )
     for elite in collapsed.values():
         archive.cell_id_from_bin(elite.bin)
         archive.try_insert(elite)

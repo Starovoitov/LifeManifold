@@ -21,6 +21,15 @@ from .archive import (
     merge_archives,
     new_elite_metadata,
 )
+from .archive_factory import (
+    ArchiveFactoryConfig,
+    archive_factory_config_from_scheduler,
+    create_archive,
+    create_empty_archive,
+    create_grid_archive,
+    normalize_archive_type,
+)
+from .archive_protocol import ArchiveProtocol
 from .evaluation import (
     MEASURE_KEYS,
     ILLUMINATOR_MIN_STEPS,
@@ -71,6 +80,8 @@ from .scheduler import (
 )
 
 __all__ = [
+    "ArchiveFactoryConfig",
+    "ArchiveProtocol",
     "ARCHIVE_SCHEMA_VERSION",
     "BC_MAX",
     "BC_MIN",
@@ -113,8 +124,13 @@ __all__ = [
     "MapElitesEmitter",
     "MapElitesIlluminator",
     "MapElitesRunResult",
+    "archive_factory_config_from_scheduler",
     "archive_jsonl_path",
+    "create_archive",
+    "create_empty_archive",
+    "create_grid_archive",
     "merge_archives",
+    "normalize_archive_type",
     "normalize_illuminator_steps",
     "new_elite_metadata",
     "RandomEmitter",

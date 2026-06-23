@@ -24,7 +24,9 @@ __all__ = [
     "ArchiveFactoryConfig",
     "archive_factory_config_from_scheduler",
     "create_archive",
+    "create_empty_archive",
     "create_grid_archive",
+    "normalize_archive_type",
 ]
 
 
@@ -53,6 +55,34 @@ def create_archive(
         output_dir=output_dir,
         centroids_path=centroids_path,
     )
+
+
+def create_empty_archive(
+    config: ArchiveFactoryConfig,
+    *,
+    centroids_path: str | Path | None = None,
+) -> ArchiveProtocol:
+    """Build an empty in-memory archive for JSONL collapse / resume (no centroid generation)."""
+    if config.archive_type == "grid":
+        return GridArchive(config.resolution)
+    if centroids_path is None:
+        msg = "centroids_path is required when loading a CVT archive"
+        raise ValueError(msg)
+    path = Path(centroids_path).expanduser()
+    if not path.is_file():
+        msg = f"centroids file not found: {path}"
+        raise FileNotFoundError(msg)
+    return CvtArchive(load_centroids(path))
+
+
+def normalize_archive_type(archive_type: str) -> Literal["grid", "cvt"]:
+    """Validate and normalize a runtime archive type string."""
+    if archive_type == "grid":
+        return "grid"
+    if archive_type == "cvt":
+        return "cvt"
+    msg = f"unsupported archive_type {archive_type!r}"
+    raise ValueError(msg)
 
 
 def create_grid_archive(resolution: int = DEFAULT_GRID_RESOLUTION) -> GridArchive:

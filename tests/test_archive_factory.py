@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive
-from worldspace.illuminators.archive_factory import ArchiveFactoryConfig, create_archive
+from worldspace.illuminators.archive_factory import (
+    ArchiveFactoryConfig,
+    create_archive,
+    create_empty_archive,
+)
 from worldspace.illuminators.cvt import generate_centroids, load_centroids
 from worldspace.illuminators.cvt_archive import CvtArchive
 from worldspace.illuminators.evaluation import (
@@ -58,6 +62,20 @@ class TestArchiveFactory(unittest.TestCase):
             np.testing.assert_array_equal(second.centroids, saved)
         self.assertIsInstance(first, CvtArchive)
         self.assertIsInstance(second, CvtArchive)
+
+    def test_create_empty_archive_cvt_requires_existing_centroids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            centroids_path = Path(tmp) / "cvt_centroids.json"
+            config = ArchiveFactoryConfig(archive_type="cvt", n_centroids=4)
+            with self.assertRaises(ValueError):
+                create_empty_archive(config, centroids_path=None)
+            with self.assertRaises(FileNotFoundError):
+                create_empty_archive(config, centroids_path=centroids_path)
+
+            create_archive(config, output_dir=Path(tmp))
+            empty = create_empty_archive(config, centroids_path=centroids_path)
+        self.assertIsInstance(empty, CvtArchive)
+        self.assertEqual(empty.n_cells, 4)
 
 
 class TestAssignCellForArchive(unittest.TestCase):

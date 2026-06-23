@@ -300,6 +300,19 @@ class TestDashboardTrainingBuffer(unittest.TestCase):
         self.assertEqual(len(page), 8)
         self.assertEqual(page_size, 500)
 
+    def test_get_buffer_bundle_raises_when_buffer_unresolved(self) -> None:
+        from unittest.mock import patch
+
+        from dashboard.components.training_buffer_loader import get_buffer_bundle
+
+        with patch(
+            "dashboard.components.training_buffer_loader.resolve_surrogate_buffer_path",
+            return_value=None,
+        ):
+            with self.assertRaises(FileNotFoundError) as ctx:
+                get_buffer_bundle()
+        self.assertIn("no buffer selected or discovered", str(ctx.exception))
+
     def test_resolve_surrogate_buffer_path_near_archive(self) -> None:
         import tempfile
 
