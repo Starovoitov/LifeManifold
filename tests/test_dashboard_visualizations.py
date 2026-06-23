@@ -45,6 +45,7 @@ class TestDashboardVisualizations(unittest.TestCase):
         y_title = layout.yaxis.title.text
         self.assertIn("Diversity", x_title)
         self.assertIn("Stability", y_title)
+        self.assertNotEqual(getattr(layout.yaxis, "autorange", None), "reversed")
 
     def test_create_metrics_radar_with_enough_keys(self) -> None:
         from dashboard.components.visualizations import create_metrics_radar

@@ -134,7 +134,7 @@ def create_archive_heatmap(
         height=default_figure_height(heatmap=True),
         width=680,
         xaxis=dict(title="Diversity bin", ticks="outside"),
-        yaxis=dict(title="Stability bin", ticks="outside", autorange="reversed"),
+        yaxis=dict(title="Stability bin", ticks="outside"),
     )
     return apply_dark_theme(fig)
 
