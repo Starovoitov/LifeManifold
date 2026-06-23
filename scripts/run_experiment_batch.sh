@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run one condition × seed for the Q1 experiment matrix.
-# Usage: ./scripts/run_experiment_batch.sh pilot|q1-min|q1-full [first_seed] [last_seed]
+# Usage: ./scripts/run_experiment_batch.sh pilot|q1-min|q1-full|shadow [first_seed] [last_seed]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +11,7 @@ SEED_START="${2:-0}"
 SEED_END="${3:-$SEED_START}"
 
 EXP_ROOT="$ROOT/artifacts/experiments"
-BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/cvt/baseline/map_elites_archive.jsonl"
+BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
 TRAIN_SCRIPT="$ROOT/scripts/train_surrogate.py"
 RUN_SCRIPT="$ROOT/scripts/run_github_llm_map_elites.py"
 AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
@@ -19,6 +19,7 @@ AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
 SCHEDULER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
 SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
+SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
 SCHEDULER_STUB_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_stub.yaml"
 SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_cvt.yaml"
 
@@ -29,6 +30,7 @@ case "$TIER" in
     SCHEDULER_STUB="$SCHEDULER_STUB_PILOT"
     SCHEDULER_HINTS="$SCHEDULER_HINTS_PILOT"
     RUN_FILTER=false
+    RUN_SHADOW=false
     ;;
   q1-min)
     ITERATIONS=650
@@ -36,6 +38,7 @@ case "$TIER" in
     SCHEDULER_STUB="$SCHEDULER_STUB_NIGHTLY"
     SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
     RUN_FILTER=false
+    RUN_SHADOW=false
     ;;
   q1-full)
     ITERATIONS=650
@@ -44,9 +47,18 @@ case "$TIER" in
     SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
     SCHEDULER_FILTER="$SCHEDULER_FILTER_NIGHTLY"
     RUN_FILTER=true
+    RUN_SHADOW=false
+    ;;
+  shadow)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/shadow"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    SCHEDULER_FILTER="$SCHEDULER_SHADOW_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=true
     ;;
   *)
-    echo "Unknown tier: $TIER (use pilot|q1-min|q1-full)" >&2
+    echo "Unknown tier: $TIER (use pilot|q1-min|q1-full|shadow)" >&2
     exit 1
     ;;
 esac
@@ -68,7 +80,7 @@ if [[ ! -f "$CHECKPOINT" ]]; then
 fi
 
 CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration.pkl"
-if [[ "$RUN_FILTER" == true && ! -f "$CALIBRATION" ]]; then
+if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true) && ! -f "$CALIBRATION" ]]; then
   echo "Training uncertainty calibration (required for filter arm)..."
   uv run python "$TRAIN_SCRIPT" \
     --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
@@ -107,10 +119,16 @@ run_one() {
 }
 
 for seed in $(seq "$SEED_START" "$SEED_END"); do
-  run_one stub "$SCHEDULER_STUB" "$seed"
-  run_one hints "$SCHEDULER_HINTS" "$seed"
-  if [[ "$RUN_FILTER" == true ]]; then
+  if [[ "$RUN_SHADOW" == true ]]; then
+    run_one hints "$SCHEDULER_HINTS" "$seed"
+    # Protocol layout: shadow-mode run under filter/ (archive must match hints).
     run_one filter "$SCHEDULER_FILTER" "$seed"
+  else
+    run_one stub "$SCHEDULER_STUB" "$seed"
+    run_one hints "$SCHEDULER_HINTS" "$seed"
+    if [[ "$RUN_FILTER" == true ]]; then
+      run_one filter "$SCHEDULER_FILTER" "$seed"
+    fi
   fi
 done
 
