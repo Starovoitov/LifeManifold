@@ -74,3 +74,8 @@ surrogate:
   buffer_path: artifacts/surrogate/buffer_github_llm.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
+
+# Forkserver pool reused across iterations (numba_simulator must stay false).
+performance:
+  parallel_eval: true
+  parallel_workers: 0

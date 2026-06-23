@@ -83,3 +83,8 @@ surrogate:
     never_skip_empty_bin: true
   retrain:
     enabled: false
+
+# Forkserver pool reused across iterations (numba_simulator must stay false).
+performance:
+  parallel_eval: true
+  parallel_workers: 0

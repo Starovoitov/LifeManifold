@@ -22,8 +22,10 @@ from worldspace.illuminators.archive_factory import (
 from worldspace.illuminators.cvt import generate_centroids
 from worldspace.illuminators.cvt_archive import CvtArchive
 from worldspace.illuminators.scheduler import (
+    DEFAULT_GITHUB_LLM_SCHEDULER_PATH,
     DEFAULT_MINI_CVT_SCHEDULER_PATH,
     DEFAULT_MINI_SCHEDULER_PATH,
+    DEFAULT_NIGHTLY_SCHEDULER_PATH,
     DEFAULT_SCHEDULER_PATH,
     EmitterKind,
     RunCounters,
@@ -120,6 +122,17 @@ class TestLoadScheduler(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 load_scheduler(path)
             self.assertIn("numba_simulator and parallel_eval", str(ctx.exception))
+
+    def test_nightly_and_github_llm_schedulers_enable_parallel_eval(self) -> None:
+        for path in (
+            DEFAULT_NIGHTLY_SCHEDULER_PATH,
+            DEFAULT_GITHUB_LLM_SCHEDULER_PATH,
+        ):
+            with self.subTest(scheduler=path.name):
+                config = load_scheduler(path)
+                self.assertTrue(config.performance.parallel_eval)
+                self.assertFalse(config.performance.numba_simulator)
+                self.assertEqual(config.performance.parallel_workers, 0)
 
     def test_load_scheduler_rejects_unknown_performance_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
