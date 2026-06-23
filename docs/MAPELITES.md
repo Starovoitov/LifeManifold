@@ -329,8 +329,8 @@ Files in `worldspace/specs/`:
 | --- | --- |
 | `map_elites_scheduler.yaml` | Production: `iterations: 10000`, `batch_size: 50`, LLM on |
 | `map_elites_scheduler_mini.yaml` | CI: 20×4 evals, `llm.enabled: false` |
-| `map_elites_scheduler_nightly.yaml` | Nightly phase 1, surrogate off |
-| `map_elites_scheduler_nightly_surrogate.yaml` | Nightly phase 3, surrogate on |
+| `map_elites_scheduler_nightly.yaml` | Nightly phase 1, surrogate off; `parallel_eval: true` |
+| `map_elites_scheduler_nightly_surrogate.yaml` | Nightly phase 3, surrogate on; `parallel_eval: true` |
 
 Example structure (schema **1.2**):
 
