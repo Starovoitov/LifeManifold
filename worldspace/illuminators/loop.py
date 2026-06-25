@@ -625,7 +625,11 @@ def _emit_iteration_drafts(
             candidate_id=candidate_id,
             candidates_evaluated=counters.candidates_evaluated,
         )
-        target_cell = select_target_cell(archive, rng)
+        target_cell = select_target_cell(
+            archive,
+            rng,
+            target_selection=config.target_selection,
+        )
         target_bin = TargetBin.from_target_cell(target_cell)
         output = emitter.emit(
             emitter_kind=emitter_kind,

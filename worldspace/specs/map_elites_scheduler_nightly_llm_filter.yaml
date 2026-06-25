@@ -5,6 +5,8 @@ batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
 min_steps: 200
+# Uniform frontier avoids all batch slots targeting the same weakest niche each iteration.
+target_selection: uniform_frontier
 
 batch_emitters:
   - random

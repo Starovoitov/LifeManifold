@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 EmitterKind = Literal["random", "genetic", "llm"]
 ArchiveType = Literal["grid", "cvt"]
+TargetSelectionStrategy = Literal["min_fitness_frontier", "uniform_frontier"]
+DEFAULT_TARGET_SELECTION: TargetSelectionStrategy = "min_fitness_frontier"
 _SCHEDULER_SCHEMA_VERSION = "1.2"
 _SCHEDULER_SCHEMA_VERSIONS = ("1.2", "1.3")
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
@@ -84,8 +86,10 @@ __all__ = [
     "RetrainConfig",
     "RunCounters",
     "SchedulerConfig",
+    "DEFAULT_TARGET_SELECTION",
     "TargetBin",
     "TargetCell",
+    "TargetSelectionStrategy",
     "load_scheduler",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
@@ -131,6 +135,7 @@ class SchedulerConfig:
     performance: SimulatorPerformanceOptions = field(
         default_factory=lambda: DEFAULT_SIMULATOR_PERFORMANCE
     )
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
 
     @property
     def n_cells(self) -> int:
@@ -236,6 +241,7 @@ def load_scheduler(
         grid_resolution=archive_settings.resolution,
         early_extinction_step=doc.early_extinction_step,
         min_steps=doc.min_steps,
+        target_selection=doc.target_selection,
         batch_emitters=tuple(doc.batch_emitters),
         initial_random_candidates=doc.initial_random_candidates,
         llm_enabled=doc.llm.enabled,
@@ -263,6 +269,8 @@ def load_scheduler(
 def select_target_cell(
     archive: ArchiveProtocol,
     rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION,
 ) -> TargetCell:
     """Choose a target archive niche and BC center for the next candidate."""
     if archive.filled_count() == 0:
@@ -270,7 +278,12 @@ def select_target_cell(
     else:
         frontier = _frontier_cell_ids(archive)
         if frontier:
-            cell_id = _min_fitness_cell(frontier, archive)
+            cell_id = _select_frontier_cell(
+                frontier,
+                archive,
+                rng,
+                target_selection=target_selection,
+            )
         else:
             cell_id = int(rng.integers(0, archive.n_cells))
     stability, diversity = archive.cell_center(cell_id)
@@ -286,9 +299,15 @@ def select_target_cell(
 def select_target_bin(
     archive: GridArchive,
     rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION,
 ) -> TargetBin:
     """Choose a target archive cell and BC niche center for the next candidate."""
-    target = select_target_cell(archive, rng)
+    target = select_target_cell(
+        archive,
+        rng,
+        target_selection=target_selection,
+    )
     i, j = target.bin_ij
     return TargetBin(
         bin=(i, j),
@@ -478,6 +497,7 @@ class _MapElitesSchedulerYaml(BaseModel):
     archive: _ArchiveYamlBlock | None = None
     early_extinction_step: int = Field(..., ge=1)
     min_steps: int = Field(..., ge=200)
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
     batch_emitters: list[EmitterKind]
     initial_random_candidates: int = Field(..., ge=0)
     llm: _LlmSchedulerBlock
@@ -612,6 +632,21 @@ def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
         config,
         acquisition=replace(acquisition, policy=policy, mode=mode),
     )
+
+
+def _select_frontier_cell(
+    frontier: list[int],
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy,
+) -> int:
+    if not frontier:
+        msg = "frontier must be non-empty"
+        raise ValueError(msg)
+    if target_selection == "uniform_frontier":
+        return int(frontier[int(rng.integers(0, len(frontier)))])
+    return _min_fitness_cell(frontier, archive)
 
 
 def _frontier_cell_ids(archive: ArchiveProtocol) -> list[int]:

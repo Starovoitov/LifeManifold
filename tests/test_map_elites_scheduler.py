@@ -342,6 +342,30 @@ class TestSelectTargetCell(unittest.TestCase):
         self.assertEqual(target.bin_ij, (1, 0))
         self.assertEqual(target.cell_id, 1)
 
+    def test_uniform_frontier_samples_multiple_cells(self) -> None:
+        archive = GridArchive(4)
+        for i in range(3):
+            for j in range(3):
+                fitness = 0.1 if (i, j) == (2, 2) else 0.9
+                archive.try_insert(_minimal_elite((i, j), fitness, elite_id=f"{i}-{j}"))
+        rng = np.random.default_rng(11)
+        cell_ids = {
+            select_target_cell(
+                archive,
+                rng,
+                target_selection="uniform_frontier",
+            ).cell_id
+            for _ in range(200)
+        }
+        self.assertGreater(len(cell_ids), 1)
+        self.assertIn(archive.cell_id_from_bin((2, 2)), cell_ids)
+
+    def test_load_scheduler_reads_target_selection(self) -> None:
+        config = load_scheduler(
+            "worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+
     def test_cvt_create_archive_from_mini_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)
         archive = create_archive(archive_factory_config_from_scheduler(config))
