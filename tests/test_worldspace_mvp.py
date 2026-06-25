@@ -513,6 +513,39 @@ class TestWorldSpaceMVP(unittest.TestCase):
         self.assertEqual(payload["temperature"], 0.2)
         self.assertEqual(payload["max_tokens"], 350)
 
+    def test_call_llm_messages_retries_transient_timeout(self):
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[TimeoutError("timed out"), fake_cm],
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep") as m_sleep:
+                    from worldspace.generators import call_llm_messages
+
+                    out = call_llm_messages(
+                        mode="remote",
+                        provider_name="qwen",
+                        providers=providers,
+                        messages=[{"role": "user", "content": "ping"}],
+                    )
+
+        self.assertEqual(out, "{}")
+        self.assertEqual(m_open.call_count, 2)
+        m_sleep.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

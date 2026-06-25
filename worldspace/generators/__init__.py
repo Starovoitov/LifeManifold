@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 import base64
 from collections.abc import Iterator
 from dataclasses import replace
+import http.client
 import json
 import os
 import ssl
+import time
 from pathlib import Path
 from typing import Any, cast
 from urllib import error, request
@@ -780,6 +782,54 @@ def call_llm_vision(
     )
 
 
+_LLM_HTTP_TIMEOUT_SECONDS = 45
+_LLM_HTTP_MAX_ATTEMPTS = 3
+_LLM_HTTP_RETRY_BACKOFF_SECONDS = 2.0
+
+
+def _retryable_llm_http_status(code: int) -> bool:
+    return code in (429, 500, 502, 503, 504)
+
+
+def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
+    """POST once with up to three attempts on transient network/API failures."""
+    last_error: BaseException | None = None
+    for attempt in range(1, _LLM_HTTP_MAX_ATTEMPTS + 1):
+        try:
+            with request.urlopen(req, timeout=_LLM_HTTP_TIMEOUT_SECONDS) as resp:
+                return resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            if (
+                _retryable_llm_http_status(exc.code)
+                and attempt < _LLM_HTTP_MAX_ATTEMPTS
+            ):
+                last_error = exc
+                time.sleep(_LLM_HTTP_RETRY_BACKOFF_SECONDS * attempt)
+                continue
+            raise RuntimeError(
+                f"LLM HTTP error {exc.code}: {exc.reason}"
+            ) from exc
+        except (
+            error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.RemoteDisconnected,
+        ) as exc:
+            if attempt < _LLM_HTTP_MAX_ATTEMPTS:
+                last_error = exc
+                time.sleep(_LLM_HTTP_RETRY_BACKOFF_SECONDS * attempt)
+                continue
+            if isinstance(exc, error.URLError):
+                r = exc.reason
+                hint = _llm_url_error_hint(r, api_base)
+                raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
+            raise RuntimeError(f"LLM request failed: {exc}") from exc
+    msg = f"LLM request failed after {_LLM_HTTP_MAX_ATTEMPTS} attempts"
+    if last_error is not None:
+        raise RuntimeError(msg) from last_error
+    raise RuntimeError(msg)
+
+
 def call_llm_messages(
     *,
     mode: str,
@@ -823,15 +873,7 @@ def call_llm_messages(
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
 
-    try:
-        with request.urlopen(req, timeout=45) as resp:
-            raw = resp.read().decode("utf-8")
-    except error.HTTPError as exc:
-        raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
-    except error.URLError as exc:
-        r = exc.reason
-        hint = _llm_url_error_hint(r, api_base)
-        raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
+    raw = _fetch_llm_response_body(req, api_base=api_base)
 
     try:
         data = json.loads(raw)

@@ -78,8 +78,12 @@ surrogate:
   acquisition:
     mode: filter
     policy: threshold_gate
-    min_predicted_fitness: 0.15
-    max_uncertainty_to_skip: 0.40
+    # Tuned offline on buffer hold-out (35k rows, Jun 2026):
+    # - calibrated uncertainty ~0.0183 (constant); max_u must exceed that to allow skips
+    # - 96% of hold-out preds are exactly 0; min_f in (0,0.7) -> same offline skip mass
+    # - live never_skip_empty_bin + baseline coverage 39% -> ~37% effective skip (target 25-45%)
+    min_predicted_fitness: 0.10
+    max_uncertainty_to_skip: 0.022
     never_skip_empty_bin: true
   retrain:
     enabled: false

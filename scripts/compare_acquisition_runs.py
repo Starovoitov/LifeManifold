@@ -60,20 +60,38 @@ class _RunSummary(TypedDict):
     filled_cells_pct: float
     mean_best_fitness: float
     recommended_skip_rate: float | None
+    run_complete: bool
 
 
 def main() -> None:
     args = parse_args()
+    baseline_dir = Path(args.baseline_dir)
+    candidate_dir = Path(args.candidate_dir)
+    for label, run_dir in (("baseline", baseline_dir), ("candidate", candidate_dir)):
+        if not _run_is_complete(run_dir):
+            print(
+                f"WARNING: {label} run incomplete (missing "
+                f"{NIGHTLY_SUMMARY_FILENAME} in {run_dir}); "
+                "metrics are partial — wait for the batch to finish.",
+                file=sys.stderr,
+            )
     baseline = _summarize_run(
-        Path(args.baseline_dir),
+        baseline_dir,
         grid_resolution=args.grid_resolution,
         n_cells_override=args.n_cells,
     )
     candidate = _summarize_run(
-        Path(args.candidate_dir),
+        candidate_dir,
         grid_resolution=args.grid_resolution,
         n_cells_override=args.n_cells,
     )
+    if not baseline["run_complete"] or not candidate["run_complete"]:
+        print(
+            "ERROR: one or both runs are incomplete; "
+            "re-run after nightly_run_summary.json exists in both dirs.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     if baseline["archive_type"] != candidate["archive_type"]:
         print(
             "WARNING: archive_type mismatch "
@@ -312,6 +330,28 @@ def _infer_grid_resolution_from_bin_cell(
     return resolution
 
 
+def _run_is_complete(run_dir: Path) -> bool:
+    return (run_dir / NIGHTLY_SUMMARY_FILENAME).is_file()
+
+
+def _metrics_from_nightly_summary(run_dir: Path) -> dict[str, float] | None:
+    summary_path = run_dir / NIGHTLY_SUMMARY_FILENAME
+    if not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        evaluations = float(payload["evaluations"])
+        filled_cells = float(payload["filled_cells"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {"evaluations": evaluations, "filled_cells": filled_cells}
+
+
 def _summarize_run(
     path: Path,
     *,
@@ -325,16 +365,21 @@ def _summarize_run(
     )
     archive_path = path / MAP_ELITES_ARCHIVE_FILENAME
     surrogate_path = path / "surrogate_archive.jsonl"
-    evaluations = 0
+    summary_metrics = _metrics_from_nightly_summary(path)
+    evaluations = 0.0
     best_fitness_values: list[float] = []
     if archive_path.is_file():
         for line in archive_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             record = json.loads(line)
-            evaluations += 1
             best_fitness_values.append(float(record.get("fitness", 0.0)))
-    filled_cells = len(best_fitness_values)
+    if summary_metrics is not None:
+        evaluations = summary_metrics["evaluations"]
+        filled_cells = summary_metrics["filled_cells"]
+    else:
+        evaluations = float(len(best_fitness_values))
+        filled_cells = float(len(best_fitness_values))
     total_cells = max(1, meta["n_cells"])
     skip_count = 0
     slot_count = 0
@@ -360,6 +405,7 @@ def _summarize_run(
         "recommended_skip_rate": (
             100.0 * skip_count / slot_count if slot_count > 0 else None
         ),
+        "run_complete": summary_metrics is not None,
     }
 
 

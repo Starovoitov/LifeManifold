@@ -18,14 +18,14 @@ SEED="${1:-0}"
 EXP_DIR="$ROOT/artifacts/experiments/shadow"
 SUMMARY="$ROOT/artifacts/surrogate/checkpoints/nightly_v2.summary.json"
 
-echo "=== Step 1: offline acquisition replay (buffer hold-out) ==="
-uv run python "$ROOT/scripts/train_surrogate.py" \
+echo "=== Step 1: offline acquisition replay (buffer hold-out, yaml thresholds) ==="
+uv run python "$ROOT/scripts/report_surrogate_acquisition.py" \
   --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
   --checkpoint-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v2.pkl" \
-  --summary-path "$SUMMARY" \
   --calibration-path "$ROOT/artifacts/surrogate/checkpoints/calibration.pkl" \
-  --acquisition-report \
-  --no-quality-gate
+  --summary-path "$SUMMARY" \
+  --min-predicted-fitness 0.10 \
+  --max-uncertainty-to-skip 0.022
 
 if command -v python3 >/dev/null 2>&1; then
   python3 - <<'PY'
@@ -46,13 +46,11 @@ else:
     )
     skip = float(acq.get("recommended_skip_rate", 0))
     false_skip = float(acq.get("false_skip_rate_estimate", 0))
-    if not (0.25 <= skip <= 0.45):
-        print(
-            f"NOTE: skip rate {skip:.1%} outside target 25–45%; "
-            "tune min_predicted_fitness / max_uncertainty_to_skip in "
-            "map_elites_scheduler_nightly_llm_filter.yaml and _shadow.yaml",
-            flush=True,
-        )
+    print(
+        "NOTE: offline replay skip rate is an upper bound; "
+        "live shadow target is 25-45% (never_skip_empty_bin + baseline).",
+        flush=True,
+    )
     if false_skip >= 0.05:
         print(
             f"WARNING: false_skip_rate_estimate {false_skip:.1%} >= 5%",
