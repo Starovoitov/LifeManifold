@@ -16,8 +16,10 @@ from worldspace.illuminators.scheduler import (
 from worldspace.surrogate.acquisition_config import DEFAULT_SURROGATE_ARCHIVE_PATH
 
 _SPECS = Path(__file__).resolve().parents[1] / "worldspace" / "specs"
-_SHADOW_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_shadow.yaml"
 _FILTER_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_filter.yaml"
+_SHADOW_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_shadow.yaml"
+_SHADOW_NIGHTLY_PATH = _SPECS / "map_elites_scheduler_nightly_llm_shadow.yaml"
+_SHADOW_HINTS_PATH = _SPECS / "map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 
 
 class TestAcquisitionSchedulerYaml(unittest.TestCase):
@@ -141,6 +143,19 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
             any("not implemented yet" in message for message in captured.output)
         )
 
+    def test_nightly_shadow_pair_aligned_except_acquisition_mode(self) -> None:
+        hints = load_scheduler(_SHADOW_HINTS_PATH)
+        shadow = load_scheduler(_SHADOW_NIGHTLY_PATH)
+        self.assertEqual(hints.target_selection, shadow.target_selection)
+        self.assertEqual(
+            hints.surrogate_extinction_gate_threshold,
+            shadow.surrogate_extinction_gate_threshold,
+        )
+        self.assertEqual(hints.surrogate_calibration, shadow.surrogate_calibration)
+        self.assertEqual(hints.iterations, shadow.iterations)
+        self.assertEqual(hints.batch_size, shadow.batch_size)
+        self.assertEqual(hints.batch_emitters, shadow.batch_emitters)
+        self.assertEqual(hints.acquisition.mode, "off")
+        self.assertEqual(shadow.acquisition.mode, "shadow")
 
-if __name__ == "__main__":
     unittest.main()

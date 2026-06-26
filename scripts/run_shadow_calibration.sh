@@ -25,7 +25,7 @@ uv run python "$ROOT/scripts/report_surrogate_acquisition.py" \
   --calibration-path "$ROOT/artifacts/surrogate/checkpoints/calibration.pkl" \
   --summary-path "$SUMMARY" \
   --min-predicted-fitness 0.10 \
-  --max-uncertainty-to-skip 0.022
+  --max-uncertainty-to-skip 1.0
 
 if command -v python3 >/dev/null 2>&1; then
   python3 - <<'PY'

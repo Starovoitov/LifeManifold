@@ -1,8 +1,7 @@
 schema_version: "1.2"
-# Shadow acquisition for Q1 filter calibration (EXPERIMENT_PROTOCOL_Q1.md §4).
-# Pair with map_elites_scheduler_nightly_llm_shadow_hints.yaml (acquisition off).
-# Same thresholds as map_elites_scheduler_nightly_llm_filter.yaml but mode=shadow:
-# every candidate is evaluated; surrogate_archive records would_skip decisions.
+# Hints control for shadow calibration (EXPERIMENT_PROTOCOL_Q1.md §4).
+# Must match map_elites_scheduler_nightly_llm_shadow.yaml except acquisition.mode=off
+# so MAP-Elites archives are identical; shadow arm logs policy decisions only.
 iterations: 650
 batch_size: 50
 grid_resolution: 50
@@ -74,21 +73,11 @@ surrogate:
   enabled: true
   model_type: mlp
   checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
-  buffer_path: artifacts/surrogate/buffer_experiment_shadow.jsonl
+  buffer_path: artifacts/surrogate/buffer_experiment_shadow_hints.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
   extinction_gate_threshold: 0.95
   calibration: artifacts/surrogate/checkpoints/calibration.pkl
-  surrogate_archive_path: artifacts/surrogate/surrogate_archive_shadow.jsonl
-  acquisition:
-    mode: shadow
-    policy: threshold_gate
-    # Same thresholds as map_elites_scheduler_nightly_llm_filter.yaml (shadow calibration).
-    min_predicted_fitness: 0.10
-    max_uncertainty_to_skip: 1.0
-    never_skip_empty_bin: true
-  retrain:
-    enabled: false
 
 # Forkserver pool reused across iterations (numba_simulator must stay false).
 performance:
