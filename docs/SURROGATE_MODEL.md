@@ -202,7 +202,7 @@ No randomness in this module (determinism requirement). Legacy v1 density featur
 | `final_density` | Final life density proxy |
 | `early_extinction_prob` | In [0, 1]; derived from density in training labels |
 
-**Strategy A rule:** the model does **not** expose a separate “fitness head”. Fitness is always derived in the next stage via the same function as the illuminator.
+**Strategy A (nightly buffer):** component targets are stored per row; `fitness` is optional in JSONL. When `fitness` labels are absent (current `buffer_nightly.jsonl`), training has no direct fitness head — runtime and hold-out metrics **recompose** fitness via `compute_fitness_from_prediction`. When ≥10 rows include finite `fitness`, an optional direct head is trained (`predict_fitness` preferred at runtime).
 
 | Input | Output |
 |-------|--------|
