@@ -71,20 +71,20 @@ llm:
 surrogate:
   enabled: true
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_experiment_filter.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
   extinction_gate_threshold: 0.95
-  calibration: artifacts/surrogate/checkpoints/calibration.pkl
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
   surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment.jsonl
   acquisition:
     mode: filter
     policy: threshold_gate
-    # Tuned offline on buffer hold-out (35k rows, Jun 2026):
-    # - calibrated uncertainty ~0.0183 (constant); max_u must exceed that to allow skips
-    # - 96% of hold-out preds are exactly 0; min_f in (0,0.7) -> same offline skip mass
-    # - live never_skip_empty_bin + baseline coverage 39% -> ~37% effective skip (target 25-45%)
+    # Tuned offline on buffer hold-out (35k rows, Jun 2026, nightly_v3_mc_d005):
+    # - MC-dropout uncertainty spread (calibrated ~0.0007–0.20); max_u=1.0 passes gate
+    # - ~97% offline skip is upper bound (never_skip_empty_bin=false in replay)
+    # - live never_skip_empty_bin + baseline coverage -> target shadow skip 25-45%
     min_predicted_fitness: 0.10
     max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true

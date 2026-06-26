@@ -19,7 +19,7 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertEqual(config.archive_type, "cvt")
         self.assertTrue(config.llm_enabled)
         self.assertTrue(config.surrogate_enabled)
-        self.assertIn("nightly_v2.pkl", config.surrogate_checkpoint or "")
+        self.assertIn("nightly_v3_mc_d005.pkl", config.surrogate_checkpoint or "")
         self.assertEqual(config.iterations, 120)
         self.assertEqual(config.batch_size, 50)
         self.assertEqual(config.batch_emitters.count("llm"), 20)

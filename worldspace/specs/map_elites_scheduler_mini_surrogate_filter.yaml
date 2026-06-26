@@ -23,13 +23,13 @@ llm:
 surrogate:
   enabled: true
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
   # Isotonic uncertainty map (fit with scripts/calibrate_surrogate_uncertainty.py).
   # Disable: omit this key, set to null, false, or "" — then raw ensemble spread is used.
-  calibration: artifacts/surrogate/checkpoints/calibration.pkl
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
   surrogate_archive_path: artifacts/surrogate/surrogate_archive.jsonl
   acquisition:
     mode: filter

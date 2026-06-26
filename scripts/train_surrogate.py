@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--checkpoint-path",
-        default="artifacts/surrogate/checkpoints/latest.pkl",
+        default="artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl",
         help="Path to write trained surrogate checkpoint",
     )
     parser.add_argument(
@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--calibration-path",
-        default="artifacts/surrogate/checkpoints/calibration.pkl",
+        default="artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         help="Output path when --calibrate is set",
     )
     parser.add_argument(
@@ -124,6 +124,30 @@ def parse_args() -> argparse.Namespace:
             "(default: auto)"
         ),
     )
+    parser.add_argument(
+        "--mlp-dropout-p",
+        type=float,
+        default=None,
+        help=(
+            "MLP dropout probability during training (default: 0.0). "
+            "Use with --mlp-uncertainty-method ensemble_mc for MC-dropout uncertainty."
+        ),
+    )
+    parser.add_argument(
+        "--mlp-uncertainty-method",
+        choices=("ensemble", "ensemble_mc"),
+        default=None,
+        help=(
+            "MLP runtime uncertainty estimator (default: ensemble). "
+            "ensemble_mc requires dropout in the trained checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--mlp-mc-samples",
+        type=int,
+        default=None,
+        help="MC-dropout forward passes per member when method is ensemble_mc (default: 16)",
+    )
     return parser.parse_args()
 
 
@@ -167,6 +191,9 @@ def main() -> None:
         acquisition_report=args.acquisition_report,
         calibration_path=calibration_path,
         device=args.device,
+        mlp_dropout_p=args.mlp_dropout_p,
+        mlp_mc_samples=args.mlp_mc_samples,
+        mlp_uncertainty_method=args.mlp_uncertainty_method,
     )
 
     if not result.success:

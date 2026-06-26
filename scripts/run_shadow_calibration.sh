@@ -16,13 +16,13 @@ cd "$ROOT"
 
 SEED="${1:-0}"
 EXP_DIR="$ROOT/artifacts/experiments/shadow"
-SUMMARY="$ROOT/artifacts/surrogate/checkpoints/nightly_v2.summary.json"
+SUMMARY="$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json"
 
 echo "=== Step 1: offline acquisition replay (buffer hold-out, yaml thresholds) ==="
 uv run python "$ROOT/scripts/report_surrogate_acquisition.py" \
   --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
-  --checkpoint-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v2.pkl" \
-  --calibration-path "$ROOT/artifacts/surrogate/checkpoints/calibration.pkl" \
+  --checkpoint-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl" \
+  --calibration-path "$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl" \
   --summary-path "$SUMMARY" \
   --min-predicted-fitness 0.10 \
   --max-uncertainty-to-skip 1.0
@@ -32,7 +32,7 @@ if command -v python3 >/dev/null 2>&1; then
 import json
 from pathlib import Path
 
-summary = json.loads(Path("artifacts/surrogate/checkpoints/nightly_v2.summary.json").read_text())
+summary = json.loads(Path("artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json").read_text())
 acq = summary.get("acquisition") or {}
 if not acq:
     print("WARNING: no acquisition block in summary JSON", flush=True)

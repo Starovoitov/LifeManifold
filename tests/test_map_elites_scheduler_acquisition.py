@@ -48,7 +48,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
         )
         self.assertEqual(
             config.surrogate_calibration,
-            "artifacts/surrogate/checkpoints/calibration.pkl",
+            "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         )
 
     def test_calibration_disabled_via_null_empty_or_false(self) -> None:
@@ -83,7 +83,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
             doc["surrogate"]["enabled"] = True
             doc["surrogate"][
                 "calibration"
-            ] = "artifacts/surrogate/checkpoints/calibration.pkl"
+            ] = "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
             doc["surrogate"]["acquisition"] = {
                 "mode": "shadow",
                 "policy": "threshold_gate",
@@ -106,7 +106,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
         self.assertEqual(config.retrain.every_iterations, 10)
         self.assertEqual(
             config.surrogate_calibration,
-            "artifacts/surrogate/checkpoints/calibration.pkl",
+            "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         )
 
     def test_filter_without_surrogate_forces_off(self) -> None:

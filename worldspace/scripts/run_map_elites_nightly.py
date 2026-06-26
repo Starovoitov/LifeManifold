@@ -36,10 +36,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_nightly"
 _NIGHTLY_BUFFER_PATH = _REPO_ROOT / "artifacts" / "surrogate" / "buffer_nightly.jsonl"
 _NIGHTLY_CHECKPOINT_PATH = (
-    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v2.pkl"
+    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v3_mc_d005.pkl"
 )
 _NIGHTLY_TRAINING_SUMMARY_PATH = (
-    _REPO_ROOT / "artifacts" / "surrogate" / "checkpoints" / "nightly_v2.summary.json"
+    _REPO_ROOT
+    / "artifacts"
+    / "surrogate"
+    / "checkpoints"
+    / "nightly_v3_mc_d005.summary.json"
 )
 _TRAIN_SCRIPT = _REPO_ROOT / "scripts" / "train_surrogate.py"
 _DEFAULT_GRID_SIZE = 50
@@ -452,7 +456,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--skip-training",
         action="store_true",
-        help="Pipeline only: skip train step (requires existing nightly_v2.pkl).",
+        help="Pipeline only: skip train step (requires existing nightly_v3_mc_d005.pkl).",
     )
     parser.add_argument(
         "--overwrite-buffer",

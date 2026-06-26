@@ -72,12 +72,12 @@ llm:
 surrogate:
   enabled: true
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_experiment_shadow_hints.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
   extinction_gate_threshold: 0.95
-  calibration: artifacts/surrogate/checkpoints/calibration.pkl
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
 
 # Forkserver pool reused across iterations (numba_simulator must stay false).
 performance:

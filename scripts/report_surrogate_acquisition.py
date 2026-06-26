@@ -31,11 +31,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--checkpoint-path",
-        default="artifacts/surrogate/checkpoints/latest.pkl",
+        default="artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl",
     )
     parser.add_argument(
         "--calibration-path",
-        default="artifacts/surrogate/checkpoints/calibration.pkl",
+        default="artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
     )
     parser.add_argument(
         "--summary-path",

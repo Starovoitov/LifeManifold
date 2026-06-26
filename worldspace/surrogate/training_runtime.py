@@ -121,6 +121,9 @@ def train_from_buffer(
     calibration_path: Path | str | None = None,
     acquisition_policy: AcquisitionConfig | None = None,
     device: DevicePreference = "auto",
+    mlp_dropout_p: float | None = None,
+    mlp_mc_samples: int | None = None,
+    mlp_uncertainty_method: str | None = None,
 ) -> TrainResult:
     """Train a surrogate from buffer JSONL and write checkpoint + summary."""
     resolved_summary = summary_path or default_summary_path(checkpoint_path)
@@ -208,6 +211,9 @@ def train_from_buffer(
             val_targets=y_holdout,
             sample_weight=sample_weight,
             device=device,
+            mlp_dropout_p=mlp_dropout_p,
+            mlp_mc_samples=mlp_mc_samples,
+            mlp_uncertainty_method=mlp_uncertainty_method,
         )
         consistency_before: float | None = None
         consistency_after: float | None = None

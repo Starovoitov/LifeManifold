@@ -70,23 +70,26 @@ if [[ ! -f "$BASELINE_ARCHIVE" ]]; then
   exit 1
 fi
 
-CHECKPOINT="$ROOT/artifacts/surrogate/checkpoints/nightly_v2.pkl"
+CHECKPOINT="$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
 if [[ ! -f "$CHECKPOINT" ]]; then
   echo "Training surrogate checkpoint..."
   uv run python "$TRAIN_SCRIPT" \
     --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
     --checkpoint-path "$CHECKPOINT" \
-    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v2.summary.json" \
+    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
+    --mlp-dropout-p 0.05 \
+    --mlp-uncertainty-method ensemble_mc \
+    --mlp-mc-samples 16 \
     --no-quality-gate
 fi
 
-CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration.pkl"
+CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
 if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true) && ! -f "$CALIBRATION" ]]; then
   echo "Training uncertainty calibration (required for filter arm)..."
   uv run python "$TRAIN_SCRIPT" \
     --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
     --checkpoint-path "$CHECKPOINT" \
-    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v2.summary.json" \
+    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
     --calibrate \
     --calibration-path "$CALIBRATION" \
     --no-quality-gate

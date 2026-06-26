@@ -426,7 +426,9 @@ class _SurrogateSchedulerBlock(BaseModel):
 
     enabled: bool
     model_type: str = Field(default="mlp")
-    checkpoint: str | None = Field(default="artifacts/surrogate/checkpoints/latest.pkl")
+    checkpoint: str | None = Field(
+        default="artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
+    )
     buffer_path: str = Field(default="artifacts/surrogate/buffer.jsonl")
     stub_mean: float = Field(..., ge=0.0, le=1.0)
     stub_uncertainty: float = Field(..., ge=0.0)

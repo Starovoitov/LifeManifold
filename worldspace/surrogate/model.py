@@ -143,6 +143,9 @@ class SurrogateModel:
         val_targets: dict[str, np.ndarray] | None = None,
         sample_weight: np.ndarray | None = None,
         device: DevicePreference = "auto",
+        mlp_dropout_p: float | None = None,
+        mlp_mc_samples: int | None = None,
+        mlp_uncertainty_method: str | None = None,
     ) -> None:
         """Fit component regressors; LightGBM or MLP ensemble when available."""
         self._training_device_preference = device
@@ -167,6 +170,9 @@ class SurrogateModel:
                 targets,
                 val_features=val_features,
                 val_targets=val_targets,
+                dropout_p=mlp_dropout_p,
+                mc_samples=mlp_mc_samples,
+                uncertainty_method=mlp_uncertainty_method,
             )
             return
 
@@ -375,6 +381,9 @@ class SurrogateModel:
         *,
         val_features: np.ndarray | None = None,
         val_targets: dict[str, np.ndarray] | None = None,
+        dropout_p: float | None = None,
+        mc_samples: int | None = None,
+        uncertainty_method: str | None = None,
     ) -> None:
         from worldspace.surrogate.mlp_model import (
             MlpTrainConfig,
@@ -391,9 +400,27 @@ class SurrogateModel:
                 int(np.isfinite(labels).sum()) >= MIN_FITNESS_HEAD_SAMPLES
             )
 
+        defaults = MlpTrainConfig()
+        resolved_dropout = (
+            float(defaults.dropout_p) if dropout_p is None else float(dropout_p)
+        )
+        resolved_mc = (
+            int(defaults.mc_samples) if mc_samples is None else int(mc_samples)
+        )
+        resolved_method = (
+            str(defaults.uncertainty_method)
+            if uncertainty_method is None
+            else str(uncertainty_method)
+        )
+        if resolved_method == "ensemble_mc" and resolved_dropout <= 0.0:
+            resolved_dropout = 0.1
+
         config = MlpTrainConfig(
             hidden_dims=self._mlp_hidden_dims,
             fitness_loss_weight=self._fitness_loss_weight,
+            dropout_p=resolved_dropout,
+            mc_samples=resolved_mc,
+            uncertainty_method=resolved_method,  # type: ignore[arg-type]
         )
         self._mlp_dropout_p = float(config.dropout_p)
         self._mlp_mc_samples = int(config.mc_samples)
