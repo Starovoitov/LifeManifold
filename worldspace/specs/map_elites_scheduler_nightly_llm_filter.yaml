@@ -75,6 +75,7 @@ surrogate:
   buffer_path: artifacts/surrogate/buffer_experiment_filter.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
   calibration: artifacts/surrogate/checkpoints/calibration.pkl
   surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment.jsonl
   acquisition:
@@ -85,7 +86,7 @@ surrogate:
     # - 96% of hold-out preds are exactly 0; min_f in (0,0.7) -> same offline skip mass
     # - live never_skip_empty_bin + baseline coverage 39% -> ~37% effective skip (target 25-45%)
     min_predicted_fitness: 0.10
-    max_uncertainty_to_skip: 0.022
+    max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true
   retrain:
     enabled: false

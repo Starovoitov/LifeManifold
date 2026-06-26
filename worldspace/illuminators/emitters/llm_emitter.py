@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, cast
@@ -40,6 +41,9 @@ _DEFAULT_LLM_SPEC = (
 )
 _EMITTER_TYPE_LLM = "llm"
 _EMITTER_TYPE_LLM_FALLBACK = "llm_fallback"
+_LLM_RESPONSE_PREVIEW_CHARS = 160
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "LlmEmitter",
@@ -123,10 +127,15 @@ class LlmEmitter:
             surrogate_uncertainty=surrogate_uncertainty,
             rng=rng,
         )
+        fallback_reason: str | None = None
         try:
             response = self._request_llm(system_prompt, user_prompt)
-        except (RuntimeError, ValueError):
+        except (RuntimeError, ValueError) as exc:
+            fallback_reason = f"request_failed:{type(exc).__name__}:{exc}"
             response = ""
+        else:
+            if not response.strip():
+                fallback_reason = "empty_response"
         parsed = extract_json_object_from_text(response)
         if parsed is not None:
             spec = world_spec_from_llm_payload(
@@ -145,6 +154,19 @@ class LlmEmitter:
                         prompt_version=prompt_version,
                     ),
                 )
+            fallback_reason = "invalid_world_spec"
+        elif fallback_reason is None:
+            preview = response.strip().replace("\n", " ")[:_LLM_RESPONSE_PREVIEW_CHARS]
+            fallback_reason = (
+                "no_json_in_response" if preview else "no_json_in_empty_response"
+            )
+        logger.warning(
+            "LLM emitter fallback cell_id=%s parent_id=%s reason=%s response_preview=%r",
+            target.cell_id,
+            parent_id,
+            fallback_reason,
+            response.strip().replace("\n", " ")[:_LLM_RESPONSE_PREVIEW_CHARS],
+        )
         fallback_spec = _random_walk_step(
             parent_spec,
             scale=self._fallback_scale,

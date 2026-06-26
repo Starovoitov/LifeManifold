@@ -128,6 +128,7 @@ class SchedulerConfig:
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
     surrogate_calibration: str | None = None
     surrogate_use_soft_extinction: bool = False
+    surrogate_extinction_gate_threshold: float = 0.5
     archive_type: ArchiveType = "grid"
     n_centroids: int = DEFAULT_GRID_RESOLUTION * DEFAULT_GRID_RESOLUTION
     cvt_seed: int = 0
@@ -252,6 +253,7 @@ def load_scheduler(
         surrogate_stub_mean=doc.surrogate.stub_mean,
         surrogate_stub_uncertainty=doc.surrogate.stub_uncertainty,
         surrogate_use_soft_extinction=doc.surrogate.use_soft_extinction,
+        surrogate_extinction_gate_threshold=doc.surrogate.extinction_gate_threshold,
         genetic_mutation_scale=doc.genetic.mutation_scale,
         acquisition=acquisition,
         surrogate_archive_path=archive_path,
@@ -363,6 +365,7 @@ def surrogate_config_from_scheduler(
         calibration=config.surrogate_calibration,
         require_quality_gate=require_quality_gate,
         use_soft_extinction=config.surrogate_use_soft_extinction,
+        extinction_gate_threshold=config.surrogate_extinction_gate_threshold,
     )
 
 
@@ -428,6 +431,7 @@ class _SurrogateSchedulerBlock(BaseModel):
     stub_mean: float = Field(..., ge=0.0, le=1.0)
     stub_uncertainty: float = Field(..., ge=0.0)
     use_soft_extinction: bool = False
+    extinction_gate_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     calibration: str | None = None
     acquisition: _AcquisitionYamlBlock | None = None
     retrain: _RetrainYamlBlock | None = None

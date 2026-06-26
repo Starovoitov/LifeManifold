@@ -806,9 +806,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
                 last_error = exc
                 time.sleep(_LLM_HTTP_RETRY_BACKOFF_SECONDS * attempt)
                 continue
-            raise RuntimeError(
-                f"LLM HTTP error {exc.code}: {exc.reason}"
-            ) from exc
+            raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
         except (
             error.URLError,
             TimeoutError,

@@ -76,6 +76,7 @@ surrogate:
   buffer_path: artifacts/surrogate/buffer_experiment_shadow.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
   calibration: artifacts/surrogate/checkpoints/calibration.pkl
   surrogate_archive_path: artifacts/surrogate/surrogate_archive_shadow.jsonl
   acquisition:
@@ -83,7 +84,7 @@ surrogate:
     policy: threshold_gate
     # Same thresholds as map_elites_scheduler_nightly_llm_filter.yaml (shadow calibration).
     min_predicted_fitness: 0.10
-    max_uncertainty_to_skip: 0.022
+    max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true
   retrain:
     enabled: false

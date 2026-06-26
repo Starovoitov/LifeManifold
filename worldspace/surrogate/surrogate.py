@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
+
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.calibration import (
     UncertaintyCalibrator,
@@ -25,7 +27,7 @@ from worldspace.surrogate.model import (
     checkpoint_matches_extractor,
 )
 from worldspace.surrogate.types import SurrogatePrediction
-from worldspace.surrogate.utils import resolve_surrogate_fitness
+from worldspace.surrogate.utils import compute_fitness_from_prediction
 
 __all__ = [
     "StubSurrogate",
@@ -73,6 +75,7 @@ class SurrogateFacade:
     calibrator: UncertaintyCalibrator | None = None
     calibration_configured: bool = False
     use_soft_extinction: bool = False
+    extinction_gate_threshold: float = 0.5
     cache_capacity: int = 1024
     _cache: OrderedDict[str, SurrogatePrediction] = field(default_factory=OrderedDict)
     _cache_hits: int = 0
@@ -139,11 +142,12 @@ class SurrogateFacade:
                 resolved = SurrogatePrediction(
                     components=prediction.components,
                     measures=prediction.measures,
-                    fitness=resolve_surrogate_fitness(
+                    fitness=_resolve_surrogate_fitness(
                         self.model,
                         features,
                         prediction,
                         use_soft_extinction=self.use_soft_extinction,
+                        extinction_gate_threshold=self.extinction_gate_threshold,
                     ),
                     uncertainty=prediction.uncertainty,
                 )
@@ -187,6 +191,7 @@ def build_surrogate_facade(
     uncertainty_fallback: float,
     calibration_path: str | Path | None = None,
     use_soft_extinction: bool = False,
+    extinction_gate_threshold: float = 0.5,
     cache_capacity: int = 1024,
 ) -> SurrogateFacade:
     """Construct a facade with explicit constructor kwargs for type checkers."""
@@ -200,6 +205,7 @@ def build_surrogate_facade(
         calibrator=calibrator,
         calibration_configured=configured,
         use_soft_extinction=use_soft_extinction,
+        extinction_gate_threshold=float(extinction_gate_threshold),
         cache_capacity=cache_capacity,
     )
 
@@ -214,3 +220,28 @@ def _stub_components(value: float) -> dict[str, float]:
         "final_density": value,
         "early_extinction_prob": value,
     }
+
+
+def _resolve_surrogate_fitness(
+    model: SurrogateModel,
+    features,
+    prediction: SurrogatePrediction,
+    *,
+    use_soft_extinction: bool = False,
+    extinction_gate_threshold: float = 0.5,
+) -> float:
+    """Use direct fitness head when available, else compose with configured gate."""
+    direct = model.predict_fitness(features)
+    if direct is not None:
+        return float(np.clip(float(direct), 0.0, 1.0))
+    return float(
+        np.clip(
+            compute_fitness_from_prediction(
+                prediction,
+                use_soft_extinction=use_soft_extinction,
+                extinction_gate_threshold=extinction_gate_threshold,
+            ),
+            0.0,
+            1.0,
+        )
+    )
