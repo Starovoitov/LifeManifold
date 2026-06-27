@@ -791,6 +791,11 @@ def _retryable_llm_http_status(code: int) -> bool:
     return code in (429, 500, 502, 503, 504)
 
 
+def _llm_http_retry_backoff_seconds(attempt: int) -> float:
+    """Exponential backoff before retry attempt ``attempt + 1`` (2s, 4s, …)."""
+    return _LLM_HTTP_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+
+
 def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
     """POST once with up to three attempts on transient network/API failures."""
     last_error: BaseException | None = None
@@ -804,7 +809,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
                 and attempt < _LLM_HTTP_MAX_ATTEMPTS
             ):
                 last_error = exc
-                time.sleep(_LLM_HTTP_RETRY_BACKOFF_SECONDS * attempt)
+                time.sleep(_llm_http_retry_backoff_seconds(attempt))
                 continue
             raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
         except (
@@ -815,7 +820,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
         ) as exc:
             if attempt < _LLM_HTTP_MAX_ATTEMPTS:
                 last_error = exc
-                time.sleep(_LLM_HTTP_RETRY_BACKOFF_SECONDS * attempt)
+                time.sleep(_llm_http_retry_backoff_seconds(attempt))
                 continue
             if isinstance(exc, error.URLError):
                 r = exc.reason
