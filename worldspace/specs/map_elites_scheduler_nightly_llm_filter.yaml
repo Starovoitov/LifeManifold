@@ -85,7 +85,8 @@ surrogate:
     # - MC-dropout uncertainty spread (calibrated ~0.0007–0.20); max_u=1.0 passes gate
     # - ~97% offline skip is upper bound (never_skip_empty_bin=false in replay)
     # - live never_skip_empty_bin + baseline coverage -> target shadow skip 25-45%
-    min_predicted_fitness: 0.10
+    # - raised from 0.10 after shadow seed_0 (Jun 2026): 0.10 -> ~12% skip; 0.45 -> ~34%
+    min_predicted_fitness: 0.45
     max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true
   retrain:

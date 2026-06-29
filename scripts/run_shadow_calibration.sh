@@ -24,7 +24,7 @@ uv run python "$ROOT/scripts/report_surrogate_acquisition.py" \
   --checkpoint-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl" \
   --calibration-path "$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl" \
   --summary-path "$SUMMARY" \
-  --min-predicted-fitness 0.10 \
+  --min-predicted-fitness 0.45 \
   --max-uncertainty-to-skip 1.0
 
 if command -v python3 >/dev/null 2>&1; then

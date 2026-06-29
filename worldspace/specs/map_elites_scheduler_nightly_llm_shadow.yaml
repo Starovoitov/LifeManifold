@@ -84,7 +84,7 @@ surrogate:
     mode: shadow
     policy: threshold_gate
     # Same thresholds as map_elites_scheduler_nightly_llm_filter.yaml (shadow calibration).
-    min_predicted_fitness: 0.10
+    min_predicted_fitness: 0.45
     max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true
   retrain:
