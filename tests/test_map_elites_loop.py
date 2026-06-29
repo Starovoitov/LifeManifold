@@ -374,5 +374,83 @@ class TestParallelLlmEmit(unittest.TestCase):
         parallel_mock.assert_not_called()
 
 
+class TestLlmEmitCounters(unittest.TestCase):
+    def test_run_iteration_records_llm_emit_and_fallback_counters(self) -> None:
+        config = replace(
+            _MINI_CONFIG,
+            batch_size=2,
+            batch_emitters=("llm", "llm"),
+            initial_random_candidates=0,
+        )
+        call_count = 0
+
+        def mock_llm(**_: object) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _LLM_MOCK_RESPONSE
+            return ""
+
+        emitter = MapElitesEmitter(
+            mutation_scale=config.genetic_mutation_scale,
+            llm_emitter=LlmEmitter(
+                grid_resolution=config.grid_resolution,
+                call_llm_text=mock_llm,
+            ),
+        )
+        counters = RunCounters()
+        run_iteration(
+            config,
+            GridArchive(config.grid_resolution),
+            np.random.default_rng(0),
+            counters,
+            emitter,
+            iteration_index=1,
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(counters.llm_emit_attempts, 2)
+        self.assertEqual(counters.llm_emit_fallbacks, 1)
+        self.assertGreater(counters.emit_llm_seconds, 0.0)
+        self.assertGreater(counters.eval_seconds, 0.0)
+
+    def test_iteration_timing_jsonl_written_when_enabled(self) -> None:
+        config = replace(
+            _MINI_CONFIG,
+            llm_enabled=False,
+            batch_emitters=("random", "random"),
+            batch_size=2,
+            initial_random_candidates=0,
+            iterations=2,
+            performance=replace(
+                DEFAULT_SIMULATOR_PERFORMANCE,
+                log_iteration_timing=True,
+            ),
+        )
+        emitter = FixedSpecEmitter(_FIXED_SPEC)
+        with tempfile.TemporaryDirectory() as tmp:
+            jsonl_path = Path(tmp) / "archive.jsonl"
+            run_scheduler(
+                config,
+                GridArchive(config.grid_resolution),
+                np.random.default_rng(0),
+                emitter,
+                grid_size=8,
+                steps=200,
+                jsonl_path=jsonl_path,
+            )
+            timing_path = Path(tmp) / "iteration_timing.jsonl"
+            self.assertTrue(timing_path.is_file())
+            lines = [
+                line
+                for line in timing_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(lines), config.iterations)
+            first = json.loads(lines[0])
+            self.assertIn("emit_s", first)
+            self.assertIn("eval_s", first)
+
+
 if __name__ == "__main__":
     unittest.main()

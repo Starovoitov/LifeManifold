@@ -34,6 +34,7 @@ class SimulatorPerformanceOptions:
     parallel_eval: bool = False
     parallel_workers: int = 0  # 0 = auto (os.cpu_count())
     llm_parallel_emit: bool = False
+    log_iteration_timing: bool = False
     verify_against_reference: bool = False
 
 
@@ -93,6 +94,7 @@ def resolve_simulator_performance(
         parallel_eval=bool(block.get("parallel_eval", False)),
         parallel_workers=int(block.get("parallel_workers", 0)),
         llm_parallel_emit=bool(block.get("llm_parallel_emit", False)),
+        log_iteration_timing=bool(block.get("log_iteration_timing", False)),
         verify_against_reference=bool(block.get("verify_against_reference", False)),
     )
     return _apply_env_overrides(options)
@@ -120,6 +122,9 @@ def _apply_env_overrides(
     env_llm_parallel = _env_bool("LIFEMANIFOLD_LLM_PARALLEL_EMIT")
     if env_llm_parallel is not None:
         options = replace(options, llm_parallel_emit=env_llm_parallel)
+    env_log_timing = _env_bool("LIFEMANIFOLD_LOG_ITERATION_TIMING")
+    if env_log_timing is not None:
+        options = replace(options, log_iteration_timing=env_log_timing)
     env_verify = _env_bool("LIFEMANIFOLD_VERIFY_SIM")
     if env_verify is not None:
         options = replace(options, verify_against_reference=env_verify)

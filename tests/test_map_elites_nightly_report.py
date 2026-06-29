@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from worldspace.illuminators.archive import (
@@ -12,6 +13,7 @@ from worldspace.illuminators.archive import (
 )
 from worldspace.illuminators.illuminator import MapElitesRunResult
 from worldspace.illuminators.nightly_report import (
+    LLM_STACK_VERSION,
     _collapsed_archive_for_validation,
     build_nightly_report,
     write_nightly_summary,
@@ -21,9 +23,11 @@ from worldspace.illuminators.scheduler import (
     RunCounters,
     load_scheduler,
 )
+from worldspace.simulator_perf import DEFAULT_SIMULATOR_PERFORMANCE
 from tests.test_map_elites_archive import _record_for_bin
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_LLM_SPEC = _REPO_ROOT / "worldspace" / "specs" / "llm_world_generator_qwen.yaml"
 _SMOKE_JSONL = (
     _REPO_ROOT / "artifacts" / "map_elites_smoke" / "map_elites_archive.jsonl"
 )
@@ -188,6 +192,61 @@ class TestMapElitesNightlyReport(unittest.TestCase):
                 seed=0,
                 elapsed_seconds=0.0,
             )
+
+    def test_build_nightly_report_llm_observability_fields(self) -> None:
+        config = replace(
+            load_scheduler(DEFAULT_MINI_SCHEDULER_PATH),
+            llm_enabled=True,
+            performance=replace(
+                DEFAULT_SIMULATOR_PERFORMANCE,
+                llm_parallel_emit=True,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            jsonl_path = Path(tmp) / "archive.jsonl"
+            jsonl_path.write_text(
+                json.dumps(_record_for_bin((0, 0), 0.4, elite_id="ok")) + "\n",
+                encoding="utf-8",
+            )
+            counters = RunCounters(
+                candidates_evaluated=4,
+                llm_emit_attempts=10,
+                llm_emit_fallbacks=1,
+                emit_llm_seconds=12.345,
+                eval_seconds=3.21,
+            )
+            result = MapElitesRunResult(
+                iterations=1,
+                evaluations=4,
+                filled_cells=1,
+                archive_jsonl_path=jsonl_path,
+                counters=counters,
+            )
+            report = build_nightly_report(
+                result=result,
+                config=config,
+                scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
+                seed=7,
+                elapsed_seconds=20.0,
+                llm_spec_path=_LLM_SPEC,
+            )
+            self.assertEqual(report.llm_stack_version, LLM_STACK_VERSION)
+            self.assertEqual(report.llm_model, "qwen-turbo")
+            self.assertTrue(report.llm_parallel_emit)
+            self.assertEqual(report.llm_parallel_workers, 1)
+            self.assertEqual(report.llm_emit_attempts, 10)
+            self.assertEqual(report.llm_emit_fallbacks, 1)
+            self.assertAlmostEqual(report.llm_fallback_rate_pct, 10.0)
+            self.assertEqual(report.emit_llm_seconds, 12.345)
+            self.assertEqual(report.eval_seconds, 3.21)
+            self.assertIsNotNone(report.prompt_version)
+
+            summary_path = Path(tmp) / "nightly_run_summary.json"
+            write_nightly_summary(summary_path, report)
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["llm_stack_version"], LLM_STACK_VERSION)
+            self.assertEqual(payload["llm_model"], "qwen-turbo")
+            self.assertEqual(payload["llm_fallback_rate_pct"], 10.0)
 
 
 if __name__ == "__main__":

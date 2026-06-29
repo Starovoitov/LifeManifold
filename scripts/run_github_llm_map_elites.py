@@ -336,6 +336,7 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed,
         elapsed_seconds=elapsed,
         resume_archive_path=load_archive,
+        llm_spec_path=llm_spec,
     )
     summary_path = out_dir / "nightly_run_summary.json"
     write_nightly_summary(summary_path, report)

@@ -179,10 +179,20 @@ class RunCounters:
     """Global illuminator counters persisted across iterations."""
 
     candidates_evaluated: int = 0
+    llm_emit_attempts: int = 0
+    llm_emit_fallbacks: int = 0
+    emit_llm_seconds: float = 0.0
+    eval_seconds: float = 0.0
 
     def record_evaluation(self) -> None:
         """Increment after each completed real simulation (skipped slots excluded)."""
         self.candidates_evaluated += 1
+
+    def record_llm_emit(self, *, fallback: bool) -> None:
+        """Increment after each LLM emit slot (including parse/API fallbacks)."""
+        self.llm_emit_attempts += 1
+        if fallback:
+            self.llm_emit_fallbacks += 1
 
 
 @dataclass(frozen=True)
@@ -470,6 +480,7 @@ class _PerformanceYamlBlock(BaseModel):
     )
     verify_against_reference: bool = False
     llm_parallel_emit: bool = False
+    log_iteration_timing: bool = False
 
 
 class _GridArchiveYamlBlock(BaseModel):

@@ -97,6 +97,13 @@ def main() -> None:
                 "llm_enabled": payload.get("llm_enabled"),
                 "surrogate_enabled": payload.get("surrogate_enabled"),
                 "elapsed_seconds": payload.get("elapsed_seconds"),
+                "llm_stack_version": payload.get("llm_stack_version"),
+                "llm_model": payload.get("llm_model"),
+                "llm_fallback_rate_pct": payload.get("llm_fallback_rate_pct"),
+                "llm_parallel_emit": payload.get("llm_parallel_emit"),
+                "llm_parallel_workers": payload.get("llm_parallel_workers"),
+                "emit_llm_seconds": payload.get("emit_llm_seconds"),
+                "eval_seconds": payload.get("eval_seconds"),
                 "run_dir": str(run_dir),
             }
         )

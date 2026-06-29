@@ -588,6 +588,11 @@ Written by `illuminators/nightly_report.py` next to the archive after a nightly 
 | `jsonl_raw_lines` | Lines in JSONL (≥ collapsed cells) |
 | `llm_enabled`, `surrogate_enabled` | Scheduler flags |
 | `archive_jsonl` | Absolute path to archive |
+| `llm_stack_version` | Stack audit label (e.g. `"v2"`) when LLM enabled |
+| `llm_model`, `max_tokens`, `prompt_version` | LLM spec / prompt hashes |
+| `llm_parallel_emit`, `llm_parallel_workers` | Parallel HTTP emit (workers = LLM slots/batch) |
+| `llm_emit_attempts`, `llm_emit_fallbacks`, `llm_fallback_rate_pct` | Runtime emit counters |
+| `emit_llm_seconds`, `eval_seconds` | Wall time split (emit vs eval/sim) |
 
 Root `nightly_pipeline_summary.json` (two-phase `make nightly-map-elites`) aggregates baseline + surrogate + training.
 

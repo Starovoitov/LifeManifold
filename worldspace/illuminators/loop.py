@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from time import perf_counter
+from typing import TYPE_CHECKING, TextIO
 
 import numpy as np
 
@@ -152,6 +154,7 @@ def run_iteration(
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
     eval_pool: ParallelEvalPool | None = None,
     llm_pool: ParallelLlmPool | None = None,
+    iteration_timing_file: TextIO | None = None,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate or skip, insert.
 
@@ -166,6 +169,7 @@ def run_iteration(
     """
     acquisition_active = _acquisition_logging_active(config)
 
+    emit_started = perf_counter()
     drafts = _emit_iteration_drafts(
         config,
         archive,
@@ -176,6 +180,8 @@ def run_iteration(
         counters=counters,
         llm_pool=llm_pool,
     )
+    emit_seconds = perf_counter() - emit_started
+    _record_llm_emit_stats(counters, drafts)
 
     predictions: list[SurrogatePrediction | None]
     if config.surrogate_enabled and surrogate is not None:
@@ -184,8 +190,9 @@ def run_iteration(
     else:
         predictions = [None] * len(drafts)
 
+    eval_started = perf_counter()
     if _use_parallel_eval_path(config):
-        return _process_iteration_parallel(
+        stats, outcomes = _process_iteration_parallel(
             config,
             archive,
             counters,
@@ -198,20 +205,32 @@ def run_iteration(
             acquisition_active=acquisition_active,
             eval_pool=eval_pool,
         )
-
-    return _process_iteration_sequential(
-        config,
-        archive,
-        counters,
-        drafts=drafts,
-        predictions=predictions,
-        iteration_index=iteration_index,
-        jsonl_path=jsonl_path,
-        surrogate_buffer=surrogate_buffer,
-        surrogate=surrogate,
-        surrogate_archive=surrogate_archive,
-        acquisition_active=acquisition_active,
-    )
+    else:
+        stats, outcomes = _process_iteration_sequential(
+            config,
+            archive,
+            counters,
+            drafts=drafts,
+            predictions=predictions,
+            iteration_index=iteration_index,
+            jsonl_path=jsonl_path,
+            surrogate_buffer=surrogate_buffer,
+            surrogate=surrogate,
+            surrogate_archive=surrogate_archive,
+            acquisition_active=acquisition_active,
+        )
+    eval_seconds = perf_counter() - eval_started
+    counters.emit_llm_seconds += emit_seconds
+    counters.eval_seconds += eval_seconds
+    if iteration_timing_file is not None:
+        _write_iteration_timing(
+            iteration_timing_file,
+            iteration_index=iteration_index,
+            emit_seconds=emit_seconds,
+            eval_seconds=eval_seconds,
+            drafts=drafts,
+        )
+    return stats, outcomes
 
 
 def _use_parallel_eval_path(config: SchedulerConfig) -> bool:
@@ -873,6 +892,11 @@ def run_scheduler(
         config.performance,
         max_llm_slots=max_llm_slots,
     )
+    timing_file: TextIO | None = None
+    if config.performance.log_iteration_timing and jsonl_path is not None:
+        timing_path = Path(jsonl_path).parent / "iteration_timing.jsonl"
+        timing_path.parent.mkdir(parents=True, exist_ok=True)
+        timing_file = timing_path.open("w", encoding="utf-8")
     try:
         for iteration_index in range(1, config.iterations + 1):
             run_iteration(
@@ -890,6 +914,7 @@ def run_scheduler(
                 surrogate_archive=surrogate_archive,
                 eval_pool=eval_pool,
                 llm_pool=llm_pool,
+                iteration_timing_file=timing_file,
             )
             if surrogate_buffer is not None:
                 surrogate_buffer.flush()
@@ -914,11 +939,50 @@ def run_scheduler(
             eval_pool.join()
         if llm_pool is not None:
             llm_pool.shutdown()
+        if timing_file is not None:
+            timing_file.close()
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
     if surrogate_archive is not None:
         surrogate_archive.flush()
     return counters
+
+
+def _record_llm_emit_stats(counters: RunCounters, drafts: list[_SlotDraft]) -> None:
+    for draft in drafts:
+        if draft.emitter_kind == "llm":
+            counters.record_llm_emit(
+                fallback=draft.metadata.emitter_type == "llm_fallback",
+            )
+
+
+def _write_iteration_timing(
+    timing_file: TextIO,
+    *,
+    iteration_index: int,
+    emit_seconds: float,
+    eval_seconds: float,
+    drafts: list[_SlotDraft],
+) -> None:
+    llm_slots = sum(1 for draft in drafts if draft.emitter_kind == "llm")
+    llm_fallbacks = sum(
+        1
+        for draft in drafts
+        if draft.emitter_kind == "llm" and draft.metadata.emitter_type == "llm_fallback"
+    )
+    timing_file.write(
+        json.dumps(
+            {
+                "iteration": iteration_index,
+                "emit_s": round(emit_seconds, 3),
+                "eval_s": round(eval_seconds, 3),
+                "llm_slots": llm_slots,
+                "llm_fallbacks": llm_fallbacks,
+            },
+            ensure_ascii=True,
+        )
+        + "\n"
+    )
 
 
 def _acquisition_logging_active(config: SchedulerConfig) -> bool:
