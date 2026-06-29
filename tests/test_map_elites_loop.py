@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 from worldspace.illuminators.archive import GridArchive, new_elite_metadata
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
-from worldspace.illuminators.emitters.base import EmitterOutput
+from worldspace.illuminators.emitters.base import EmitterOutput, MapElitesEmitter
+from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.stub import StubCandidateEmitter
 from worldspace.illuminators.loop import run_iteration, run_scheduler
 from worldspace.illuminators.scheduler import (
@@ -20,6 +23,7 @@ from worldspace.illuminators.scheduler import (
     SchedulerConfig,
     TargetCell,
 )
+from worldspace.simulator_perf import DEFAULT_SIMULATOR_PERFORMANCE
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
 _MINI_CONFIG = SchedulerConfig(
@@ -52,6 +56,70 @@ _FIXED_SPEC = WorldSpec(
     steps=200,
     seed=0,
 )
+
+_LLM_MOCK_RESPONSE = json.dumps(
+    {
+        "world_spec": {
+            "birth": [2],
+            "survival": [2, 3],
+            "noise": 0.04,
+            "resource_regen": 0.06,
+            "predation": 0.12,
+            "cell_types": ["life", "food"],
+            "neighborhood": "moore",
+        },
+    }
+)
+
+_LLM_PARALLEL_CONFIG = replace(
+    _MINI_CONFIG,
+    batch_emitters=("random", "llm", "llm", "genetic"),
+    initial_random_candidates=0,
+    performance=replace(DEFAULT_SIMULATOR_PERFORMANCE, llm_parallel_emit=True),
+)
+
+
+def _llm_mock_emitter(*, sleep_s: float = 0.0) -> MapElitesEmitter:
+    def mock_llm(**_: object) -> str:
+        if sleep_s:
+            time.sleep(sleep_s)
+        return _LLM_MOCK_RESPONSE
+
+    return MapElitesEmitter(
+        mutation_scale=_LLM_PARALLEL_CONFIG.genetic_mutation_scale,
+        llm_emitter=LlmEmitter(
+            grid_resolution=_LLM_PARALLEL_CONFIG.grid_resolution,
+            call_llm_text=mock_llm,
+        ),
+    )
+
+
+def _draft_specs(
+    config: SchedulerConfig,
+    *,
+    llm_parallel: bool,
+    seed: int,
+) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
+    from worldspace.illuminators.loop import _emit_iteration_drafts
+
+    perf = replace(
+        config.performance,
+        llm_parallel_emit=llm_parallel,
+    )
+    cfg = replace(config, performance=perf)
+    archive = GridArchive(cfg.grid_resolution)
+    rng = np.random.default_rng(seed)
+    emitter = _llm_mock_emitter()
+    drafts = _emit_iteration_drafts(
+        cfg,
+        archive,
+        rng,
+        emitter,
+        grid_size=8,
+        steps=200,
+        counters=RunCounters(candidates_evaluated=100),
+    )
+    return [(d.spec.birth, d.spec.survival) for d in drafts]
 
 
 class FixedSpecEmitter:
@@ -250,6 +318,60 @@ class TestMiniCvtLoop(unittest.TestCase):
             self.assertGreater(archive.filled_count(), 0)
             self.assertLessEqual(archive.filled_count(), config.n_centroids)
             self.assertTrue(centroids_path_for_output(out).is_file())
+
+
+class TestParallelLlmEmit(unittest.TestCase):
+    def test_parallel_llm_emit_matches_sequential_with_deterministic_mock(self) -> None:
+        seq = _draft_specs(_LLM_PARALLEL_CONFIG, llm_parallel=False, seed=7)
+        par = _draft_specs(_LLM_PARALLEL_CONFIG, llm_parallel=True, seed=7)
+        self.assertEqual(seq, par)
+
+    def test_parallel_llm_emit_faster_than_sequential(self) -> None:
+        sleep_s = 0.04
+
+        def timed(parallel: bool) -> float:
+            from worldspace.illuminators.loop import _emit_iteration_drafts
+
+            perf = replace(
+                _LLM_PARALLEL_CONFIG.performance,
+                llm_parallel_emit=parallel,
+            )
+            cfg = replace(_LLM_PARALLEL_CONFIG, performance=perf)
+
+            def mock_llm(**_: object) -> str:
+                time.sleep(sleep_s)
+                return _LLM_MOCK_RESPONSE
+
+            emitter = MapElitesEmitter(
+                mutation_scale=cfg.genetic_mutation_scale,
+                llm_emitter=LlmEmitter(
+                    grid_resolution=cfg.grid_resolution,
+                    call_llm_text=mock_llm,
+                ),
+            )
+            t0 = time.monotonic()
+            _emit_iteration_drafts(
+                cfg,
+                GridArchive(cfg.grid_resolution),
+                np.random.default_rng(11),
+                emitter,
+                grid_size=8,
+                steps=200,
+                counters=RunCounters(candidates_evaluated=100),
+            )
+            return time.monotonic() - t0
+
+        sequential_s = timed(False)
+        parallel_s = timed(True)
+        self.assertGreater(sequential_s, sleep_s * 1.5)
+        self.assertLess(parallel_s, sequential_s * 0.75)
+
+    def test_llm_parallel_disabled_uses_sequential_path(self) -> None:
+        with patch(
+            "worldspace.illuminators.loop._emit_iteration_drafts_parallel_llm",
+        ) as parallel_mock:
+            _draft_specs(_LLM_PARALLEL_CONFIG, llm_parallel=False, seed=5)
+        parallel_mock.assert_not_called()
 
 
 if __name__ == "__main__":

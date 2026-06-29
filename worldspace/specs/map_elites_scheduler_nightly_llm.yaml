@@ -83,3 +83,4 @@ surrogate:
 performance:
   parallel_eval: true
   parallel_workers: 0
+  llm_parallel_emit: true

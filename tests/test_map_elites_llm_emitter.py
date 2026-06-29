@@ -117,6 +117,44 @@ class TestLlmEmitter(unittest.TestCase):
         self.assertEqual(output.metadata.prompt_version, emitter_prompt_version())
         self.assertEqual(output.world_spec.seed, 0)
 
+    def test_prepare_finalize_matches_emit(self) -> None:
+        rng = np.random.default_rng(3)
+        archive = GridArchive(5)
+
+        def mock_llm(**kwargs: object) -> str:
+            return _VALID_RESPONSE
+
+        emitter = LlmEmitter(
+            grid_resolution=10,
+            surrogate_mean=0.5,
+            surrogate_uncertainty=1.0,
+            call_llm_text=mock_llm,
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=archive,
+            rng=rng,
+            grid_size=8,
+            steps=200,
+        )
+        via_parts = emitter.finalize_emit(
+            prepared,
+            response=_VALID_RESPONSE,
+            rng=rng,
+        )
+        via_emit = emitter.emit(
+            target=_TARGET,
+            archive=archive,
+            rng=np.random.default_rng(3),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(
+            via_parts.metadata.emitter_type, via_emit.metadata.emitter_type
+        )
+        self.assertEqual(via_parts.world_spec.birth, via_emit.world_spec.birth)
+        self.assertEqual(via_parts.world_spec.survival, via_emit.world_spec.survival)
+
     def test_invalid_json_uses_fallback(self) -> None:
         emitter = LlmEmitter(
             grid_resolution=10,

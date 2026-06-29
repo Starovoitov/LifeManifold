@@ -11,6 +11,7 @@ __all__ = [
     "METRICS_VERIFY_ATOL",
     "SimulatorPerformanceOptions",
     "effective_numba_enabled",
+    "effective_llm_parallel_workers",
     "effective_parallel_workers",
     "resolve_simulator_performance",
     "validate_simulator_performance",
@@ -32,6 +33,7 @@ class SimulatorPerformanceOptions:
     numba_cache: bool = True
     parallel_eval: bool = False
     parallel_workers: int = 0  # 0 = auto (os.cpu_count())
+    llm_parallel_emit: bool = False
     verify_against_reference: bool = False
 
 
@@ -47,6 +49,21 @@ def effective_numba_enabled(
     if ca_step_trace:
         return False
     return performance.numba_simulator
+
+
+def effective_llm_parallel_workers(
+    performance: SimulatorPerformanceOptions,
+    *,
+    llm_slot_count: int,
+) -> int:
+    """Return thread count for parallel LLM HTTP (0 = sequential emit).
+
+    When ``llm_parallel_emit`` is enabled, uses one worker per LLM slot in the
+    current batch (``llm_slot_count``).
+    """
+    if not performance.llm_parallel_emit or llm_slot_count <= 1:
+        return 0
+    return llm_slot_count
 
 
 def effective_parallel_workers(
@@ -75,6 +92,7 @@ def resolve_simulator_performance(
         numba_cache=bool(block.get("numba_cache", True)),
         parallel_eval=bool(block.get("parallel_eval", False)),
         parallel_workers=int(block.get("parallel_workers", 0)),
+        llm_parallel_emit=bool(block.get("llm_parallel_emit", False)),
         verify_against_reference=bool(block.get("verify_against_reference", False)),
     )
     return _apply_env_overrides(options)
@@ -99,6 +117,9 @@ def _apply_env_overrides(
     env_parallel = _env_bool("LIFEMANIFOLD_PARALLEL_EVAL")
     if env_parallel is not None:
         options = replace(options, parallel_eval=env_parallel)
+    env_llm_parallel = _env_bool("LIFEMANIFOLD_LLM_PARALLEL_EMIT")
+    if env_llm_parallel is not None:
+        options = replace(options, llm_parallel_emit=env_llm_parallel)
     env_verify = _env_bool("LIFEMANIFOLD_VERIFY_SIM")
     if env_verify is not None:
         options = replace(options, verify_against_reference=env_verify)

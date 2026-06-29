@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -47,10 +47,25 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "LlmEmitter",
+    "LlmPreparedSlot",
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
 ]
+
+
+@dataclass(frozen=True)
+class LlmPreparedSlot:
+    """Prompts and lineage for one LLM slot after prepare, before HTTP."""
+
+    target: TargetCell
+    parent_spec: WorldSpec
+    parent_id: str | None
+    system_prompt: str
+    user_prompt: str
+    prompt_version: str
+    grid_size: int
+    steps: int
 
 
 class LlmEmitter:
@@ -69,6 +84,7 @@ class LlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         random_emitter: RandomEmitter | None = None,
     ) -> None:
+        """Configure grid/CVT resolution, surrogate hints, and LLM provider settings."""
         if scheduler is not None:
             self._grid_resolution = scheduler.grid_resolution
             self._n_centroids = scheduler.n_centroids
@@ -96,6 +112,35 @@ class LlmEmitter:
         grid_size: int,
         steps: int,
     ) -> EmitterOutput:
+        """Prepare prompts, call the LLM once, and parse or random-walk fallback."""
+        prepared = self.prepare_emit(
+            target=target,
+            archive=archive,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        try:
+            response = self.request_llm(prepared)
+        except (RuntimeError, ValueError) as exc:
+            return self.finalize_emit(
+                prepared,
+                response="",
+                rng=rng,
+                request_error=exc,
+            )
+        return self.finalize_emit(prepared, response=response, rng=rng)
+
+    def prepare_emit(
+        self,
+        *,
+        target: TargetCell,
+        archive: ArchiveProtocol,
+        rng: np.random.Generator,
+        grid_size: int,
+        steps: int,
+    ) -> LlmPreparedSlot:
+        """Build parent, surrogate hints, and prompts without an HTTP call."""
         parent_spec, parent_id = self._resolve_parent_one(
             target=target,
             archive=archive,
@@ -127,22 +172,50 @@ class LlmEmitter:
             surrogate_uncertainty=surrogate_uncertainty,
             rng=rng,
         )
+        return LlmPreparedSlot(
+            target=target,
+            parent_spec=parent_spec,
+            parent_id=parent_id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            prompt_version=prompt_version,
+            grid_size=grid_size,
+            steps=steps,
+        )
+
+    def request_llm(self, prepared: LlmPreparedSlot) -> str:
+        """POST chat completions for a prepared slot; raise on empty content."""
+        response = self._request_llm(prepared.system_prompt, prepared.user_prompt)
+        if not response.strip():
+            msg = "empty LLM response"
+            raise RuntimeError(msg)
+        return response
+
+    def finalize_emit(
+        self,
+        prepared: LlmPreparedSlot,
+        *,
+        response: str,
+        rng: np.random.Generator,
+        request_error: BaseException | None = None,
+    ) -> EmitterOutput:
+        """Parse LLM JSON into a child ``WorldSpec`` or apply random-walk fallback."""
         fallback_reason: str | None = None
-        try:
-            response = self._request_llm(system_prompt, user_prompt)
-        except (RuntimeError, ValueError) as exc:
-            fallback_reason = f"request_failed:{type(exc).__name__}:{exc}"
+        if request_error is not None:
+            fallback_reason = (
+                f"request_failed:{type(request_error).__name__}:{request_error}"
+            )
             response = ""
-        else:
-            if not response.strip():
-                fallback_reason = "empty_response"
+        elif not response.strip():
+            fallback_reason = "empty_response"
+
         parsed = extract_json_object_from_text(response)
         if parsed is not None:
             spec = world_spec_from_llm_payload(
                 parsed,
-                grid_size=grid_size,
-                steps=steps,
-                base=parent_spec,
+                grid_size=prepared.grid_size,
+                steps=prepared.steps,
+                base=prepared.parent_spec,
             )
             if spec is not None:
                 return EmitterOutput(
@@ -150,8 +223,8 @@ class LlmEmitter:
                     metadata=new_elite_metadata(
                         generated_by="llm",
                         emitter_type=_EMITTER_TYPE_LLM,
-                        parent_id=parent_id,
-                        prompt_version=prompt_version,
+                        parent_id=prepared.parent_id,
+                        prompt_version=prepared.prompt_version,
                     ),
                 )
             fallback_reason = "invalid_world_spec"
@@ -160,27 +233,28 @@ class LlmEmitter:
             fallback_reason = (
                 "no_json_in_response" if preview else "no_json_in_empty_response"
             )
+
         logger.warning(
             "LLM emitter fallback cell_id=%s parent_id=%s reason=%s response_preview=%r",
-            target.cell_id,
-            parent_id,
+            prepared.target.cell_id,
+            prepared.parent_id,
             fallback_reason,
             response.strip().replace("\n", " ")[:_LLM_RESPONSE_PREVIEW_CHARS],
         )
         fallback_spec = _random_walk_step(
-            parent_spec,
+            prepared.parent_spec,
             scale=self._fallback_scale,
             rng=rng,
-            grid_size=grid_size,
-            steps=steps,
+            grid_size=prepared.grid_size,
+            steps=prepared.steps,
         )
         return EmitterOutput(
             world_spec=fallback_spec,
             metadata=new_elite_metadata(
                 generated_by="llm",
                 emitter_type=_EMITTER_TYPE_LLM_FALLBACK,
-                parent_id=parent_id,
-                prompt_version=prompt_version,
+                parent_id=prepared.parent_id,
+                prompt_version=prepared.prompt_version,
             ),
         )
 
@@ -193,6 +267,7 @@ class LlmEmitter:
         grid_size: int,
         steps: int,
     ) -> tuple[WorldSpec, str | None]:
+        """Return the target-cell elite as parent, or one random world if empty."""
         elite = archive.get_cell(target.cell_id)
         if elite is not None and elite.world_spec is not None:
             parent_id = elite.metadata.id if elite.metadata is not None else None
@@ -210,11 +285,13 @@ class LlmEmitter:
         return random_out.world_spec, None
 
     def _resolve_surrogate_values(self, world_spec: WorldSpec) -> tuple[float, float]:
+        """Return ``(fitness hint, uncertainty)`` for the user prompt."""
         if self._scheduler is not None and self._surrogate is not None:
             return resolve_surrogate_stub(self._scheduler, self._surrogate, world_spec)
         return (self._surrogate_mean, self._surrogate_uncertainty)
 
     def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Invoke the configured text caller (live API or test mock)."""
         if self._call_llm_text is None:
             from worldspace.generators import call_llm
 
@@ -286,6 +363,7 @@ def _random_walk_step(
     grid_size: int,
     steps: int,
 ) -> WorldSpec:
+    """Perturb ``parent`` by one scaled random-walk step when LLM output fails."""
     walker = RandomWalkWorldGenerator(
         start_world=replace(parent, seed=0, grid_size=grid_size, steps=steps),
         scale=scale,
@@ -298,6 +376,7 @@ def _random_walk_step(
 
 
 def _elite_prompt_record(elite: ArchiveElite) -> dict:
+    """Build a JSON-serializable elite record for few-shot / current-cell blocks."""
     if elite.world_spec is None:
         msg = "elite.world_spec is required for prompt serialization"
         raise ValueError(msg)

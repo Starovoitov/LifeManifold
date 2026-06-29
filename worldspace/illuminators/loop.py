@@ -18,7 +18,12 @@ from worldspace.illuminators.archive import (
     insert_evaluated,
 )
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
-from worldspace.illuminators.emitters.base import CandidateEmitter
+from worldspace.illuminators.emitters.base import (
+    CandidateEmitter,
+    EmitterOutput,
+    MapElitesEmitter,
+)
+from worldspace.illuminators.emitters.llm_emitter import LlmPreparedSlot
 from worldspace.illuminators.evaluation import (
     ILLUMINATOR_MIN_STEPS,
     EvalResult,
@@ -31,6 +36,13 @@ from worldspace.illuminators.parallel_eval import (
     evaluate_batch_parallel,
     parallel_eval_context,
 )
+from worldspace.illuminators.parallel_llm_emit import (
+    ParallelLlmPool,
+    llm_slot_count_for_batch,
+    parallel_llm_context,
+    request_llm_batch,
+    supports_parallel_llm_emit,
+)
 from worldspace.illuminators.scheduler import (
     EmitterKind,
     RunCounters,
@@ -40,7 +52,10 @@ from worldspace.illuminators.scheduler import (
     resolve_emitter_for_slot,
     select_target_cell,
 )
-from worldspace.simulator_perf import effective_parallel_workers
+from worldspace.simulator_perf import (
+    effective_llm_parallel_workers,
+    effective_parallel_workers,
+)
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition import (
     AcquisitionDecision,
@@ -136,6 +151,7 @@ def run_iteration(
     surrogate: SurrogateProtocol | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
     eval_pool: ParallelEvalPool | None = None,
+    llm_pool: ParallelLlmPool | None = None,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate or skip, insert.
 
@@ -158,6 +174,7 @@ def run_iteration(
         grid_size=grid_size,
         steps=steps,
         counters=counters,
+        llm_pool=llm_pool,
     )
 
     predictions: list[SurrogatePrediction | None]
@@ -617,8 +634,84 @@ def _emit_iteration_drafts(
     grid_size: int,
     steps: int,
     counters: RunCounters,
+    llm_pool: ParallelLlmPool | None = None,
 ) -> list[_SlotDraft]:
-    drafts: list[_SlotDraft] = []
+    llm_slot_count = llm_slot_count_for_batch(
+        config,
+        candidates_evaluated=counters.candidates_evaluated,
+    )
+    workers = effective_llm_parallel_workers(
+        config.performance,
+        llm_slot_count=llm_slot_count,
+    )
+    if workers > 0 and supports_parallel_llm_emit(emitter, config):
+        return _emit_iteration_drafts_parallel_llm(
+            config,
+            archive,
+            rng,
+            emitter,
+            grid_size=grid_size,
+            steps=steps,
+            counters=counters,
+            llm_workers=workers,
+            llm_pool=llm_pool,
+        )
+    return _emit_iteration_drafts_sequential(
+        config,
+        archive,
+        rng,
+        emitter,
+        grid_size=grid_size,
+        steps=steps,
+        counters=counters,
+    )
+
+
+def _emit_iteration_drafts_sequential(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+) -> list[_SlotDraft]:
+    return [
+        _emit_one_slot_draft(
+            config,
+            archive,
+            rng,
+            emitter,
+            candidate_id=candidate_id,
+            grid_size=grid_size,
+            steps=steps,
+            counters=counters,
+        )
+        for candidate_id in range(config.batch_size)
+    ]
+
+
+def _emit_iteration_drafts_parallel_llm(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+    llm_workers: int,
+    llm_pool: ParallelLlmPool | None = None,
+) -> list[_SlotDraft]:
+    if not isinstance(emitter, MapElitesEmitter):
+        msg = "parallel LLM emit requires MapElitesEmitter"
+        raise TypeError(msg)
+
+    llm = emitter.llm_emitter
+    drafts: list[_SlotDraft | None] = [None] * config.batch_size
+    pending: list[tuple[int, LlmPreparedSlot]] = []
+
     for candidate_id in range(config.batch_size):
         emitter_kind = resolve_emitter_for_slot(
             config,
@@ -631,26 +724,126 @@ def _emit_iteration_drafts(
             target_selection=config.target_selection,
         )
         target_bin = TargetBin.from_target_cell(target_cell)
-        output = emitter.emit(
-            emitter_kind=emitter_kind,
-            target=target_cell,
-            archive=archive,
-            rng=rng,
-            grid_size=grid_size,
-            steps=steps,
-        )
-        spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
-        drafts.append(
-            _SlotDraft(
+        if emitter_kind == "llm":
+            prepared = llm.prepare_emit(
+                target=target_cell,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
+            pending.append((candidate_id, prepared))
+        else:
+            output = emitter.emit(
+                emitter_kind=emitter_kind,
+                target=target_cell,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
+            drafts[candidate_id] = _slot_draft_from_output(
                 candidate_id=candidate_id,
                 emitter_kind=emitter_kind,
                 target_cell=target_cell,
                 target_bin=target_bin,
-                spec=spec,
-                metadata=output.metadata,
+                output=output,
+                grid_size=grid_size,
+                steps=steps,
             )
+
+    if pending:
+        prepared_slots = [slot for _, slot in pending]
+        responses = request_llm_batch(
+            llm,
+            prepared_slots,
+            max_workers=llm_workers,
+            llm_pool=llm_pool,
         )
-    return drafts
+        for (candidate_id, prepared), response in zip(pending, responses, strict=True):
+            target_cell = prepared.target
+            target_bin = TargetBin.from_target_cell(target_cell)
+            output = llm.finalize_emit(prepared, response=response, rng=rng)
+            drafts[candidate_id] = _slot_draft_from_output(
+                candidate_id=candidate_id,
+                emitter_kind="llm",
+                target_cell=target_cell,
+                target_bin=target_bin,
+                output=output,
+                grid_size=grid_size,
+                steps=steps,
+            )
+
+    result: list[_SlotDraft] = []
+    for i in range(config.batch_size):
+        draft = drafts[i]
+        if draft is None:
+            msg = f"parallel LLM emit left unfilled slot {i}"
+            raise RuntimeError(msg)
+        result.append(draft)
+    return result
+
+
+def _emit_one_slot_draft(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    candidate_id: int,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+) -> _SlotDraft:
+    emitter_kind = resolve_emitter_for_slot(
+        config,
+        candidate_id=candidate_id,
+        candidates_evaluated=counters.candidates_evaluated,
+    )
+    target_cell = select_target_cell(
+        archive,
+        rng,
+        target_selection=config.target_selection,
+    )
+    target_bin = TargetBin.from_target_cell(target_cell)
+    output = emitter.emit(
+        emitter_kind=emitter_kind,
+        target=target_cell,
+        archive=archive,
+        rng=rng,
+        grid_size=grid_size,
+        steps=steps,
+    )
+    return _slot_draft_from_output(
+        candidate_id=candidate_id,
+        emitter_kind=emitter_kind,
+        target_cell=target_cell,
+        target_bin=target_bin,
+        output=output,
+        grid_size=grid_size,
+        steps=steps,
+    )
+
+
+def _slot_draft_from_output(
+    *,
+    candidate_id: int,
+    emitter_kind: EmitterKind,
+    target_cell: TargetCell,
+    target_bin: TargetBin,
+    output: EmitterOutput,
+    grid_size: int,
+    steps: int,
+) -> _SlotDraft:
+    spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
+    return _SlotDraft(
+        candidate_id=candidate_id,
+        emitter_kind=emitter_kind,
+        target_cell=target_cell,
+        target_bin=target_bin,
+        spec=spec,
+        metadata=output.metadata,
+    )
 
 
 def run_scheduler(
@@ -675,6 +868,11 @@ def run_scheduler(
         config.performance,
         batch_size=config.batch_size,
     )
+    max_llm_slots = sum(1 for kind in config.batch_emitters if kind == "llm")
+    llm_pool = parallel_llm_context(
+        config.performance,
+        max_llm_slots=max_llm_slots,
+    )
     try:
         for iteration_index in range(1, config.iterations + 1):
             run_iteration(
@@ -691,6 +889,7 @@ def run_scheduler(
                 surrogate=surrogate,
                 surrogate_archive=surrogate_archive,
                 eval_pool=eval_pool,
+                llm_pool=llm_pool,
             )
             if surrogate_buffer is not None:
                 surrogate_buffer.flush()
@@ -713,6 +912,8 @@ def run_scheduler(
         if eval_pool is not None:
             eval_pool.close()
             eval_pool.join()
+        if llm_pool is not None:
+            llm_pool.shutdown()
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
     if surrogate_archive is not None:

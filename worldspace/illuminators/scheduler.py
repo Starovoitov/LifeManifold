@@ -469,6 +469,7 @@ class _PerformanceYamlBlock(BaseModel):
         description="0 = os.cpu_count() (auto), capped by batch_size when parallel_eval is on",
     )
     verify_against_reference: bool = False
+    llm_parallel_emit: bool = False
 
 
 class _GridArchiveYamlBlock(BaseModel):

@@ -121,15 +121,11 @@ class TestUserPrompt(unittest.TestCase):
         self.assertNotIn('"reasoning"', USER_PROMPT_TEMPLATE)
 
     def test_user_prompt_version_is_sha256_prefix(self) -> None:
-        expected = hashlib.sha256(DEFAULT_USER_PROMPT_PATH.read_bytes()).hexdigest()[
-            :8
-        ]
+        expected = hashlib.sha256(DEFAULT_USER_PROMPT_PATH.read_bytes()).hexdigest()[:8]
         self.assertEqual(user_prompt_version(), expected)
 
     def test_emitter_prompt_version_composite(self) -> None:
-        expected = (
-            f"{system_prompt_version()}:{user_prompt_version()}"
-        )
+        expected = f"{system_prompt_version()}:{user_prompt_version()}"
         self.assertEqual(emitter_prompt_version(), expected)
 
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
