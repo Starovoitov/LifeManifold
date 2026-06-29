@@ -14,6 +14,7 @@ from .llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     DEFAULT_USER_PROMPT_PATH,
+    emitter_prompt_version,
     load_system_prompt_template,
     load_user_prompt_template,
     render_cvt_system_prompt,
@@ -21,6 +22,7 @@ from .llm_prompts import (
     render_system_prompt_for_archive_type,
     system_prompt_path_for_archive_type,
     system_prompt_version,
+    user_prompt_version,
 )
 from .random_emitter import RandomEmitter
 from .stub import StubCandidateEmitter
@@ -51,5 +53,7 @@ __all__ = [
     "render_system_prompt_for_archive_type",
     "system_prompt_path_for_archive_type",
     "strip_seed",
+    "emitter_prompt_version",
     "system_prompt_version",
+    "user_prompt_version",
 ]

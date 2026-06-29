@@ -19,6 +19,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     render_cvt_system_prompt,
     system_prompt_version,
+    emitter_prompt_version,
 )
 from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
 from worldspace.specs.spec import WorldSpec
@@ -186,7 +187,7 @@ class TestLlmEmitterCvt(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.prompt_version,
-            system_prompt_version(archive_type="cvt"),
+            emitter_prompt_version(archive_type="cvt"),
         )
 
     def test_few_shot_uses_voronoi_neighbors(self) -> None:
@@ -264,7 +265,7 @@ class TestMapElitesEmitterCvt(unittest.TestCase):
         self.assertEqual(llm_out.metadata.emitter_type, "llm")
         self.assertEqual(
             llm_out.metadata.prompt_version,
-            system_prompt_version(archive_type="cvt"),
+            emitter_prompt_version(archive_type="cvt"),
         )
 
 

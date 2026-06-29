@@ -29,7 +29,9 @@ __all__ = [
     "render_system_prompt",
     "render_system_prompt_for_archive_type",
     "system_prompt_path_for_archive_type",
+    "emitter_prompt_version",
     "system_prompt_version",
+    "user_prompt_version",
 ]
 
 
@@ -111,7 +113,7 @@ def system_prompt_version(
     *,
     archive_type: ArchiveTypeLiteral = "grid",
 ) -> str:
-    """Return the first 8 hex digits of the SHA-256 hash of the prompt file."""
+    """Return the first 8 hex digits of the SHA-256 hash of the system prompt file."""
     src = (
         Path(path)
         if path is not None
@@ -119,6 +121,25 @@ def system_prompt_version(
     )
     digest = hashlib.sha256(src.read_bytes()).hexdigest()
     return digest[:8]
+
+
+def user_prompt_version(path: str | Path | None = None) -> str:
+    """Return the first 8 hex digits of the SHA-256 hash of the user prompt file."""
+    src = Path(path) if path is not None else DEFAULT_USER_PROMPT_PATH
+    digest = hashlib.sha256(src.read_bytes()).hexdigest()
+    return digest[:8]
+
+
+def emitter_prompt_version(
+    *,
+    archive_type: ArchiveTypeLiteral = "grid",
+    system_path: str | Path | None = None,
+    user_path: str | Path | None = None,
+) -> str:
+    """Composite version tag for LLM emitter archive metadata (system:user hashes)."""
+    system = system_prompt_version(system_path, archive_type=archive_type)
+    user = user_prompt_version(user_path)
+    return f"{system}:{user}"
 
 
 USER_PROMPT_TEMPLATE = load_user_prompt_template()

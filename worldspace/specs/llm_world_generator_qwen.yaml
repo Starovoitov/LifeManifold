@@ -6,7 +6,7 @@ llm:
   active_provider: qwen
   global_search: false
   temperature: 0.2
-  max_tokens: 500
+  max_tokens: 350
   fallback_scale: 0.02
   vision_provider: openai
   vision_max_tokens: 300
@@ -20,6 +20,6 @@ llm:
       api_key_env: OPENAI_API_KEY
     qwen:
       provider: openai
-      model: qwen-plus
+      model: qwen-turbo
       api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
       api_key_env: QWEN_API_KEY

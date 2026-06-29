@@ -460,6 +460,22 @@ class TestWorldSpaceMVP(unittest.TestCase):
         )
         self.assertNotEqual(sig0, sig1)
 
+    def test_qwen_production_spec_uses_turbo(self):
+        from worldspace.generators.llm_config import load_llm_config
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator_qwen.yaml"
+        )
+        cfg = load_llm_config(spec_path)
+        qwen = cfg.providers["qwen"]
+        self.assertEqual(qwen.get("model"), "qwen-turbo")
+        self.assertEqual(cfg.max_tokens, 220)
+        self.assertEqual(qwen.get("api_key_env"), "QWEN_API_KEY")
+        self.assertIn("dashscope-intl.aliyuncs.com", str(qwen.get("api_base", "")))
+
     def test_bundled_llm_spec_defines_qwen_provider(self):
         spec_path = (
             Path(__file__).resolve().parent.parent

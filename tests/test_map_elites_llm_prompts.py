@@ -23,10 +23,14 @@ from worldspace.illuminators.emitters.llm_emitter import (
 from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
+    DEFAULT_USER_PROMPT_PATH,
+    USER_PROMPT_TEMPLATE,
+    emitter_prompt_version,
     load_system_prompt_template,
     render_cvt_system_prompt,
     render_system_prompt,
     system_prompt_version,
+    user_prompt_version,
 )
 from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import WorldSpec
@@ -109,10 +113,24 @@ class TestSystemPrompt(unittest.TestCase):
 
 class TestUserPrompt(unittest.TestCase):
     def test_user_prompt_template_keeps_surrogate_placeholders(self) -> None:
-        from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
-
         self.assertIn("{surrogate_mean:", USER_PROMPT_TEMPLATE)
         self.assertIn("{surrogate_uncertainty:", USER_PROMPT_TEMPLATE)
+
+    def test_user_prompt_requests_world_spec_only(self) -> None:
+        self.assertIn("world_spec", USER_PROMPT_TEMPLATE)
+        self.assertNotIn('"reasoning"', USER_PROMPT_TEMPLATE)
+
+    def test_user_prompt_version_is_sha256_prefix(self) -> None:
+        expected = hashlib.sha256(DEFAULT_USER_PROMPT_PATH.read_bytes()).hexdigest()[
+            :8
+        ]
+        self.assertEqual(user_prompt_version(), expected)
+
+    def test_emitter_prompt_version_composite(self) -> None:
+        expected = (
+            f"{system_prompt_version()}:{user_prompt_version()}"
+        )
+        self.assertEqual(emitter_prompt_version(), expected)
 
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
         archive = GridArchive(5)

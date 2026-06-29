@@ -17,8 +17,8 @@ from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
+    emitter_prompt_version,
     render_system_prompt_for_archive_type,
-    system_prompt_version,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.scheduler import (
@@ -119,7 +119,7 @@ class LlmEmitter:
             grid_resolution=self._grid_resolution,
             n_centroids=archive.n_cells,
         )
-        prompt_version = system_prompt_version(archive_type=archive_type)
+        prompt_version = emitter_prompt_version(archive_type=archive_type)
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,

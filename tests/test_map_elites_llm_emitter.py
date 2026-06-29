@@ -14,7 +14,7 @@ from worldspace.illuminators.archive import (
     new_elite_metadata,
 )
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
-from worldspace.illuminators.emitters.llm_prompts import system_prompt_version
+from worldspace.illuminators.emitters.llm_prompts import emitter_prompt_version
 from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
@@ -114,7 +114,7 @@ class TestLlmEmitter(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("0.500", calls[0])
         self.assertEqual(output.metadata.emitter_type, "llm")
-        self.assertEqual(output.metadata.prompt_version, system_prompt_version())
+        self.assertEqual(output.metadata.prompt_version, emitter_prompt_version())
         self.assertEqual(output.world_spec.seed, 0)
 
     def test_invalid_json_uses_fallback(self) -> None:
