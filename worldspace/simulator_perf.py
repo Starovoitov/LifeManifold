@@ -34,6 +34,7 @@ class SimulatorPerformanceOptions:
     parallel_eval: bool = False
     parallel_workers: int = 0  # 0 = auto (os.cpu_count())
     llm_parallel_emit: bool = False
+    llm_parallel_workers: int = 0  # 0 = one worker per LLM slot; else cap HTTP threads
     log_iteration_timing: bool = False
     verify_against_reference: bool = False
 
@@ -60,11 +61,15 @@ def effective_llm_parallel_workers(
     """Return thread count for parallel LLM HTTP (0 = sequential emit).
 
     When ``llm_parallel_emit`` is enabled, uses one worker per LLM slot in the
-    current batch (``llm_slot_count``).
+    current batch (``llm_slot_count``), capped by ``llm_parallel_workers`` when
+    that value is positive.
     """
     if not performance.llm_parallel_emit or llm_slot_count <= 1:
         return 0
-    return llm_slot_count
+    workers = llm_slot_count
+    if performance.llm_parallel_workers > 0:
+        workers = min(workers, performance.llm_parallel_workers)
+    return workers
 
 
 def effective_parallel_workers(
@@ -94,6 +99,7 @@ def resolve_simulator_performance(
         parallel_eval=bool(block.get("parallel_eval", False)),
         parallel_workers=int(block.get("parallel_workers", 0)),
         llm_parallel_emit=bool(block.get("llm_parallel_emit", False)),
+        llm_parallel_workers=int(block.get("llm_parallel_workers", 0)),
         log_iteration_timing=bool(block.get("log_iteration_timing", False)),
         verify_against_reference=bool(block.get("verify_against_reference", False)),
     )
@@ -122,6 +128,9 @@ def _apply_env_overrides(
     env_llm_parallel = _env_bool("LIFEMANIFOLD_LLM_PARALLEL_EMIT")
     if env_llm_parallel is not None:
         options = replace(options, llm_parallel_emit=env_llm_parallel)
+    env_llm_workers = _env_int("LIFEMANIFOLD_LLM_PARALLEL_WORKERS")
+    if env_llm_workers is not None:
+        options = replace(options, llm_parallel_workers=env_llm_workers)
     env_log_timing = _env_bool("LIFEMANIFOLD_LOG_ITERATION_TIMING")
     if env_log_timing is not None:
         options = replace(options, log_iteration_timing=env_log_timing)
@@ -136,3 +145,10 @@ def _env_bool(name: str) -> bool | None:
     if raw is None:
         return None
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return int(raw.strip())

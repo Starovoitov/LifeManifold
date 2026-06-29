@@ -84,7 +84,10 @@ class TestParallelLlmEmitModule(unittest.TestCase):
             call_llm_text=lambda **_: (_ for _ in ()).throw(RuntimeError("fail")),
         )
         out = request_llm_batch(emitter, [_PREPARED], max_workers=1)
-        self.assertEqual(out, [""])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].response, "")
+        self.assertIsInstance(out[0].request_error, RuntimeError)
+        self.assertEqual(str(out[0].request_error), "fail")
 
 
 if __name__ == "__main__":

@@ -773,16 +773,21 @@ def _emit_iteration_drafts_parallel_llm(
 
     if pending:
         prepared_slots = [slot for _, slot in pending]
-        responses = request_llm_batch(
+        results = request_llm_batch(
             llm,
             prepared_slots,
             max_workers=llm_workers,
             llm_pool=llm_pool,
         )
-        for (candidate_id, prepared), response in zip(pending, responses, strict=True):
+        for (candidate_id, prepared), http_result in zip(pending, results, strict=True):
             target_cell = prepared.target
             target_bin = TargetBin.from_target_cell(target_cell)
-            output = llm.finalize_emit(prepared, response=response, rng=rng)
+            output = llm.finalize_emit(
+                prepared,
+                response=http_result.response,
+                rng=rng,
+                request_error=http_result.request_error,
+            )
             drafts[candidate_id] = _slot_draft_from_output(
                 candidate_id=candidate_id,
                 emitter_kind="llm",

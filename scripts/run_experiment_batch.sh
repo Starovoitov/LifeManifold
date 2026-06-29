@@ -64,6 +64,21 @@ case "$TIER" in
     ;;
 esac
 
+# Long nightly tiers: cap LLM HTTP concurrency and log per-iteration emit/eval timing.
+# Override via LIFEMANIFOLD_LLM_PARALLEL_WORKERS / LIFEMANIFOLD_LOG_ITERATION_TIMING.
+apply_long_run_llm_defaults() {
+  if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
+    export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
+  fi
+  if [[ -z "${LIFEMANIFOLD_LLM_PARALLEL_WORKERS:-}" ]]; then
+    export LIFEMANIFOLD_LLM_PARALLEL_WORKERS=4
+  fi
+}
+
+case "$TIER" in
+  q1-min|q1-full|shadow) apply_long_run_llm_defaults ;;
+esac
+
 if [[ ! -f "$BASELINE_ARCHIVE" ]]; then
   echo "Missing baseline archive: $BASELINE_ARCHIVE" >&2
   echo "Run: uv run python -m worldspace.scripts.run_map_elites_nightly" >&2

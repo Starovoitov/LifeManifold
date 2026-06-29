@@ -480,6 +480,11 @@ class _PerformanceYamlBlock(BaseModel):
     )
     verify_against_reference: bool = False
     llm_parallel_emit: bool = False
+    llm_parallel_workers: int = Field(
+        default=0,
+        ge=0,
+        description="Cap parallel LLM HTTP threads; 0 = one worker per LLM slot in batch",
+    )
     log_iteration_timing: bool = False
 
 

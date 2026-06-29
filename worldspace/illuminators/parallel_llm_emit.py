@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from worldspace.illuminators.emitters.llm_emitter import LlmPreparedSlot
@@ -18,12 +19,21 @@ if TYPE_CHECKING:
     from worldspace.illuminators.scheduler import SchedulerConfig
 
 __all__ = [
+    "LlmHttpResult",
     "ParallelLlmPool",
     "llm_slot_count_for_batch",
     "parallel_llm_context",
     "request_llm_batch",
     "supports_parallel_llm_emit",
 ]
+
+
+@dataclass(frozen=True)
+class LlmHttpResult:
+    """One LLM HTTP outcome; ``request_error`` is set when the POST failed."""
+
+    response: str
+    request_error: BaseException | None = None
 
 
 class ParallelLlmPool:
@@ -38,11 +48,11 @@ class ParallelLlmPool:
 
     def map_requests(
         self,
-        request_one: Callable[[LlmPreparedSlot], str],
+        request_one: Callable[[LlmPreparedSlot], LlmHttpResult],
         prepared: Sequence[LlmPreparedSlot],
         *,
         max_workers: int,
-    ) -> list[str]:
+    ) -> list[LlmHttpResult]:
         """Run ``request_one`` for each slot; preserve input order."""
         if not prepared:
             return []
@@ -115,16 +125,17 @@ def request_llm_batch(
     *,
     max_workers: int,
     llm_pool: ParallelLlmPool | None = None,
-) -> list[str]:
-    """POST chat completions for each prepared slot; empty string on failure."""
+) -> list[LlmHttpResult]:
+    """POST chat completions for each prepared slot."""
+
+    def request_one(slot: LlmPreparedSlot) -> LlmHttpResult:
+        try:
+            return LlmHttpResult(response=llm.request_llm(slot))
+        except (RuntimeError, ValueError) as exc:
+            return LlmHttpResult(response="", request_error=exc)
+
     if not prepared:
         return []
-
-    def request_one(slot: LlmPreparedSlot) -> str:
-        try:
-            return llm.request_llm(slot)
-        except (RuntimeError, ValueError):
-            return ""
 
     if llm_pool is not None:
         return llm_pool.map_requests(
@@ -142,9 +153,9 @@ def request_llm_batch(
 def _parallel_llm_responses(
     prepared: Sequence[LlmPreparedSlot],
     *,
-    request_one: Callable[[LlmPreparedSlot], str],
+    request_one: Callable[[LlmPreparedSlot], LlmHttpResult],
     max_workers: int,
-) -> list[str]:
+) -> list[LlmHttpResult]:
     """Ephemeral thread pool when no ``ParallelLlmPool`` is available."""
     if max_workers <= 1 or len(prepared) <= 1:
         return [request_one(slot) for slot in prepared]

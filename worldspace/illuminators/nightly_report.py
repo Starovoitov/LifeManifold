@@ -94,14 +94,21 @@ def build_llm_run_info(
     model_raw = provider.get("model")
     model = str(model_raw) if model_raw is not None else llm_cfg.active_provider
     max_llm_slots = sum(1 for kind in config.batch_emitters if kind == "llm")
+    parallel_workers: int | None = None
+    if config.performance.llm_parallel_emit and max_llm_slots >= 1:
+        parallel_workers = max_llm_slots
+        if config.performance.llm_parallel_workers > 0:
+            parallel_workers = min(
+                parallel_workers,
+                config.performance.llm_parallel_workers,
+            )
+        parallel_workers = max(1, parallel_workers)
     return LlmRunInfo(
         stack_version=LLM_STACK_VERSION,
         model=model,
         max_tokens=llm_cfg.max_tokens,
         llm_parallel_emit=config.performance.llm_parallel_emit,
-        llm_parallel_workers=(
-            max_llm_slots if config.performance.llm_parallel_emit else None
-        ),
+        llm_parallel_workers=parallel_workers,
         prompt_version=emitter_prompt_version(archive_type=config.archive_type),
     )
 
