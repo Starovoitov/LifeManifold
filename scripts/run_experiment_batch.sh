@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Run one condition × seed for the Q1 experiment matrix.
-# Usage: ./scripts/run_experiment_batch.sh pilot|q1-min|q1-full|shadow [first_seed] [last_seed]
+# Usage: ./scripts/run_experiment_batch.sh pilot|q1-min|q1-full|q1-full-filter|shadow [first_seed] [last_seed]
+#
+# q1-full-filter: filter arm only under artifacts/experiments/q1-full/; requires
+# stub + hints nightly_run_summary.json for each seed (e.g. after cp from q1-min).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,6 +12,13 @@ cd "$ROOT"
 TIER="${1:-pilot}"
 SEED_START="${2:-0}"
 SEED_END="${3:-$SEED_START}"
+FILTER_ONLY=false
+case "$TIER" in
+  q1-full-filter)
+    TIER=q1-full
+    FILTER_ONLY=true
+    ;;
+esac
 
 EXP_ROOT="$ROOT/artifacts/experiments"
 BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
@@ -59,7 +69,7 @@ case "$TIER" in
     RUN_SHADOW=true
     ;;
   *)
-    echo "Unknown tier: $TIER (use pilot|q1-min|q1-full|shadow)" >&2
+    echo "Unknown tier: $TIER (use pilot|q1-min|q1-full|q1-full-filter|shadow)" >&2
     exit 1
     ;;
 esac
@@ -112,6 +122,18 @@ fi
 
 mkdir -p "$EXP_DIR"
 
+require_stub_hints_for_seed() {
+  local seed="$1"
+  local stub_summary="$EXP_DIR/stub/seed_${seed}/nightly_run_summary.json"
+  local hints_summary="$EXP_DIR/hints/seed_${seed}/nightly_run_summary.json"
+  if [[ ! -f "$stub_summary" || ! -f "$hints_summary" ]]; then
+    echo "filter-only: missing completed stub/hints for seed $seed" >&2
+    echo "  expected: $stub_summary" >&2
+    echo "  expected: $hints_summary" >&2
+    exit 1
+  fi
+}
+
 run_one() {
   local condition="$1"
   local scheduler="$2"
@@ -143,8 +165,12 @@ for seed in $(seq "$SEED_START" "$SEED_END"); do
     # Protocol layout: shadow-mode run under filter/ (archive must match hints).
     run_one filter "$SCHEDULER_FILTER" "$seed"
   else
-    run_one stub "$SCHEDULER_STUB" "$seed"
-    run_one hints "$SCHEDULER_HINTS" "$seed"
+    if [[ "$FILTER_ONLY" == true ]]; then
+      require_stub_hints_for_seed "$seed"
+    else
+      run_one stub "$SCHEDULER_STUB" "$seed"
+      run_one hints "$SCHEDULER_HINTS" "$seed"
+    fi
     if [[ "$RUN_FILTER" == true ]]; then
       run_one filter "$SCHEDULER_FILTER" "$seed"
     fi
