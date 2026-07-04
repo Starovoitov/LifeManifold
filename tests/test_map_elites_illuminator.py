@@ -117,6 +117,45 @@ class TestMapElitesIlluminator(unittest.TestCase):
             )
             self.assertEqual(result.counters.candidates_evaluated, 104)
 
+    def test_external_baseline_clears_stale_output_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "run"
+            out.mkdir()
+            baseline_path = root / "baseline.jsonl"
+            eval_result = evaluate_candidate(
+                _BASE, resolution=10, enforce_min_steps=True
+            )
+            elite = elite_from_eval(
+                eval_result,
+                new_elite_metadata(
+                    generated_by="random",
+                    emitter_type="random",
+                ),
+            )
+            append_archive_line(baseline_path, elite_to_archive_record(elite))
+            stale_archive = archive_jsonl_path(out)
+            stale_archive.write_text('{"stale": true}\n', encoding="utf-8")
+            (out / "surrogate_archive.jsonl").write_text("stale\n", encoding="utf-8")
+            (out / "iteration_timing.jsonl").write_text("stale\n", encoding="utf-8")
+
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
+                output_dir=out,
+                seed=3,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+                load_archive_path=baseline_path,
+            )
+
+            self.assertTrue(stale_archive.is_file())
+            text = stale_archive.read_text(encoding="utf-8")
+            self.assertNotIn("stale", text)
+            record = json.loads(text.strip().splitlines()[0])
+            self.assertEqual(record["schema_version"], "1.2")
+            self.assertFalse((out / "iteration_timing.jsonl").exists())
+
     def test_same_seed_reproducible_via_illuminator(self) -> None:
         def snap(seed: int) -> dict[tuple[int, int], float]:
             with tempfile.TemporaryDirectory() as tmp:

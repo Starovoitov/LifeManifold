@@ -89,6 +89,11 @@ case "$TIER" in
   q1-min|q1-full|shadow) apply_long_run_llm_defaults ;;
 esac
 
+# Filter-only tier: lower LLM HTTP concurrency (burst resets under parallel load).
+if [[ "$FILTER_ONLY" == true && -z "${LIFEMANIFOLD_LLM_PARALLEL_WORKERS:-}" ]]; then
+  export LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2
+fi
+
 if [[ ! -f "$BASELINE_ARCHIVE" ]]; then
   echo "Missing baseline archive: $BASELINE_ARCHIVE" >&2
   echo "Run: uv run python -m worldspace.scripts.run_map_elites_nightly" >&2
@@ -134,6 +139,17 @@ require_stub_hints_for_seed() {
   fi
 }
 
+remove_incomplete_run_dir() {
+  local out="$1"
+  if [[ -f "$out/nightly_run_summary.json" ]]; then
+    return 0
+  fi
+  if [[ -d "$out" ]] && [[ -n "$(ls -A "$out" 2>/dev/null || true)" ]]; then
+    echo "Removing incomplete run artifacts: $out" >&2
+    rm -rf "$out"
+  fi
+}
+
 run_one() {
   local condition="$1"
   local scheduler="$2"
@@ -143,20 +159,28 @@ run_one() {
     echo "Skip existing: $out"
     return 0
   fi
+  remove_incomplete_run_dir "$out"
   mkdir -p "$out"
   local extra=()
   if [[ "$condition" == "hints" || "$condition" == "filter" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
   echo "=== tier=$TIER condition=$condition seed=$seed ==="
-  uv run python "$RUN_SCRIPT" \
-    --scheduler "$scheduler" \
-    --output-dir "$out" \
-    --seed "$seed" \
-    --iterations "$ITERATIONS" \
-    --load-archive "$BASELINE_ARCHIVE" \
-    --llm-provider qwen \
-    "${extra[@]}"
+  local lock_file="$out/.run.lock"
+  (
+    flock -n 9 || {
+      echo "Another process holds $lock_file; refusing to start duplicate run." >&2
+      exit 1
+    }
+    uv run python "$RUN_SCRIPT" \
+      --scheduler "$scheduler" \
+      --output-dir "$out" \
+      --seed "$seed" \
+      --iterations "$ITERATIONS" \
+      --load-archive "$BASELINE_ARCHIVE" \
+      --llm-provider qwen \
+      "${extra[@]}"
+  ) 9>"$lock_file"
 }
 
 for seed in $(seq "$SEED_START" "$SEED_END"); do
@@ -178,6 +202,9 @@ for seed in $(seq "$SEED_START" "$SEED_END"); do
 done
 
 if [[ -f "$AGG_SCRIPT" ]]; then
-  uv run python "$AGG_SCRIPT" --root "$EXP_DIR" --output "$EXP_DIR/summary.csv"
+  if ! uv run python "$AGG_SCRIPT" --root "$EXP_DIR" --output "$EXP_DIR/summary.csv"; then
+    echo "WARNING: failed to write $EXP_DIR/summary.csv (runs may still be valid)" >&2
+    exit 1
+  fi
   echo "Wrote $EXP_DIR/summary.csv"
 fi

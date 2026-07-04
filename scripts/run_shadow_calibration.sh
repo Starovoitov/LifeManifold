@@ -60,10 +60,20 @@ PY
 fi
 
 echo "=== Step 2: live shadow run (hints + shadow mode, seed=$SEED) ==="
-"$ROOT/scripts/run_experiment_batch.sh" shadow "$SEED" "$SEED"
-
 HINTS_DIR="$EXP_DIR/hints/seed_${SEED}"
 SHADOW_DIR="$EXP_DIR/filter/seed_${SEED}"
+
+if ! "$ROOT/scripts/run_experiment_batch.sh" shadow "$SEED" "$SEED"; then
+  batch_rc=$?
+  echo "WARNING: run_experiment_batch.sh exited with status $batch_rc" >&2
+  for run_dir in "$HINTS_DIR" "$SHADOW_DIR"; do
+    if [[ ! -f "$run_dir/nightly_run_summary.json" ]]; then
+      echo "ERROR: shadow run incomplete: $run_dir" >&2
+      exit "$batch_rc"
+    fi
+  done
+  echo "Shadow runs complete; continuing despite batch post-processing failure." >&2
+fi
 
 echo "=== Step 3: compare hints vs shadow (archive parity + skip metrics) ==="
 uv run python "$ROOT/scripts/compare_acquisition_runs.py" \
@@ -71,4 +81,10 @@ uv run python "$ROOT/scripts/compare_acquisition_runs.py" \
   --candidate-dir "$SHADOW_DIR" \
   --grid-resolution 50
 
-echo "Done. Inspect surrogate_archive_shadow.jsonl for per-slot shadow_would_skip counts."
+AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
+if [[ -f "$AGG_SCRIPT" ]]; then
+  uv run python "$AGG_SCRIPT" --root "$EXP_DIR" --output "$EXP_DIR/summary.csv"
+  echo "Wrote $EXP_DIR/summary.csv"
+fi
+
+echo "Done. Inspect surrogate_archive.jsonl in $SHADOW_DIR for per-slot skip counts."

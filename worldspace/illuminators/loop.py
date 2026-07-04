@@ -988,6 +988,7 @@ def _write_iteration_timing(
         )
         + "\n"
     )
+    timing_file.flush()
 
 
 def _acquisition_logging_active(config: SchedulerConfig) -> bool:

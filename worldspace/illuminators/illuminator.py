@@ -84,6 +84,11 @@ class MapElitesIlluminator:
         out_dir = Path(output_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         jsonl_path = archive_jsonl_path(out_dir)
+        _clear_stale_run_artifacts(
+            out_dir,
+            jsonl_path,
+            load_archive_path=load_archive_path,
+        )
 
         archive, counters = _load_archive_and_counters(
             config,
@@ -204,6 +209,34 @@ __all__ = [
 ]
 
 _ARCHIVE_JSONL_NAME = "map_elites_archive.jsonl"
+_RUN_ARTIFACT_NAMES = (
+    _ARCHIVE_JSONL_NAME,
+    "surrogate_archive.jsonl",
+    "iteration_timing.jsonl",
+)
+
+
+def _clear_stale_run_artifacts(
+    out_dir: Path,
+    jsonl_path: Path,
+    *,
+    load_archive_path: str | Path | None,
+) -> None:
+    """Drop prior per-run JSONL when warming from an external baseline archive.
+
+    Experiment batches load a shared baseline and write run-only deltas under
+    ``output_dir``. Restarting without removing stale files would append a second
+    run and break ``filled_cells`` validation.
+    """
+    if load_archive_path is None:
+        return
+    load_path = Path(load_archive_path).expanduser()
+    if load_path.resolve() == jsonl_path.resolve():
+        return
+    for name in _RUN_ARTIFACT_NAMES:
+        path = out_dir / name
+        if path.is_file():
+            path.unlink()
 
 
 def _load_archive_and_counters(
