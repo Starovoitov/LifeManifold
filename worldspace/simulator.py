@@ -13,7 +13,7 @@ from .metrics import (
     metrics_vector_to_dict,
     multi_objective_edge_of_chaos_indicator,
 )
-from worldspace.simulator_perf import (
+from .simulator_perf import (
     DEFAULT_SIMULATOR_PERFORMANCE,
     METRICS_VERIFY_ATOL,
     SimulatorPerformanceOptions,
