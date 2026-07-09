@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Run one condition × seed for the Q1 experiment matrix.
-# Usage: ./scripts/run_experiment_batch.sh pilot|q1-min|q1-full|q1-full-filter|shadow [first_seed] [last_seed]
+# Usage: ./scripts/run_experiment_batch.sh TIER [first_seed] [last_seed]
 #
-# q1-full-filter: filter arm only under artifacts/experiments/q1-full/; requires
-# stub + hints nightly_run_summary.json for each seed (e.g. after cp from q1-min).
+# Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | shadow
+# CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow
+#
+# q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,10 +20,18 @@ case "$TIER" in
     TIER=q1-full
     FILTER_ONLY=true
     ;;
+  q1-cvt-filter)
+    TIER=q1-cvt
+    FILTER_ONLY=true
+    ;;
 esac
 
 EXP_ROOT="$ROOT/artifacts/experiments"
-BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
+GRID_BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
+CVT_BASELINE_ARCHIVE="$ROOT/artifacts/map_elites_nightly/cvt/baseline/map_elites_archive.jsonl"
+BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+ARCHIVE_TYPE=grid
+
 TRAIN_SCRIPT="$ROOT/scripts/train_surrogate.py"
 RUN_SCRIPT="$ROOT/scripts/run_github_llm_map_elites.py"
 AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
@@ -31,6 +41,13 @@ SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
+
+SCHEDULER_STUB_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_cvt.yaml"
+SCHEDULER_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt.yaml"
+SCHEDULER_FILTER_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter_cvt.yaml"
+SCHEDULER_SHADOW_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints_cvt.yaml"
+SCHEDULER_SHADOW_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_cvt.yaml"
+
 SCHEDULER_STUB_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_stub.yaml"
 SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm.yaml"
 
@@ -68,14 +85,44 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=true
     ;;
+  q1-cvt-min)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-cvt"
+    ARCHIVE_TYPE=cvt
+    BASELINE_ARCHIVE="$CVT_BASELINE_ARCHIVE"
+    SCHEDULER_STUB="$SCHEDULER_STUB_CVT"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_CVT"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    ;;
+  q1-cvt)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-cvt"
+    ARCHIVE_TYPE=cvt
+    BASELINE_ARCHIVE="$CVT_BASELINE_ARCHIVE"
+    SCHEDULER_STUB="$SCHEDULER_STUB_CVT"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_CVT"
+    SCHEDULER_FILTER="$SCHEDULER_FILTER_CVT"
+    RUN_FILTER=true
+    RUN_SHADOW=false
+    ;;
+  cvt-shadow)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/cvt-shadow"
+    ARCHIVE_TYPE=cvt
+    BASELINE_ARCHIVE="$CVT_BASELINE_ARCHIVE"
+    SCHEDULER_HINTS="$SCHEDULER_SHADOW_HINTS_CVT"
+    SCHEDULER_FILTER="$SCHEDULER_SHADOW_CVT"
+    RUN_FILTER=false
+    RUN_SHADOW=true
+    ;;
   *)
-    echo "Unknown tier: $TIER (use pilot|q1-min|q1-full|q1-full-filter|shadow)" >&2
+    echo "Unknown tier: $TIER" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow" >&2
     exit 1
     ;;
 esac
 
-# Long nightly tiers: cap LLM HTTP concurrency and log per-iteration emit/eval timing.
-# Override via LIFEMANIFOLD_LLM_PARALLEL_WORKERS / LIFEMANIFOLD_LOG_ITERATION_TIMING.
 apply_long_run_llm_defaults() {
   if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
     export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
@@ -86,17 +133,22 @@ apply_long_run_llm_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|shadow) apply_long_run_llm_defaults ;;
+  q1-min|q1-full|shadow|q1-cvt-min|q1-cvt|cvt-shadow)
+    apply_long_run_llm_defaults
+    ;;
 esac
 
-# Filter-only tier: lower LLM HTTP concurrency (burst resets under parallel load).
 if [[ "$FILTER_ONLY" == true && -z "${LIFEMANIFOLD_LLM_PARALLEL_WORKERS:-}" ]]; then
   export LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2
 fi
 
 if [[ ! -f "$BASELINE_ARCHIVE" ]]; then
   echo "Missing baseline archive: $BASELINE_ARCHIVE" >&2
-  echo "Run: uv run python -m worldspace.scripts.run_map_elites_nightly" >&2
+  if [[ "$ARCHIVE_TYPE" == "cvt" ]]; then
+    echo "Run: ./scripts/run_cvt_baseline.sh" >&2
+  else
+    echo "Run: uv run python -m worldspace.scripts.run_map_elites_nightly --archive-type grid" >&2
+  fi
   exit 1
 fi
 
@@ -115,7 +167,7 @@ fi
 
 CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
 if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true) && ! -f "$CALIBRATION" ]]; then
-  echo "Training uncertainty calibration (required for filter arm)..."
+  echo "Training uncertainty calibration (required for filter/shadow arms)..."
   uv run python "$TRAIN_SCRIPT" \
     --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
     --checkpoint-path "$CHECKPOINT" \
@@ -165,7 +217,7 @@ run_one() {
   if [[ "$condition" == "hints" || "$condition" == "filter" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
-  echo "=== tier=$TIER condition=$condition seed=$seed ==="
+  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed ==="
   local lock_file="$out/.run.lock"
   (
     flock -n 9 || {
@@ -186,7 +238,6 @@ run_one() {
 for seed in $(seq "$SEED_START" "$SEED_END"); do
   if [[ "$RUN_SHADOW" == true ]]; then
     run_one hints "$SCHEDULER_HINTS" "$seed"
-    # Protocol layout: shadow-mode run under filter/ (archive must match hints).
     run_one filter "$SCHEDULER_FILTER" "$seed"
   else
     if [[ "$FILTER_ONLY" == true ]]; then

@@ -284,6 +284,41 @@ class TestDashboardArchiveLoader(unittest.TestCase):
         self.assertTrue(bundle.centroids_missing)
         self.assertIsNone(bundle.centroids)
 
+    def test_resolve_centroids_uses_baseline_for_experiment_archive(self) -> None:
+        from dashboard.components.archive_loader import (
+            load_centroids_for_bundle,
+            resolve_centroids_path_for_archive,
+        )
+        from dashboard.utils.config import load_config, repo_root
+
+        archive_path = (
+            repo_root()
+            / "artifacts"
+            / "experiments"
+            / "cvt-shadow"
+            / "hints"
+            / "seed_0"
+            / "map_elites_archive.jsonl"
+        )
+        if not archive_path.is_file():
+            self.skipTest("cvt-shadow hints archive missing")
+        baseline = (
+            repo_root()
+            / "artifacts"
+            / "map_elites_nightly"
+            / "cvt"
+            / "baseline"
+            / "cvt_centroids.json"
+        )
+        if not baseline.is_file():
+            self.skipTest("CVT baseline centroids missing")
+        cfg = load_config()
+        resolved = resolve_centroids_path_for_archive(archive_path, cfg)
+        self.assertEqual(resolved, baseline)
+        centroids = load_centroids_for_bundle(archive_path)
+        self.assertIsNotNone(centroids)
+        self.assertEqual(int(centroids.shape[0]), 2500)
+
     def test_cvt_n_cells_hint_ignores_nan_cell_id(self) -> None:
         import pandas as pd
 

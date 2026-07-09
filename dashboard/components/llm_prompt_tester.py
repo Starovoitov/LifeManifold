@@ -118,15 +118,23 @@ def load_grid_archive(
     centroids_path: Path | None = None,
 ) -> ArchiveProtocol:
     """Load a collapsed archive from a MAP-Elites JSONL path (grid or CVT)."""
-    from dashboard.components.archive_loader import detect_archive_type_from_jsonl
+    from dashboard.components.archive_loader import (
+        detect_archive_type_from_jsonl,
+        resolve_centroids_path_for_archive,
+    )
     from worldspace.illuminators.archive import load_and_collapse_jsonl
-    from worldspace.illuminators.cvt import centroids_path_for_output
 
     resolved_type = archive_type or detect_archive_type_from_jsonl(archive_path)
     if resolved_type == "cvt":
-        resolved_centroids = centroids_path or centroids_path_for_output(
-            archive_path.parent
-        )
+        resolved_centroids = centroids_path
+        if resolved_centroids is None:
+            resolved_centroids = resolve_centroids_path_for_archive(archive_path)
+        if resolved_centroids is None:
+            msg = (
+                "CVT centroids file not found next to this archive and no compatible "
+                "baseline fallback is available."
+            )
+            raise FileNotFoundError(msg)
         return load_and_collapse_jsonl(
             archive_path,
             archive_type="cvt",

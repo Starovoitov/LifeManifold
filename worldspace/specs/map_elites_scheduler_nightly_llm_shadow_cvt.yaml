@@ -1,0 +1,99 @@
+schema_version: "1.3"
+# CVT shadow acquisition for filter calibration (mode=shadow; all candidates evaluated).
+iterations: 650
+batch_size: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+archive:
+  type: cvt
+  n_centroids: 2500
+  cvt_seed: 0
+  lloyd_iterations: 50
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_cvt_shadow.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive_cvt_shadow.jsonl
+  acquisition:
+    mode: shadow
+    policy: threshold_gate
+    min_predicted_fitness: 0.45
+    max_uncertainty_to_skip: 1.0
+    never_skip_empty_bin: true
+  retrain:
+    enabled: false
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

@@ -57,11 +57,10 @@ def _occupied_fitness(
 ) -> dict[tuple[int, int], float]:
     archive = load_and_collapse_jsonl(archive_path, resolution=resolution)
     snapshot: dict[tuple[int, int], float] = {}
-    for i in range(resolution):
-        for j in range(resolution):
-            elite = archive.get(i, j)
-            if elite is not None:
-                snapshot[(i, j)] = elite.fitness
+    for cell_id in range(archive.n_cells):
+        elite = archive.get_cell(cell_id)
+        if elite is not None:
+            snapshot[archive.bin_from_cell_id(cell_id)] = elite.fitness
     return snapshot
 
 
@@ -155,6 +154,42 @@ class TestMapElitesIlluminator(unittest.TestCase):
             record = json.loads(text.strip().splitlines()[0])
             self.assertEqual(record["schema_version"], "1.2")
             self.assertFalse((out / "iteration_timing.jsonl").exists())
+
+    def test_external_cvt_baseline_copies_centroids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline_dir = root / "baseline"
+            baseline_dir.mkdir()
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_CVT_SCHEDULER_PATH,
+                output_dir=baseline_dir,
+                seed=3,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+            )
+            baseline_archive = archive_jsonl_path(baseline_dir)
+            baseline_centroids = centroids_path_for_output(baseline_dir)
+            self.assertTrue(baseline_centroids.is_file())
+
+            run_dir = root / "run"
+            run_dir.mkdir()
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_CVT_SCHEDULER_PATH,
+                output_dir=run_dir,
+                seed=4,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+                load_archive_path=baseline_archive,
+            )
+
+            copied = centroids_path_for_output(run_dir)
+            self.assertTrue(copied.is_file())
+            self.assertEqual(
+                copied.read_bytes(),
+                baseline_centroids.read_bytes(),
+            )
 
     def test_same_seed_reproducible_via_illuminator(self) -> None:
         def snap(seed: int) -> dict[tuple[int, int], float]:

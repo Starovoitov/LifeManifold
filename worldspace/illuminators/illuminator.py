@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -247,6 +248,12 @@ def _load_archive_and_counters(
 ) -> tuple[ArchiveProtocol, RunCounters]:
     if load_archive_path is not None:
         load_path = Path(load_archive_path).expanduser()
+        source_centroids = _centroids_path_for_archive_dir(load_path.parent, config)
+        _ensure_cvt_centroids_in_output_dir(
+            config,
+            output_dir=output_dir,
+            source_centroids_path=source_centroids,
+        )
         archive = load_and_collapse_jsonl(
             load_path,
             archive_type=config.archive_type,
@@ -274,6 +281,24 @@ def _centroids_path_for_archive_dir(
     if config.archive_type != "cvt":
         return None
     return centroids_path_for_output(archive_dir)
+
+
+def _ensure_cvt_centroids_in_output_dir(
+    config: SchedulerConfig,
+    *,
+    output_dir: Path,
+    source_centroids_path: Path | None,
+) -> None:
+    """Copy CVT centroids beside run output when warm-starting from an external baseline."""
+    if config.archive_type != "cvt" or source_centroids_path is None:
+        return
+    if not source_centroids_path.is_file():
+        return
+    dest = centroids_path_for_output(output_dir)
+    if dest.is_file():
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_centroids_path, dest)
 
 
 def _cli_main() -> None:
