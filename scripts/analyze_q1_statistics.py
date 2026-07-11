@@ -259,6 +259,53 @@ def tost(delta: np.ndarray, eq_margin: float) -> dict[str, Any]:
     return bootstrap_tost_median(delta, eq_margin)
 
 
+def noninferiority(
+    delta: np.ndarray,
+    neg_margin: float,
+    *,
+    alpha: float = 0.05,
+) -> dict[str, Any]:
+    """One-sided non-inferiority: H1 mean(delta) > neg_margin (e.g. > -0.05).
+
+    Uses one-sided t-test when Shapiro p≥0.10; otherwise bootstrap CI lower
+    bound at level 1-2α (equiv. one-sided α) vs ``neg_margin``.
+    """
+    if shapiro_p(delta) >= 0.10 and not boundary_effect(delta):
+        p = float(
+            cast(
+                Any, stats.ttest_1samp(delta, neg_margin, alternative="greater")
+            ).pvalue
+        )
+        mean = float(np.mean(delta))
+        se = float(stats.sem(delta))
+        df = len(delta) - 1
+        # (1-2α) two-sided CI → lower bound is one-sided α for non-inferiority
+        tcrit = float(stats.t.ppf(1.0 - alpha, df))
+        ci_lo = mean - tcrit * se
+        ci_hi = mean + tcrit * se
+        level = "parametric_mean"
+    else:
+        # one-sided α via (1-2α) percentile CI on median
+        lo, hi = bootstrap_ci(delta, stat="median", level=1.0 - 2.0 * alpha)
+        ci_lo, ci_hi = lo, hi
+        outside = 0
+        n = len(delta)
+        for _ in range(BOOTSTRAP_B):
+            idx = [RNG.randrange(n) for _ in range(n)]
+            if float(np.median(delta[idx])) <= neg_margin:
+                outside += 1
+        p = (outside + 1) / (BOOTSTRAP_B + 1)
+        level = "bootstrap_median"
+    accepted = (p < alpha) and (ci_lo > neg_margin)
+    return {
+        "accepted": accepted,
+        "p": p,
+        "ci": (ci_lo, ci_hi),
+        "neg_margin": neg_margin,
+        "level": level,
+    }
+
+
 def holm_step_down(p_by_name: dict[str, float], alpha: float = 0.05) -> dict[str, bool]:
     names = list(p_by_name.keys())
     m = len(names)
@@ -356,6 +403,8 @@ def run_statistics() -> dict[str, Any]:
     )
     t_cov = tost(d_cov3, eq_margin=3.0)  # 3 percentage points
     t_fit = tost(d_fit3, eq_margin=0.05)  # 5% relative
+    ni_cov = noninferiority(d_cov3, neg_margin=-3.0)
+    ni_fit = noninferiority(d_fit3, neg_margin=-0.05)
     fam["RQ3_cov_TOST"] = {
         "p": t_cov["p_tost"],
         "local_ok": t_cov["accepted"],
@@ -375,6 +424,17 @@ def run_statistics() -> dict[str, Any]:
 
     holm = holm_step_down({k: fam[k]["p"] for k in fam})
 
+    # Amended RQ3 QD gates (post-hoc 2026-07-11): one-sided non-inferiority
+    ni = {
+        "coverage": ni_cov,
+        "fitness": ni_fit,
+        "note": (
+            "Protocol amendment 2026-07-11: RQ3 QD interpreted as non-inferiority "
+            "(Δcov > −3 pp, Δfit_rel > −5%), not symmetric TOST. Formal TOST family "
+            "retained for transparency."
+        ),
+    }
+
     verdict: dict[str, str] = {}
     rq1_pass = (
         holm.get("RQ1", False)
@@ -384,9 +444,11 @@ def run_statistics() -> dict[str, Any]:
     verdict["RQ1"] = "PASS" if rq1_pass else "FAIL"
 
     if not d1["RQ3_confirmatory"]:
+        verdict["RQ3_formal_TOST"] = "EXPLORATORY (D1 gate divergence >5%)"
+        verdict["RQ3_amended_noninferiority"] = "EXPLORATORY (D1 gate divergence >5%)"
         verdict["RQ3"] = "EXPLORATORY (D1 gate divergence >5%)"
     else:
-        rq3_pass = (
+        rq3_formal = (
             holm.get("RQ3_eval", False)
             and fam["RQ3_eval"]["local_ok"]
             and holm.get("RQ3_cov_TOST", False)
@@ -395,8 +457,24 @@ def run_statistics() -> dict[str, Any]:
             and fam["RQ3_fit_TOST"]["local_ok"]
         )
         if fam["RQ3_eval"].get("noise_indistinguishable"):
-            rq3_pass = False
-        verdict["RQ3"] = "PASS" if rq3_pass else "FAIL"
+            rq3_formal = False
+        verdict["RQ3_formal_TOST"] = "PASS" if rq3_formal else "FAIL"
+
+        rq3_amended = (
+            holm.get("RQ3_eval", False)
+            and fam["RQ3_eval"]["local_ok"]
+            and ni_cov["accepted"]
+            and ni_fit["accepted"]
+            and not fam["RQ3_eval"].get("noise_indistinguishable")
+        )
+        verdict["RQ3_amended_noninferiority"] = "PASS" if rq3_amended else "FAIL"
+        # Primary interpretive verdict after amendment (paper claim)
+        verdict["RQ3"] = verdict["RQ3_amended_noninferiority"]
+        verdict["RQ3_note"] = (
+            "Primary RQ3 uses amended non-inferiority (2026-07-11). "
+            f"Formal symmetric TOST family: {verdict['RQ3_formal_TOST']} "
+            "(fitness TOST fails because filter improves fitness; CI above 0)."
+        )
 
     ds_cov = paired_delta(cvt_rows, "hints", "stub", "coverage_pct")
     ds_ev = paired_delta(cvt_rows, "filter", "hints", "evaluations", relative=True)
@@ -433,6 +511,7 @@ def run_statistics() -> dict[str, Any]:
         "d1_gate": d1,
         "confirmatory_family": fam,
         "holm_reject": holm,
+        "noninferiority": ni,
         "verdict": verdict,
         "sensitivity": {
             "RQ1s_agree": a1,
@@ -467,10 +546,13 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     if vf.get("coverage") is not None:
         lines.extend(
             [
-                f"- Floor coverage (2× pooled within-SD): **{vf['coverage']:.3f} pp**",
+                f"- Floor coverage (2× pooled within-SD): **{vf['coverage']:.3f} pp** (point estimate)",
                 f"- Floor fitness: **{vf['fitness']:.4f}**",
                 f"- Floor evals (absolute): **{vf['evals']:.1f}**",
                 f"- Source: `{vf.get('source', REPEAT_CSV)}`",
+                "- **Uncertainty:** few condition×seed groups → coarse scale only. "
+                "Use for large effects (RQ1); do **not** adjudicate ~1 pp contrasts "
+                "(seed diagnostics, 1-seed ablation) via `diff <? floor`.",
             ]
         )
     lines.extend(
@@ -512,7 +594,8 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     lines.append(
         row(
             "RQ3_cov_TOST",
-            f"margin ±3 pp; {r3c['level']}; 90% CI {fmt_ci(r3c['ci90'])}",
+            f"margin ±3 pp on mean paired Δ (not max-over-seeds); "
+            f"{r3c['level']}; 90% CI {fmt_ci(r3c['ci90'])}",
         )
     )
     r3f = fam["RQ3_fit_TOST"]
@@ -532,15 +615,44 @@ def append_stats_section(stats: dict[str, Any]) -> None:
                 for k in sorted(fam, key=lambda x: fam[x]["p"])
             ),
             "",
+            "### B.5b Amended RQ3 QD gates (non-inferiority, post-hoc 2026-07-11)",
+            "",
+            stats["noninferiority"]["note"],
+            "",
+            "Confirmatory unit = **paired seed-level Δ** (n=10), same as TOST. "
+            "Worst-seed Δcov (grid seed 6 = −3.32 pp) is descriptive only and does not gate RQ3.",
+            "",
+            "| Endpoint | neg. margin | p (one-sided) | CI lower | accepted |",
+            "|----------|-------------|---------------|----------|----------|",
+            (
+                f"| Δcoverage (pp) | −3.0 | "
+                f"{stats['noninferiority']['coverage']['p']:.4g} | "
+                f"{stats['noninferiority']['coverage']['ci'][0]:.3f} | "
+                f"**{stats['noninferiority']['coverage']['accepted']}** |"
+            ),
+            (
+                f"| Δfitness (rel) | −5% | "
+                f"{stats['noninferiority']['fitness']['p']:.4g} | "
+                f"{stats['noninferiority']['fitness']['ci'][0]:.4f} | "
+                f"**{stats['noninferiority']['fitness']['accepted']}** |"
+            ),
+            "",
             "### B.6 Hypothesis verdicts",
             "",
             "| Hypothesis | Verdict |",
             "|------------|---------|",
             f"| RQ1 | **{v['RQ1']}** |",
-            f"| RQ3 | **{v['RQ3']}** |",
+            f"| RQ3 formal (symmetric TOST Holm family) | **{v.get('RQ3_formal_TOST', v['RQ3'])}** |",
+            f"| RQ3 amended (non-inferiority, paper claim) | **{v.get('RQ3_amended_noninferiority', v['RQ3'])}** |",
             f"| RQ1-s (CVT) | {v['RQ1s']} |",
             f"| RQ3-s (CVT) | {v['RQ3s']} |",
             "",
+        ]
+    )
+    if v.get("RQ3_note"):
+        lines.extend([f"*{v['RQ3_note']}*", ""])
+    lines.extend(
+        [
             "### B.7 CVT descriptive (not in confirmatory Holm family)",
             "",
             f"- Wilcoxon Δcoverage hints−stub (greater): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_delta_cov_greater']:.4g}",
@@ -551,9 +663,13 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     )
 
     md = OUT_MD.read_text(encoding="utf-8")
+    section8 = ""
+    marker8 = "## 8. Prompt ablation"
+    if marker8 in md:
+        section8 = "\n" + md[md.index(marker8) :].rstrip() + "\n"
     if STATS_MD_SECTION in md:
         md = md.split(STATS_MD_SECTION)[0].rstrip() + "\n"
-    OUT_MD.write_text(md + "\n".join(lines), encoding="utf-8")
+    OUT_MD.write_text(md + "\n".join(lines) + section8, encoding="utf-8")
 
 
 def main() -> None:
@@ -578,7 +694,17 @@ def main() -> None:
     append_stats_section(stats)
     print(
         json.dumps(
-            {"verdict": stats["verdict"], "holm": stats["holm_reject"]}, indent=2
+            {
+                "verdict": stats["verdict"],
+                "holm": stats["holm_reject"],
+                "noninferiority": {
+                    "cov_accepted": stats["noninferiority"]["coverage"]["accepted"],
+                    "fit_accepted": stats["noninferiority"]["fitness"]["accepted"],
+                    "fit_ci": stats["noninferiority"]["fitness"]["ci"],
+                    "fit_p": stats["noninferiority"]["fitness"]["p"],
+                },
+            },
+            indent=2,
         )
     )
 

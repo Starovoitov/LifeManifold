@@ -153,8 +153,10 @@ if [[ "$REQUESTED_TIER" == "q1-repeat" && $# -lt 2 ]]; then
   SEED_END=1
 fi
 if [[ "$REQUESTED_TIER" == "q1-prompt-ablation" && $# -lt 2 ]]; then
+  # Prefer documenting seeds 0–2; default remains 0 for cheap resume of existing run.
   SEED_START=0
   SEED_END=0
+  echo "NOTE: q1-prompt-ablation default is seed 0 only; for a stronger claim run: $0 q1-prompt-ablation 0 2" >&2
 fi
 
 apply_long_run_llm_defaults() {
