@@ -1,6 +1,12 @@
 version: 1
 
 # GitHub Actions / manual LLM runs (workflow sets QWEN_API_KEY).
+#
+# Q1 API-stack pin (floating alias — see artifacts/EXPERIMENT_PROTOCOL_Q1_v2.md §3.0.1):
+#   model: qwen-turbo  (NOT a dated snapshot e.g. qwen-turbo-2025-04-28)
+#   api_base: dashscope-intl compatible-mode
+#   observation window for Q1 matrix: 2026-07-02 → 2026-07-11
+# Future runs that need weight-level reproducibility should switch to a dated model ID.
 llm:
   mode: remote
   active_provider: qwen
