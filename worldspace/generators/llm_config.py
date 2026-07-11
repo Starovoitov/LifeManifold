@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -37,6 +38,7 @@ class LlmTextCaller(Protocol):
         providers: dict[str, Any],
         prompt: str,
         temperature: float = 0.2,
+        top_p: float | None = None,
         max_tokens: int = 350,
         system_content: str | None = None,
     ) -> str: ...
@@ -55,6 +57,7 @@ class LLMGeneratorConfig:
     active_provider: str
     providers: dict[str, Any]
     temperature: float
+    top_p: float | None
     max_tokens: int
     fallback_scale: float
     initial_generator: str
@@ -74,6 +77,7 @@ class LLMGeneratorConfig:
             active_provider=active,
             providers=dict(llm["providers"]),
             temperature=float(llm.get("temperature", 0.2)),
+            top_p=(float(llm["top_p"]) if llm.get("top_p") is not None else None),
             max_tokens=int(llm.get("max_tokens", 350)),
             fallback_scale=float(llm.get("fallback_scale", 0.02)),
             initial_generator=str(llm.get("initial_generator", "random")),
@@ -113,3 +117,9 @@ def load_llm_config(path: str | Path | None = None) -> LLMGeneratorConfig:
     """Load ``LLMGeneratorConfig`` from the default or given spec path."""
     raw = load_llm_generator_yaml(path or _DEFAULT_LLM_SPEC_PATH)
     return LLMGeneratorConfig.from_llm_dict(raw["llm"])
+
+
+def llm_spec_content_hash(path: str | Path) -> str:
+    """Short SHA-256 digest of the LLM generator YAML bytes (reproducibility audit)."""
+    data = Path(path).read_bytes()
+    return hashlib.sha256(data).hexdigest()[:16]

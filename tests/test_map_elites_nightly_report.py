@@ -232,11 +232,17 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             )
             self.assertEqual(report.llm_stack_version, LLM_STACK_VERSION)
             self.assertEqual(report.llm_model, "qwen-turbo")
+            self.assertEqual(report.llm_temperature, 0.2)
+            self.assertIsNone(report.llm_top_p)
+            self.assertIsNotNone(report.llm_spec_hash)
             self.assertTrue(report.llm_parallel_emit)
             self.assertEqual(report.llm_parallel_workers, 1)
             self.assertEqual(report.llm_emit_attempts, 10)
             self.assertEqual(report.llm_emit_fallbacks, 1)
-            self.assertAlmostEqual(report.llm_fallback_rate_pct, 10.0)
+            fallback_rate = report.llm_fallback_rate_pct
+            self.assertIsNotNone(fallback_rate)
+            assert fallback_rate is not None
+            self.assertAlmostEqual(fallback_rate, 10.0)
             self.assertEqual(report.emit_llm_seconds, 12.345)
             self.assertEqual(report.eval_seconds, 3.21)
             self.assertIsNotNone(report.prompt_version)
@@ -246,6 +252,8 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             payload = json.loads(summary_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["llm_stack_version"], LLM_STACK_VERSION)
             self.assertEqual(payload["llm_model"], "qwen-turbo")
+            self.assertEqual(payload["llm_temperature"], 0.2)
+            self.assertIn("llm_top_p", payload)
             self.assertEqual(payload["llm_fallback_rate_pct"], 10.0)
 
 

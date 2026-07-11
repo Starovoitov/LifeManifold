@@ -2,16 +2,18 @@
 # Run one condition × seed for the Q1 experiment matrix.
 # Usage: ./scripts/run_experiment_batch.sh TIER [first_seed] [last_seed]
 #
-# Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | shadow
+# Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | q1-repeat | shadow
 # CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow
 #
+# q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-TIER="${1:-pilot}"
+REQUESTED_TIER="${1:-pilot}"
+TIER="$REQUESTED_TIER"
 SEED_START="${2:-0}"
 SEED_END="${3:-$SEED_START}"
 FILTER_ONLY=false
@@ -77,6 +79,15 @@ case "$TIER" in
     RUN_FILTER=true
     RUN_SHADOW=false
     ;;
+  q1-repeat)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-repeat"
+    SCHEDULER_STUB="$SCHEDULER_STUB_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    REPLICATE_COUNT=3
+    ;;
   shadow)
     ITERATIONS=650
     EXP_DIR="$EXP_ROOT/shadow"
@@ -118,10 +129,16 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow" >&2
     exit 1
     ;;
 esac
+
+REPLICATE_COUNT="${REPLICATE_COUNT:-1}"
+if [[ "$REQUESTED_TIER" == "q1-repeat" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=1
+fi
 
 apply_long_run_llm_defaults() {
   if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
@@ -133,7 +150,7 @@ apply_long_run_llm_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|shadow|q1-cvt-min|q1-cvt|cvt-shadow)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow)
     apply_long_run_llm_defaults
     ;;
 esac
@@ -206,7 +223,11 @@ run_one() {
   local condition="$1"
   local scheduler="$2"
   local seed="$3"
+  local replicate="${4:-}"
   local out="$EXP_DIR/${condition}/seed_${seed}"
+  if [[ -n "$replicate" ]]; then
+    out="${out}/rep_${replicate}"
+  fi
   if [[ -f "$out/nightly_run_summary.json" ]]; then
     echo "Skip existing: $out"
     return 0
@@ -217,7 +238,10 @@ run_one() {
   if [[ "$condition" == "hints" || "$condition" == "filter" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
-  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed ==="
+  if [[ -n "$replicate" ]]; then
+    extra+=(--replicate "$replicate")
+  fi
+  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed replicate=${replicate:-none} ==="
   local lock_file="$out/.run.lock"
   (
     flock -n 9 || {
@@ -236,20 +260,26 @@ run_one() {
 }
 
 for seed in $(seq "$SEED_START" "$SEED_END"); do
-  if [[ "$RUN_SHADOW" == true ]]; then
-    run_one hints "$SCHEDULER_HINTS" "$seed"
-    run_one filter "$SCHEDULER_FILTER" "$seed"
-  else
-    if [[ "$FILTER_ONLY" == true ]]; then
-      require_stub_hints_for_seed "$seed"
+  for rep in $(seq 0 $((REPLICATE_COUNT - 1))); do
+    rep_arg=""
+    if [[ "$REPLICATE_COUNT" -gt 1 ]]; then
+      rep_arg="$rep"
+    fi
+    if [[ "$RUN_SHADOW" == true ]]; then
+      run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
+      run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
     else
-      run_one stub "$SCHEDULER_STUB" "$seed"
-      run_one hints "$SCHEDULER_HINTS" "$seed"
+      if [[ "$FILTER_ONLY" == true ]]; then
+        require_stub_hints_for_seed "$seed"
+      else
+        run_one stub "$SCHEDULER_STUB" "$seed" "$rep_arg"
+        run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
+      fi
+      if [[ "$RUN_FILTER" == true ]]; then
+        run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
+      fi
     fi
-    if [[ "$RUN_FILTER" == true ]]; then
-      run_one filter "$SCHEDULER_FILTER" "$seed"
-    fi
-  fi
+  done
 done
 
 if [[ -f "$AGG_SCRIPT" ]]; then

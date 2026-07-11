@@ -218,6 +218,12 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--seed", type=int, default=_DEFAULT_SEED)
     parser.add_argument(
+        "--replicate",
+        type=int,
+        default=None,
+        help="Optional within-seed replicate index (q1-repeat variance floor runs).",
+    )
+    parser.add_argument(
         "--grid-resolution",
         type=int,
         default=_DEFAULT_GRID_RESOLUTION,
@@ -335,6 +341,7 @@ def main(argv: list[str] | None = None) -> None:
         scheduler_path=sched_path,
         seed=args.seed,
         elapsed_seconds=elapsed,
+        replicate=args.replicate,
         resume_archive_path=load_archive,
         llm_spec_path=llm_spec,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -73,6 +74,14 @@ def _infer_condition(run_dir: Path) -> str:
     return run_dir.parent.name
 
 
+def _infer_replicate(run_dir: Path) -> int | None:
+    for part in run_dir.parts:
+        match = re.fullmatch(r"rep_(\d+)", part)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def main() -> None:
     args = parse_args()
     root = args.root.resolve()
@@ -88,6 +97,7 @@ def main() -> None:
             {
                 "condition": _infer_condition(run_dir),
                 "seed": payload.get("seed"),
+                "replicate": payload.get("replicate", _infer_replicate(run_dir)),
                 "iterations": payload.get("iterations"),
                 "evaluations": payload.get("evaluations"),
                 "filled_cells": payload.get("filled_cells"),
@@ -99,6 +109,9 @@ def main() -> None:
                 "elapsed_seconds": payload.get("elapsed_seconds"),
                 "llm_stack_version": payload.get("llm_stack_version"),
                 "llm_model": payload.get("llm_model"),
+                "llm_temperature": payload.get("llm_temperature"),
+                "llm_top_p": payload.get("llm_top_p"),
+                "llm_spec_hash": payload.get("llm_spec_hash"),
                 "llm_fallback_rate_pct": payload.get("llm_fallback_rate_pct"),
                 "llm_parallel_emit": payload.get("llm_parallel_emit"),
                 "llm_parallel_workers": payload.get("llm_parallel_workers"),

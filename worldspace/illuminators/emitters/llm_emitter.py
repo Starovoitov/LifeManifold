@@ -305,6 +305,7 @@ class LlmEmitter:
             providers=cfg.providers,
             prompt=user_prompt,
             temperature=cfg.temperature,
+            top_p=cfg.top_p,
             max_tokens=cfg.max_tokens,
             system_content=system_prompt,
         )

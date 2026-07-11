@@ -39,7 +39,11 @@ class LlmRunInfo:
 
     stack_version: str
     model: str | None
+    temperature: float | None
+    top_p: float | None
     max_tokens: int | None
+    llm_spec_path: str | None
+    llm_spec_hash: str | None
     llm_parallel_emit: bool
     llm_parallel_workers: int | None
     prompt_version: str | None
@@ -67,7 +71,11 @@ class NightlyRunReport:
     archive_jsonl_path: str
     llm_stack_version: str | None = None
     llm_model: str | None = None
+    llm_temperature: float | None = None
+    llm_top_p: float | None = None
     max_tokens: int | None = None
+    llm_spec_path: str | None = None
+    llm_spec_hash: str | None = None
     llm_parallel_emit: bool | None = None
     llm_parallel_workers: int | None = None
     prompt_version: str | None = None
@@ -76,6 +84,7 @@ class NightlyRunReport:
     llm_fallback_rate_pct: float | None = None
     emit_llm_seconds: float | None = None
     eval_seconds: float | None = None
+    replicate: int | None = None
 
 
 def build_llm_run_info(
@@ -86,13 +95,15 @@ def build_llm_run_info(
     """Build LLM stack metadata when the scheduler has LLM emit enabled."""
     if not config.llm_enabled:
         return None
-    from worldspace.generators.llm_config import load_llm_config
+    from worldspace.generators.llm_config import load_llm_config, llm_spec_content_hash
     from worldspace.illuminators.emitters.llm_prompts import emitter_prompt_version
 
-    llm_cfg = load_llm_config(llm_spec_path)
+    spec_path = Path(llm_spec_path) if llm_spec_path is not None else None
+    llm_cfg = load_llm_config(spec_path)
     provider = llm_cfg.providers.get(llm_cfg.active_provider, {})
     model_raw = provider.get("model")
     model = str(model_raw) if model_raw is not None else llm_cfg.active_provider
+    spec_resolved = spec_path.resolve() if spec_path is not None else None
     max_llm_slots = sum(1 for kind in config.batch_emitters if kind == "llm")
     parallel_workers: int | None = None
     if config.performance.llm_parallel_emit and max_llm_slots >= 1:
@@ -106,7 +117,13 @@ def build_llm_run_info(
     return LlmRunInfo(
         stack_version=LLM_STACK_VERSION,
         model=model,
+        temperature=llm_cfg.temperature,
+        top_p=llm_cfg.top_p,
         max_tokens=llm_cfg.max_tokens,
+        llm_spec_path=str(spec_resolved) if spec_resolved is not None else None,
+        llm_spec_hash=(
+            llm_spec_content_hash(spec_resolved) if spec_resolved is not None else None
+        ),
         llm_parallel_emit=config.performance.llm_parallel_emit,
         llm_parallel_workers=parallel_workers,
         prompt_version=emitter_prompt_version(archive_type=config.archive_type),
@@ -129,6 +146,7 @@ def build_nightly_report(
     scheduler_path: str | Path,
     seed: int,
     elapsed_seconds: float,
+    replicate: int | None = None,
     resume_archive_path: str | Path | None = None,
     llm_spec_path: str | Path | None = None,
 ) -> NightlyRunReport:
@@ -166,6 +184,7 @@ def build_nightly_report(
         schema_version=ARCHIVE_SCHEMA_VERSION,
         scheduler_path=str(Path(scheduler_path).resolve()),
         seed=int(seed),
+        replicate=int(replicate) if replicate is not None else None,
         iterations=result.iterations,
         evaluations=result.evaluations,
         filled_cells=collapsed_cells,
@@ -181,7 +200,11 @@ def build_nightly_report(
         archive_jsonl_path=str(jsonl_path.resolve()),
         llm_stack_version=llm_info.stack_version if llm_info is not None else None,
         llm_model=llm_info.model if llm_info is not None else None,
+        llm_temperature=llm_info.temperature if llm_info is not None else None,
+        llm_top_p=llm_info.top_p if llm_info is not None else None,
         max_tokens=llm_info.max_tokens if llm_info is not None else None,
+        llm_spec_path=llm_info.llm_spec_path if llm_info is not None else None,
+        llm_spec_hash=llm_info.llm_spec_hash if llm_info is not None else None,
         llm_parallel_emit=llm_info.llm_parallel_emit if llm_info is not None else None,
         llm_parallel_workers=(
             llm_info.llm_parallel_workers if llm_info is not None else None
@@ -221,6 +244,8 @@ def write_nightly_summary(path: str | Path, report: NightlyRunReport) -> None:
         "surrogate_enabled": report.surrogate_enabled,
         "archive_jsonl": report.archive_jsonl_path,
     }
+    if report.replicate is not None:
+        payload["replicate"] = report.replicate
     if report.llm_enabled:
         payload.update(_llm_summary_fields(report))
     target.write_text(
@@ -240,8 +265,18 @@ def _llm_summary_fields(report: NightlyRunReport) -> dict[str, object]:
         fields["llm_stack_version"] = report.llm_stack_version
     if report.llm_model is not None:
         fields["llm_model"] = report.llm_model
+    if report.llm_temperature is not None:
+        fields["llm_temperature"] = report.llm_temperature
+    if report.llm_top_p is not None:
+        fields["llm_top_p"] = report.llm_top_p
+    elif report.llm_enabled:
+        fields["llm_top_p"] = None
     if report.max_tokens is not None:
         fields["max_tokens"] = report.max_tokens
+    if report.llm_spec_path is not None:
+        fields["llm_spec_path"] = report.llm_spec_path
+    if report.llm_spec_hash is not None:
+        fields["llm_spec_hash"] = report.llm_spec_hash
     if report.llm_parallel_emit is not None:
         fields["llm_parallel_emit"] = report.llm_parallel_emit
     if report.llm_parallel_workers is not None:

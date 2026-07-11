@@ -729,6 +729,7 @@ def call_llm(
     providers: dict[str, Any],
     prompt: str,
     temperature: float = 0.2,
+    top_p: float | None = None,
     max_tokens: int = 350,
     system_content: str | None = None,
 ) -> str:
@@ -745,6 +746,7 @@ def call_llm(
             {"role": "user", "content": prompt},
         ],
         temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
     )
 
@@ -840,6 +842,7 @@ def call_llm_messages(
     providers: dict[str, Any],
     messages: list[dict[str, Any]],
     temperature: float = 0.2,
+    top_p: float | None = None,
     max_tokens: int = 350,
 ) -> str:
     """POST chat completions with a pre-built ``messages`` list."""
@@ -851,12 +854,14 @@ def call_llm_messages(
     if not api_base or not model:
         raise ValueError(f"Provider {provider_name!r} must define api_base and model")
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
     body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = request.Request(api_base, data=body, method="POST")
     req.add_header("Content-Type", "application/json")

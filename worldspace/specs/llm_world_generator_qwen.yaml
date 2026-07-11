@@ -6,6 +6,7 @@ llm:
   active_provider: qwen
   global_search: false
   temperature: 0.2
+  # top_p omitted → provider default; logged as null in nightly_run_summary.json
   max_tokens: 350
   fallback_scale: 0.02
   vision_provider: openai
