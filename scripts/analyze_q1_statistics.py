@@ -17,6 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 GRID_CSV = ROOT / "artifacts/experiments/q1-full/summary.csv"
 CVT_CSV = ROOT / "artifacts/experiments/q1-cvt/summary.csv"
 REPEAT_CSV = ROOT / "artifacts/experiments/q1-repeat/summary.csv"
+COMPOSE_AB_JSON = ROOT / "artifacts/surrogate/compose_ab_check.json"
+COMPOSE_GATE_JSON = ROOT / "artifacts/surrogate/compose_gate_0p5_vs_0p95.json"
+COMPOSE_GATE_LIVE_JSON = ROOT / "artifacts/surrogate/compose_gate_live_0p5_vs_0p95.json"
+COMPOSE_GATE_LIVE_MINFIT010_JSON = (
+    ROOT / "artifacts/surrogate/compose_gate_live_0p5_vs_0p95_minfit0p10.json"
+)
 OUT_JSON = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.json"
 OUT_MD = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.md"
 COMBINED_CSV = ROOT / "artifacts/Q1_COMBINED_SUMMARY.csv"
@@ -332,6 +338,141 @@ def fmt_ci(ci: tuple[float, float], digits: int = 3) -> str:
     return f"[{ci[0]:.{digits}f}, {ci[1]:.{digits}f}]"
 
 
+def _div_from_gate_payload(gate: dict[str, Any]) -> float | None:
+    """Read divergent_skip from live/proxy gate JSON (threshold-agnostic key preferred)."""
+    sens = gate.get("gate_sensitivity") or {}
+    if "divergent_skip_fraction" in sens:
+        return sens["divergent_skip_fraction"]
+    min_fit = gate.get(
+        "filter_min_predicted_fitness", sens.get("min_predicted_fitness")
+    )
+    if min_fit is not None:
+        key = f"divergent_skip_fraction_at_min_fit_{float(min_fit):g}"
+        if key in sens:
+            return sens[key]
+    return sens.get("divergent_skip_fraction_at_min_fit_0.45")
+
+
+def load_d1_gate() -> dict[str, Any]:
+    """Load D1 compose/gate quantification if present; else documentation-path fallback.
+
+    Prefer live-proposal replay (`compose_gate_live_0p5_vs_0p95.json`) over the
+    buffer hold-out proxy when both exist. Primary combat threshold for Q1 is
+    ``min_predicted_fitness=0.45`` (YAML + logged skips); ``0.10`` is a
+    sensitivity / superseded calibration value.
+    """
+    ab = None
+    if COMPOSE_AB_JSON.is_file():
+        ab = json.loads(COMPOSE_AB_JSON.read_text(encoding="utf-8"))
+
+    sens_010 = None
+    div_010 = None
+    if COMPOSE_GATE_LIVE_MINFIT010_JSON.is_file():
+        gate_010 = json.loads(
+            COMPOSE_GATE_LIVE_MINFIT010_JSON.read_text(encoding="utf-8")
+        )
+        sens_010 = gate_010.get("gate_sensitivity") or {}
+        div_010 = _div_from_gate_payload(gate_010)
+
+    if COMPOSE_GATE_LIVE_JSON.is_file():
+        gate = json.loads(COMPOSE_GATE_LIVE_JSON.read_text(encoding="utf-8"))
+        sens = gate.get("gate_sensitivity") or {}
+        div = _div_from_gate_payload(gate)
+        min_fit = float(gate.get("filter_min_predicted_fitness", 0.45))
+        confirmatory = bool(
+            sens.get(
+                "RQ3_confirmatory_rule_div_le_0.05",
+                gate.get("RQ3_confirmatory_rule_div_le_0.05", False),
+            )
+        )
+        n_prop = sens.get("n_proposals")
+        n_seeds = sens.get("n_seeds")
+        status = (
+            f"MEASURED on live filter proposals "
+            f"(n={n_prop} across {n_seeds} seeds): "
+            f"divergent_skip={div:.3f} at combat min_fit={min_fit:g} → "
+            f"{'confirmatory' if confirmatory else 'EXPLORATORY'} "
+            f"(rule: div ≤ 0.05). Source: {COMPOSE_GATE_LIVE_JSON.name}."
+        )
+        if div_010 is not None:
+            status += (
+                f" Sensitivity min_fit=0.10: divergent_skip={div_010:.3f} "
+                f"(also >0.05; not combat)."
+            )
+        proxy_div = None
+        if COMPOSE_GATE_JSON.is_file():
+            proxy = json.loads(COMPOSE_GATE_JSON.read_text(encoding="utf-8"))
+            proxy_div = _div_from_gate_payload(proxy)
+        caveat = (
+            "Primary D1 = live proposal replay at Q1 combat "
+            f"min_predicted_fitness={min_fit:g} "
+            "(filter YAML + agree_logged_skip=1.0). "
+            "§3.5 historically listed 0.10; that value was raised after shadow "
+            "calibration and is not the q1-full threshold. "
+            "Empty-bin force-eval uses logged decision_reason only."
+        )
+        if div_010 is not None:
+            caveat += (
+                f" Sensitivity at min_fit=0.10 → div={div_010:.3f} "
+                "(higher, not lower — band proposals become skip@0.5 / eval@0.95)."
+            )
+        if proxy_div is not None:
+            caveat += (
+                f" Buffer-holdout proxy div {proxy_div:.3f} @0.45 is superseded "
+                "(not used for gate)."
+            )
+        return {
+            "divergent_skip_fraction": div,
+            "divergent_skip_fraction_min_fit_0.10": div_010,
+            "min_predicted_fitness": min_fit,
+            "RQ3_confirmatory": confirmatory,
+            "status": status,
+            "compose_ab": ab,
+            "gate_sensitivity": sens,
+            "gate_sensitivity_min_fit_0.10": sens_010,
+            "paired_metrics": None,
+            "source": "live_proposal_replay",
+            "caveat": caveat,
+        }
+
+    if not COMPOSE_GATE_JSON.is_file():
+        return {
+            "divergent_skip_fraction": None,
+            "RQ3_confirmatory": True,
+            "status": (
+                "ASSUMED confirmatory (documentation path §3.6; "
+                "run scripts/replay_compose_gate_live.py or "
+                "scripts/run_d1_compose_checks.py)"
+            ),
+            "compose_ab": ab,
+            "gate_sensitivity": None,
+        }
+    gate = json.loads(COMPOSE_GATE_JSON.read_text(encoding="utf-8"))
+    sens = gate.get("gate_sensitivity") or {}
+    div = _div_from_gate_payload(gate)
+    confirmatory = bool(sens.get("RQ3_confirmatory_rule_div_le_0.05", False))
+    status = (
+        f"MEASURED on buffer hold-out proxy (n={gate.get('n_holdout')}): "
+        f"divergent_skip={div:.3f} at min_fit=0.45 → "
+        f"{'confirmatory' if confirmatory else 'EXPLORATORY'} "
+        f"(rule: div ≤ 0.05). Source: {COMPOSE_GATE_JSON.name}."
+    )
+    return {
+        "divergent_skip_fraction": div,
+        "RQ3_confirmatory": confirmatory,
+        "status": status,
+        "compose_ab": ab,
+        "gate_sensitivity": sens,
+        "paired_metrics": gate.get("paired_metrics"),
+        "source": "buffer_holdout_proxy",
+        "caveat": (
+            "Proxy uses nightly buffer hold-out (extinction-proxy heavy), "
+            "not live emitter proposals; run scripts/replay_compose_gate_live.py "
+            "for confirmatory D1. Operational RQ3 results still reported."
+        ),
+    }
+
+
 def run_statistics() -> dict[str, Any]:
     grid_rows = load_arm_csv(GRID_CSV, "grid")
     cvt_rows = load_arm_csv(CVT_CSV, "cvt")
@@ -340,13 +481,7 @@ def run_statistics() -> dict[str, Any]:
     )
 
     floor = compute_variance_floor(load_csv(REPEAT_CSV))
-
-    # B.2 D1 gate — divergent skip fraction not precomputed; protocol documentation path
-    d1 = {
-        "divergent_skip_fraction": None,
-        "RQ3_confirmatory": True,
-        "status": "ASSUMED confirmatory (D1 closed by documentation path §3.6; no gate_lo/hi replay artifact)",
-    }
+    d1 = load_d1_gate()
 
     fam: dict[str, dict[str, Any]] = {}
 
@@ -443,37 +578,50 @@ def run_statistics() -> dict[str, Any]:
     )
     verdict["RQ1"] = "PASS" if rq1_pass else "FAIL"
 
-    if not d1["RQ3_confirmatory"]:
-        verdict["RQ3_formal_TOST"] = "EXPLORATORY (D1 gate divergence >5%)"
-        verdict["RQ3_amended_noninferiority"] = "EXPLORATORY (D1 gate divergence >5%)"
-        verdict["RQ3"] = "EXPLORATORY (D1 gate divergence >5%)"
-    else:
-        rq3_formal = (
-            holm.get("RQ3_eval", False)
-            and fam["RQ3_eval"]["local_ok"]
-            and holm.get("RQ3_cov_TOST", False)
-            and fam["RQ3_cov_TOST"]["local_ok"]
-            and holm.get("RQ3_fit_TOST", False)
-            and fam["RQ3_fit_TOST"]["local_ok"]
-        )
-        if fam["RQ3_eval"].get("noise_indistinguishable"):
-            rq3_formal = False
-        verdict["RQ3_formal_TOST"] = "PASS" if rq3_formal else "FAIL"
+    rq3_formal = (
+        holm.get("RQ3_eval", False)
+        and fam["RQ3_eval"]["local_ok"]
+        and holm.get("RQ3_cov_TOST", False)
+        and fam["RQ3_cov_TOST"]["local_ok"]
+        and holm.get("RQ3_fit_TOST", False)
+        and fam["RQ3_fit_TOST"]["local_ok"]
+    )
+    if fam["RQ3_eval"].get("noise_indistinguishable"):
+        rq3_formal = False
+    rq3_amended = (
+        holm.get("RQ3_eval", False)
+        and fam["RQ3_eval"]["local_ok"]
+        and ni_cov["accepted"]
+        and ni_fit["accepted"]
+        and not fam["RQ3_eval"].get("noise_indistinguishable")
+    )
+    formal_label = "PASS" if rq3_formal else "FAIL"
+    amended_label = "PASS" if rq3_amended else "FAIL"
 
-        rq3_amended = (
-            holm.get("RQ3_eval", False)
-            and fam["RQ3_eval"]["local_ok"]
-            and ni_cov["accepted"]
-            and ni_fit["accepted"]
-            and not fam["RQ3_eval"].get("noise_indistinguishable")
+    if not d1["RQ3_confirmatory"]:
+        div = d1.get("divergent_skip_fraction")
+        div_txt = f"{div:.3f}" if div is not None else "?"
+        verdict["RQ3_formal_TOST"] = (
+            f"EXPLORATORY ({formal_label}; D1 div={div_txt}>0.05)"
         )
-        verdict["RQ3_amended_noninferiority"] = "PASS" if rq3_amended else "FAIL"
-        # Primary interpretive verdict after amendment (paper claim)
+        verdict["RQ3_amended_noninferiority"] = (
+            f"EXPLORATORY ({amended_label}; D1 div={div_txt}>0.05)"
+        )
         verdict["RQ3"] = verdict["RQ3_amended_noninferiority"]
+        d1_src = d1.get("source") or "d1"
+        verdict["RQ3_note"] = (
+            f"D1 ({d1_src}) fails confirmatory rule "
+            f"(divergent_skip={div_txt} > 0.05) → RQ3 reported as exploratory. "
+            f"Operational NI would be {amended_label}; formal TOST {formal_label}."
+        )
+    else:
+        verdict["RQ3_formal_TOST"] = formal_label
+        verdict["RQ3_amended_noninferiority"] = amended_label
+        verdict["RQ3"] = amended_label
         verdict["RQ3_note"] = (
             "Primary RQ3 uses amended non-inferiority (2026-07-11). "
-            f"Formal symmetric TOST family: {verdict['RQ3_formal_TOST']} "
-            "(fitness TOST fails because filter improves fitness; CI above 0)."
+            f"Formal symmetric TOST family: {formal_label} "
+            "(fitness TOST fails when filter improves fitness)."
         )
 
     ds_cov = paired_delta(cvt_rows, "hints", "stub", "coverage_pct")
@@ -562,6 +710,54 @@ def append_stats_section(stats: dict[str, Any]) -> None:
             "",
             f"- {stats['d1_gate']['status']}",
             f"- `RQ3_confirmatory`: **{stats['d1_gate']['RQ3_confirmatory']}**",
+        ]
+    )
+    if stats["d1_gate"].get("caveat"):
+        lines.append(f"- Caveat: {stats['d1_gate']['caveat']}")
+    ab = (stats["d1_gate"].get("compose_ab") or {}).get("fitness_compose_ab")
+    if ab:
+        lines.extend(
+            [
+                "",
+                "**Compose A/B (hard vs soft, gate 0.5 labels):**",
+                f"- hard: R²={ab['hard']['r2_fitness']:.3f}, MAE={ab['hard']['mae_fitness']:.4f}",
+                f"- soft: R²={ab['soft']['r2_fitness']:.3f}, MAE={ab['soft']['mae_fitness']:.4f}",
+                "- Soft worse → keep `use_soft_extinction: false` (protocol §3.6).",
+            ]
+        )
+    sens = stats["d1_gate"].get("gate_sensitivity") or {}
+    if sens:
+        gate_lines = [
+            "",
+            "**Gate 0.5 vs 0.95 (hard compose):**",
+            (
+                f"- divergent_skip @ combat min_fit="
+                f"{stats['d1_gate'].get('min_predicted_fitness', 0.45):g}: "
+                f"**{sens.get('divergent_skip_fraction', sens.get('divergent_skip_fraction_at_min_fit_0.45')):.3f}**"
+            ),
+        ]
+        div_010 = stats["d1_gate"].get("divergent_skip_fraction_min_fit_0.10")
+        if div_010 is not None:
+            gate_lines.append(
+                f"- divergent_skip @ min_fit=0.10 (sensitivity): **{div_010:.3f}**"
+            )
+        gate_lines.extend(
+            [
+                f"- frac pred p_ext in [0.5, 0.95): {sens.get('frac_pred_ext_p_in_[0.5,0.95)'):.3f}",
+                f"- mean |Δ pred fitness|: {sens.get('mean_abs_pred_diff'):.3f}",
+                (
+                    "- Artifacts: `compose_ab_check.json`, "
+                    "`compose_gate_live_0p5_vs_0p95.json` (primary @0.45), "
+                    "`compose_gate_live_0p5_vs_0p95_minfit0p10.json` (sensitivity), "
+                    "`compose_gate_0p5_vs_0p95.json` (buffer proxy)."
+                    if stats["d1_gate"].get("source") == "live_proposal_replay"
+                    else "- Artifacts: `compose_ab_check.json`, `compose_gate_0p5_vs_0p95.json`."
+                ),
+            ]
+        )
+        lines.extend(gate_lines)
+    lines.extend(
+        [
             "",
             "### B.3–B.5 Confirmatory family (grid primary, Holm m=4)",
             "",
