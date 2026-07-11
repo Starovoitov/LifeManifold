@@ -47,6 +47,7 @@ class LlmRunInfo:
     llm_parallel_emit: bool
     llm_parallel_workers: int | None
     prompt_version: str | None
+    system_prompt_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class NightlyRunReport:
     llm_parallel_emit: bool | None = None
     llm_parallel_workers: int | None = None
     prompt_version: str | None = None
+    llm_system_prompt_kind: str | None = None
     llm_emit_attempts: int | None = None
     llm_emit_fallbacks: int | None = None
     llm_fallback_rate_pct: float | None = None
@@ -114,6 +116,9 @@ def build_llm_run_info(
                 config.performance.llm_parallel_workers,
             )
         parallel_workers = max(1, parallel_workers)
+    prompt_archive_type = config.archive_type
+    if config.llm_system_prompt_kind != "auto":
+        prompt_archive_type = config.llm_system_prompt_kind
     return LlmRunInfo(
         stack_version=LLM_STACK_VERSION,
         model=model,
@@ -126,7 +131,8 @@ def build_llm_run_info(
         ),
         llm_parallel_emit=config.performance.llm_parallel_emit,
         llm_parallel_workers=parallel_workers,
-        prompt_version=emitter_prompt_version(archive_type=config.archive_type),
+        prompt_version=emitter_prompt_version(archive_type=prompt_archive_type),
+        system_prompt_kind=prompt_archive_type,
     )
 
 
@@ -210,6 +216,9 @@ def build_nightly_report(
             llm_info.llm_parallel_workers if llm_info is not None else None
         ),
         prompt_version=llm_info.prompt_version if llm_info is not None else None,
+        llm_system_prompt_kind=(
+            llm_info.system_prompt_kind if llm_info is not None else None
+        ),
         llm_emit_attempts=counters.llm_emit_attempts if config.llm_enabled else None,
         llm_emit_fallbacks=counters.llm_emit_fallbacks if config.llm_enabled else None,
         llm_fallback_rate_pct=(
@@ -283,6 +292,8 @@ def _llm_summary_fields(report: NightlyRunReport) -> dict[str, object]:
         fields["llm_parallel_workers"] = report.llm_parallel_workers
     if report.prompt_version is not None:
         fields["prompt_version"] = report.prompt_version
+    if report.llm_system_prompt_kind is not None:
+        fields["llm_system_prompt_kind"] = report.llm_system_prompt_kind
     return fields
 
 

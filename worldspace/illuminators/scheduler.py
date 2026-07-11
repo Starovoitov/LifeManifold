@@ -137,6 +137,7 @@ class SchedulerConfig:
         default_factory=lambda: DEFAULT_SIMULATOR_PERFORMANCE
     )
     target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
+    llm_system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
 
     @property
     def n_cells(self) -> int:
@@ -256,6 +257,7 @@ def load_scheduler(
         batch_emitters=tuple(doc.batch_emitters),
         initial_random_candidates=doc.initial_random_candidates,
         llm_enabled=doc.llm.enabled,
+        llm_system_prompt_kind=doc.llm.system_prompt_kind,
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_model_type=doc.surrogate.model_type,
         surrogate_checkpoint=doc.surrogate.checkpoint,
@@ -410,6 +412,8 @@ class _LlmSchedulerBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    # auto = match archive.type; grid/cvt force that system prompt (prompt ablation).
+    system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
 
 
 class _AcquisitionYamlBlock(BaseModel):

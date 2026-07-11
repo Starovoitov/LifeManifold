@@ -159,12 +159,13 @@ class LlmEmitter:
         if archive_type not in {"grid", "cvt"}:
             msg = f"unsupported archive_type for LLM emitter: {archive.archive_type!r}"
             raise ValueError(msg)
+        prompt_kind = self._resolve_system_prompt_kind(archive_type)
         system_prompt = render_system_prompt_for_archive_type(
-            archive_type,
+            prompt_kind,
             grid_resolution=self._grid_resolution,
             n_centroids=archive.n_cells,
         )
-        prompt_version = emitter_prompt_version(archive_type=archive_type)
+        prompt_version = emitter_prompt_version(archive_type=prompt_kind)
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
@@ -283,6 +284,17 @@ class LlmEmitter:
             steps=steps,
         )
         return random_out.world_spec, None
+
+    def _resolve_system_prompt_kind(
+        self, archive_type: Literal["grid", "cvt"]
+    ) -> Literal["grid", "cvt"]:
+        """Return which system prompt template to render (may differ from archive)."""
+        if self._scheduler is None:
+            return archive_type
+        kind = self._scheduler.llm_system_prompt_kind
+        if kind == "auto":
+            return archive_type
+        return kind
 
     def _resolve_surrogate_values(self, world_spec: WorldSpec) -> tuple[float, float]:
         """Return ``(fitness hint, uncertainty)`` for the user prompt."""

@@ -3,9 +3,10 @@
 # Usage: ./scripts/run_experiment_batch.sh TIER [first_seed] [last_seed]
 #
 # Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | q1-repeat | shadow
-# CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow
+# CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow | q1-prompt-ablation
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
+# q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 set -euo pipefail
 
@@ -49,6 +50,8 @@ SCHEDULER_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt
 SCHEDULER_FILTER_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter_cvt.yaml"
 SCHEDULER_SHADOW_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints_cvt.yaml"
 SCHEDULER_SHADOW_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_cvt.yaml"
+SCHEDULER_STUB_CVT_GRID_PROMPT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_cvt_grid_prompt.yaml"
+SCHEDULER_HINTS_CVT_GRID_PROMPT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt_grid_prompt.yaml"
 
 SCHEDULER_STUB_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_stub.yaml"
 SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm.yaml"
@@ -127,9 +130,19 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=true
     ;;
+  q1-prompt-ablation)
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-prompt-ablation"
+    ARCHIVE_TYPE=cvt
+    BASELINE_ARCHIVE="$CVT_BASELINE_ARCHIVE"
+    SCHEDULER_STUB="$SCHEDULER_STUB_CVT_GRID_PROMPT"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_CVT_GRID_PROMPT"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation" >&2
     exit 1
     ;;
 esac
@@ -138,6 +151,10 @@ REPLICATE_COUNT="${REPLICATE_COUNT:-1}"
 if [[ "$REQUESTED_TIER" == "q1-repeat" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=1
+fi
+if [[ "$REQUESTED_TIER" == "q1-prompt-ablation" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=0
 fi
 
 apply_long_run_llm_defaults() {
@@ -150,7 +167,7 @@ apply_long_run_llm_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation)
     apply_long_run_llm_defaults
     ;;
 esac
