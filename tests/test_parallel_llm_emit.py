@@ -89,6 +89,19 @@ class TestParallelLlmEmitModule(unittest.TestCase):
         self.assertIsInstance(out[0].request_error, RuntimeError)
         self.assertEqual(str(out[0].request_error), "fail")
 
+    def test_request_llm_batch_catches_incomplete_read(self) -> None:
+        import http.client
+
+        emitter = LlmEmitter(
+            grid_resolution=5,
+            call_llm_text=lambda **_: (_ for _ in ()).throw(
+                http.client.IncompleteRead(b"")
+            ),
+        )
+        out = request_llm_batch(emitter, [_PREPARED], max_workers=1)
+        self.assertEqual(out[0].response, "")
+        self.assertIsInstance(out[0].request_error, http.client.IncompleteRead)
+
 
 if __name__ == "__main__":
     unittest.main()

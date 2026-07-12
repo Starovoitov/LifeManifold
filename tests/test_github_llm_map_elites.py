@@ -181,6 +181,57 @@ class TestGithubLlmMapElites(unittest.TestCase):
         cfg = load_llm_config(DEFAULT_QWEN_LLM_SPEC_PATH)
         self.assertEqual(cfg.active_provider, "qwen")
 
+    def test_resolve_llm_spec_deepseek(self) -> None:
+        from scripts.run_github_llm_map_elites import resolve_llm_spec_path
+        from worldspace.generators.llm_config import load_llm_config
+
+        path = resolve_llm_spec_path("deepseek")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.name, "llm_world_generator_deepseek.yaml")
+        cfg = load_llm_config(path)
+        self.assertEqual(cfg.active_provider, "deepseek")
+        provider = cfg.providers["deepseek"]
+        self.assertEqual(provider["model"], "deepseek-v4-pro")
+        self.assertEqual(provider.get("thinking"), {"type": "disabled"})
+        self.assertIn("api.deepseek.com", str(provider["api_base"]))
+        self.assertEqual(provider["api_key_env"], "DEEPSEEK_API_KEY")
+
+    def test_call_llm_messages_sends_thinking_disabled(self) -> None:
+        import json
+        import os
+        from unittest.mock import MagicMock, patch
+
+        from worldspace.generators import call_llm_messages
+
+        providers = {
+            "deepseek": {
+                "provider": "openai",
+                "model": "deepseek-v4-pro",
+                "api_base": "https://api.deepseek.com/v1/chat/completions",
+                "api_key_env": "DEEPSEEK_API_KEY",
+                "thinking": {"type": "disabled"},
+            }
+        }
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-deepseek-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen", return_value=fake_cm
+            ) as m_open:
+                out = call_llm_messages(
+                    mode="remote",
+                    provider_name="deepseek",
+                    providers=providers,
+                    messages=[{"role": "user", "content": "ping"}],
+                )
+        self.assertEqual(out, "{}")
+        payload = json.loads(m_open.call_args[0][0].data.decode("utf-8"))
+        self.assertEqual(payload["model"], "deepseek-v4-pro")
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+
     def test_resolve_surrogate_quality_gate_from_env(self) -> None:
         import os
         from unittest import mock

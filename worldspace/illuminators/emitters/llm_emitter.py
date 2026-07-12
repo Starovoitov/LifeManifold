@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 from dataclasses import dataclass, replace
@@ -122,7 +123,7 @@ class LlmEmitter:
         )
         try:
             response = self.request_llm(prepared)
-        except (RuntimeError, ValueError) as exc:
+        except (RuntimeError, ValueError, OSError, http.client.HTTPException) as exc:
             return self.finalize_emit(
                 prepared,
                 response="",

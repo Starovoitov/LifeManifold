@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -131,7 +132,7 @@ def request_llm_batch(
     def request_one(slot: LlmPreparedSlot) -> LlmHttpResult:
         try:
             return LlmHttpResult(response=llm.request_llm(slot))
-        except (RuntimeError, ValueError) as exc:
+        except (RuntimeError, ValueError, OSError, http.client.HTTPException) as exc:
             return LlmHttpResult(response="", request_error=exc)
 
     if not prepared:

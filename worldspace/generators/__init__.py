@@ -819,6 +819,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
             TimeoutError,
             ConnectionError,
             http.client.RemoteDisconnected,
+            http.client.IncompleteRead,
         ) as exc:
             if attempt < _LLM_HTTP_MAX_ATTEMPTS:
                 last_error = exc
@@ -862,6 +863,15 @@ def call_llm_messages(
     }
     if top_p is not None:
         payload["top_p"] = top_p
+    # Provider-specific OpenAI-compatible extras (e.g. DeepSeek thinking mode).
+    if "enable_thinking" in provider:
+        payload["enable_thinking"] = bool(provider["enable_thinking"])
+    if "thinking" in provider:
+        payload["thinking"] = provider["thinking"]
+    extra = provider.get("chat_extra")
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            payload[str(key)] = value
     body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = request.Request(api_base, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -893,6 +903,13 @@ def call_llm_messages(
     message = choices[0].get("message", {})
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
+        # Some thinking-mode responses leave content empty; surface a clear error.
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning.strip():
+            raise RuntimeError(
+                "LLM response has reasoning_content but empty message.content; "
+                "disable thinking mode (enable_thinking: false) for MAP-Elites emits"
+            )
         raise RuntimeError("LLM response missing message.content")
     return content
 

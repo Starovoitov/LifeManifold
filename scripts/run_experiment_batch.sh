@@ -5,11 +5,14 @@
 # Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | q1-repeat | shadow
 # CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow | q1-prompt-ablation
 # B2 tier:     q1-v3-pyribs  (CMA-ME + CMA-MAE via run_pyribs_baseline.py)
+# v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 # q1-v3-pyribs: seeds × {cma_me,cma_mae}; default 32500 evals; override with PYRIBS_EVALUATIONS (must ÷ 250).
+# q1-v3-llm-deepseek-v4-pro: G1 arm; default seeds 0–4 (minimal); full: 0 9
+#   Requires: export DEEPSEEK_API_KEY=...
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -152,12 +155,25 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_PYRIBS=true
     ;;
+  q1-v3-llm-deepseek-v4-pro)
+    # G1: DeepSeek V4 Pro @ official API (non-thinking). stub+hints only.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-llm/deepseek-v4-pro"
+    SCHEDULER_STUB="$SCHEDULER_STUB_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    LLM_PROVIDER=deepseek
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-llm-deepseek-v4-pro" >&2
     exit 1
     ;;
 esac
+
+# Default LLM provider → worldspace/specs/llm_world_generator_${LLM_PROVIDER}.yaml
+LLM_PROVIDER="${LLM_PROVIDER:-qwen}"
 
 REPLICATE_COUNT="${REPLICATE_COUNT:-1}"
 if [[ "$REQUESTED_TIER" == "q1-repeat" && $# -lt 2 ]]; then
@@ -170,6 +186,17 @@ if [[ "$REQUESTED_TIER" == "q1-prompt-ablation" && $# -lt 2 ]]; then
   SEED_END=0
   echo "NOTE: q1-prompt-ablation default is seed 0 only; for a stronger claim run: $0 q1-prompt-ablation 0 2" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-v3-llm-deepseek-v4-pro" && $# -lt 2 ]]; then
+  # G1 minimal default: seeds 0–4 (protocol §6). Full: $0 q1-v3-llm-deepseek-v4-pro 0 9
+  SEED_START=0
+  SEED_END=4
+  echo "NOTE: q1-v3-llm-deepseek-v4-pro default seeds 0–4 (G1 minimal); full matrix: $0 q1-v3-llm-deepseek-v4-pro 0 9" >&2
+fi
+
+if [[ "$LLM_PROVIDER" == "deepseek" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
+  echo "DEEPSEEK_API_KEY is required for LLM_PROVIDER=deepseek" >&2
+  exit 1
+fi
 
 apply_long_run_llm_defaults() {
   if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
@@ -181,7 +208,7 @@ apply_long_run_llm_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro)
     apply_long_run_llm_defaults
     ;;
 esac
@@ -274,7 +301,7 @@ run_one() {
   if [[ -n "$replicate" ]]; then
     extra+=(--replicate "$replicate")
   fi
-  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed replicate=${replicate:-none} ==="
+  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed replicate=${replicate:-none} llm=$LLM_PROVIDER ==="
   local lock_file="$out/.run.lock"
   (
     flock -n 9 || {
@@ -287,7 +314,7 @@ run_one() {
       --seed "$seed" \
       --iterations "$ITERATIONS" \
       --load-archive "$BASELINE_ARCHIVE" \
-      --llm-provider qwen \
+      --llm-provider "$LLM_PROVIDER" \
       "${extra[@]}"
   ) 9>"$lock_file"
 }

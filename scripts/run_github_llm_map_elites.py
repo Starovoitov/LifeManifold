@@ -208,7 +208,8 @@ def main(argv: list[str] | None = None) -> None:
         "--llm-provider",
         type=str,
         default="qwen",
-        help="LLM provider key (default: qwen → llm_world_generator_qwen.yaml).",
+        help="LLM provider key (default: qwen → llm_world_generator_qwen.yaml; "
+        "deepseek → llm_world_generator_deepseek.yaml).",
     )
     parser.add_argument(
         "--output-dir",
