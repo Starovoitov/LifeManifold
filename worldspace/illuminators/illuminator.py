@@ -238,6 +238,9 @@ def _clear_stale_run_artifacts(
         path = out_dir / name
         if path.is_file():
             path.unlink()
+    # Ensure delta JSONL exists even if no elite beats the warm-start baseline
+    # (append_archive_line only creates the file on accepted inserts).
+    jsonl_path.touch(exist_ok=True)
 
 
 def _load_archive_and_counters(

@@ -5,6 +5,7 @@
 # Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | q1-repeat | shadow
 # CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow | q1-prompt-ablation
 # B2 tier:     q1-v3-pyribs  (CMA-ME + CMA-MAE via run_pyribs_baseline.py)
+# v3 B1/RQ0:   q1-v3-vanilla              (random-only; no LLM)
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 #
@@ -12,6 +13,7 @@
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 # q1-v3-pyribs: seeds × {cma_me,cma_mae}; default 32500 evals; override with PYRIBS_EVALUATIONS (must ÷ 250).
+# q1-v3-vanilla: RQ0 / B1; default seeds 0–9; CPU only (no API key).
 # q1-v3-llm-deepseek-v4-pro / q1-v3-llm-gpt-4o-mini: G1; default seeds 0–4; full: 0 9
 #   Requires: DEEPSEEK_API_KEY / OPENAI_API_KEY respectively.
 set -euo pipefail
@@ -52,6 +54,7 @@ SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
+SCHEDULER_VANILLA_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_vanilla.yaml"
 
 SCHEDULER_STUB_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_cvt.yaml"
 SCHEDULER_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt.yaml"
@@ -64,6 +67,7 @@ SCHEDULER_HINTS_CVT_GRID_PROMPT="$ROOT/worldspace/specs/map_elites_scheduler_nig
 SCHEDULER_STUB_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm_stub.yaml"
 SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm.yaml"
 
+RUN_VANILLA=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -156,6 +160,15 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_PYRIBS=true
     ;;
+  q1-v3-vanilla)
+    # B1 / RQ0: vanilla MAP-Elites (random emitter only).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-vanilla"
+    SCHEDULER_VANILLA="$SCHEDULER_VANILLA_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_VANILLA=true
+    ;;
   q1-v3-llm-deepseek-v4-pro)
     # G1: DeepSeek V4 Pro @ official API (non-thinking). stub+hints only.
     ITERATIONS=650
@@ -178,7 +191,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-vanilla|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini" >&2
     exit 1
     ;;
 esac
@@ -208,6 +221,11 @@ if [[ "$REQUESTED_TIER" == "q1-v3-llm-gpt-4o-mini" && $# -lt 2 ]]; then
   SEED_END=4
   echo "NOTE: q1-v3-llm-gpt-4o-mini default seeds 0–4 (G1 minimal); full matrix: $0 q1-v3-llm-gpt-4o-mini 0 9" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-v3-vanilla" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-v3-vanilla default seeds 0–9 (RQ0 / B1 full matrix)" >&2
+fi
 
 if [[ "$LLM_PROVIDER" == "deepseek" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
   echo "DEEPSEEK_API_KEY is required for LLM_PROVIDER=deepseek" >&2
@@ -227,9 +245,18 @@ apply_long_run_llm_defaults() {
   fi
 }
 
+apply_vanilla_run_defaults() {
+  if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
+    export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
+  fi
+}
+
 case "$TIER" in
   q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini)
     apply_long_run_llm_defaults
+    ;;
+  q1-v3-vanilla)
+    apply_vanilla_run_defaults
     ;;
 esac
 
@@ -385,6 +412,8 @@ else
       if [[ "$RUN_SHADOW" == true ]]; then
         run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
         run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
+      elif [[ "$RUN_VANILLA" == true ]]; then
+        run_one vanilla "$SCHEDULER_VANILLA" "$seed" "$rep_arg"
       else
         if [[ "$FILTER_ONLY" == true ]]; then
           require_stub_hints_for_seed "$seed"
