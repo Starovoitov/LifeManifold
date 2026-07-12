@@ -15,6 +15,7 @@ dependencies = [
     "lightgbm>=4.0",
     "torch>=2.2",
     "umap-learn>=0.5.6",
+    "ribs==0.11.0",
 ]
 
 [dependency-groups]
