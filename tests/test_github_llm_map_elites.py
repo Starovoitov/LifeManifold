@@ -196,6 +196,20 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertIn("api.deepseek.com", str(provider["api_base"]))
         self.assertEqual(provider["api_key_env"], "DEEPSEEK_API_KEY")
 
+    def test_resolve_llm_spec_openai(self) -> None:
+        from scripts.run_github_llm_map_elites import resolve_llm_spec_path
+        from worldspace.generators.llm_config import load_llm_config
+
+        path = resolve_llm_spec_path("openai")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.name, "llm_world_generator_openai.yaml")
+        cfg = load_llm_config(path)
+        self.assertEqual(cfg.active_provider, "openai")
+        provider = cfg.providers["openai"]
+        self.assertEqual(provider["model"], "gpt-4o-mini")
+        self.assertIn("api.openai.com", str(provider["api_base"]))
+        self.assertEqual(provider["api_key_env"], "OPENAI_API_KEY")
+
     def test_call_llm_messages_sends_thinking_disabled(self) -> None:
         import json
         import os

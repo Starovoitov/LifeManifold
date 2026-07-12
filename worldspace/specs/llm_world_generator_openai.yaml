@@ -1,0 +1,25 @@
+version: 1
+
+# Q1 v3 G1 — OpenAI gpt-4o-mini (budget arm).
+# Protocol: artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md §3.3
+# Env: OPENAI_API_KEY
+# Pin: request model gpt-4o-mini @ api.openai.com
+# Smoke (2026-07-12): response.model = gpt-4o-mini-2024-07-18
+llm:
+  mode: remote
+  active_provider: openai
+  global_search: false
+  temperature: 0.2
+  # top_p omitted → provider default; logged as null in nightly_run_summary.json
+  max_tokens: 350
+  fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
+  providers:
+    openai:
+      provider: openai
+      model: gpt-4o-mini
+      api_base: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY

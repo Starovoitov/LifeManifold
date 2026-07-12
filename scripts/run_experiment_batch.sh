@@ -6,13 +6,14 @@
 # CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow | q1-prompt-ablation
 # B2 tier:     q1-v3-pyribs  (CMA-ME + CMA-MAE via run_pyribs_baseline.py)
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
+#              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
 # q1-v3-pyribs: seeds × {cma_me,cma_mae}; default 32500 evals; override with PYRIBS_EVALUATIONS (must ÷ 250).
-# q1-v3-llm-deepseek-v4-pro: G1 arm; default seeds 0–4 (minimal); full: 0 9
-#   Requires: export DEEPSEEK_API_KEY=...
+# q1-v3-llm-deepseek-v4-pro / q1-v3-llm-gpt-4o-mini: G1; default seeds 0–4; full: 0 9
+#   Requires: DEEPSEEK_API_KEY / OPENAI_API_KEY respectively.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -165,9 +166,19 @@ case "$TIER" in
     RUN_SHADOW=false
     LLM_PROVIDER=deepseek
     ;;
+  q1-v3-llm-gpt-4o-mini)
+    # G1: OpenAI gpt-4o-mini (budget). stub+hints only.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-llm/gpt-4o-mini"
+    SCHEDULER_STUB="$SCHEDULER_STUB_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    LLM_PROVIDER=openai
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-llm-deepseek-v4-pro" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini" >&2
     exit 1
     ;;
 esac
@@ -192,9 +203,18 @@ if [[ "$REQUESTED_TIER" == "q1-v3-llm-deepseek-v4-pro" && $# -lt 2 ]]; then
   SEED_END=4
   echo "NOTE: q1-v3-llm-deepseek-v4-pro default seeds 0–4 (G1 minimal); full matrix: $0 q1-v3-llm-deepseek-v4-pro 0 9" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-v3-llm-gpt-4o-mini" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=4
+  echo "NOTE: q1-v3-llm-gpt-4o-mini default seeds 0–4 (G1 minimal); full matrix: $0 q1-v3-llm-gpt-4o-mini 0 9" >&2
+fi
 
 if [[ "$LLM_PROVIDER" == "deepseek" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
   echo "DEEPSEEK_API_KEY is required for LLM_PROVIDER=deepseek" >&2
+  exit 1
+fi
+if [[ "$LLM_PROVIDER" == "openai" && -z "${OPENAI_API_KEY:-}" ]]; then
+  echo "OPENAI_API_KEY is required for LLM_PROVIDER=openai" >&2
   exit 1
 fi
 
@@ -208,7 +228,7 @@ apply_long_run_llm_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini)
     apply_long_run_llm_defaults
     ;;
 esac
