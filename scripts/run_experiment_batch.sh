@@ -4,10 +4,12 @@
 #
 # Grid tiers:  pilot | q1-min | q1-full | q1-full-filter | q1-repeat | shadow
 # CVT tiers:   q1-cvt-min | q1-cvt | q1-cvt-filter | cvt-shadow | q1-prompt-ablation
+# B2 tier:     q1-v3-pyribs  (CMA-ME + CMA-MAE via run_pyribs_baseline.py)
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
 # q1-*-filter: filter arm only; requires completed stub + hints for each seed.
+# q1-v3-pyribs: seeds × {cma_me,cma_mae}; default 32500 evals; override with PYRIBS_EVALUATIONS (must ÷ 250).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,6 +20,7 @@ TIER="$REQUESTED_TIER"
 SEED_START="${2:-0}"
 SEED_END="${3:-$SEED_START}"
 FILTER_ONLY=false
+RUN_PYRIBS=false
 case "$TIER" in
   q1-full-filter)
     TIER=q1-full
@@ -37,6 +40,7 @@ ARCHIVE_TYPE=grid
 
 TRAIN_SCRIPT="$ROOT/scripts/train_surrogate.py"
 RUN_SCRIPT="$ROOT/scripts/run_github_llm_map_elites.py"
+PYRIBS_SCRIPT="$ROOT/scripts/run_pyribs_baseline.py"
 AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
 
 SCHEDULER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
@@ -140,9 +144,17 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=false
     ;;
+  q1-v3-pyribs)
+    EXP_DIR="$EXP_ROOT/q1-v3-pyribs"
+    ARCHIVE_TYPE=grid
+    BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_PYRIBS=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs" >&2
     exit 1
     ;;
 esac
@@ -188,29 +200,31 @@ if [[ ! -f "$BASELINE_ARCHIVE" ]]; then
   exit 1
 fi
 
-CHECKPOINT="$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
-if [[ ! -f "$CHECKPOINT" ]]; then
-  echo "Training surrogate checkpoint..."
-  uv run python "$TRAIN_SCRIPT" \
-    --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
-    --checkpoint-path "$CHECKPOINT" \
-    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
-    --mlp-dropout-p 0.05 \
-    --mlp-uncertainty-method ensemble_mc \
-    --mlp-mc-samples 16 \
-    --no-quality-gate
-fi
+if [[ "$RUN_PYRIBS" != true ]]; then
+  CHECKPOINT="$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
+  if [[ ! -f "$CHECKPOINT" ]]; then
+    echo "Training surrogate checkpoint..."
+    uv run python "$TRAIN_SCRIPT" \
+      --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
+      --checkpoint-path "$CHECKPOINT" \
+      --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
+      --mlp-dropout-p 0.05 \
+      --mlp-uncertainty-method ensemble_mc \
+      --mlp-mc-samples 16 \
+      --no-quality-gate
+  fi
 
-CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
-if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true) && ! -f "$CALIBRATION" ]]; then
-  echo "Training uncertainty calibration (required for filter/shadow arms)..."
-  uv run python "$TRAIN_SCRIPT" \
-    --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
-    --checkpoint-path "$CHECKPOINT" \
-    --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
-    --calibrate \
-    --calibration-path "$CALIBRATION" \
-    --no-quality-gate
+  CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
+  if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true) && ! -f "$CALIBRATION" ]]; then
+    echo "Training uncertainty calibration (required for filter/shadow arms)..."
+    uv run python "$TRAIN_SCRIPT" \
+      --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
+      --checkpoint-path "$CHECKPOINT" \
+      --summary-path "$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json" \
+      --calibrate \
+      --calibration-path "$CALIBRATION" \
+      --no-quality-gate
+  fi
 fi
 
 mkdir -p "$EXP_DIR"
@@ -278,28 +292,66 @@ run_one() {
   ) 9>"$lock_file"
 }
 
-for seed in $(seq "$SEED_START" "$SEED_END"); do
-  for rep in $(seq 0 $((REPLICATE_COUNT - 1))); do
-    rep_arg=""
-    if [[ "$REPLICATE_COUNT" -gt 1 ]]; then
-      rep_arg="$rep"
-    fi
-    if [[ "$RUN_SHADOW" == true ]]; then
-      run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
-      run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
-    else
-      if [[ "$FILTER_ONLY" == true ]]; then
-        require_stub_hints_for_seed "$seed"
-      else
-        run_one stub "$SCHEDULER_STUB" "$seed" "$rep_arg"
-        run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
-      fi
-      if [[ "$RUN_FILTER" == true ]]; then
-        run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
-      fi
-    fi
+run_pyribs_one() {
+  local algo="$1"
+  local seed="$2"
+  local out="$EXP_DIR/${algo}/seed_${seed}"
+  if [[ -f "$out/nightly_run_summary.json" ]]; then
+    echo "Skip existing: $out"
+    return 0
+  fi
+  remove_incomplete_run_dir "$out"
+  mkdir -p "$out"
+  local extra=()
+  if [[ -n "${PYRIBS_EVALUATIONS:-}" ]]; then
+    extra+=(--evaluations "$PYRIBS_EVALUATIONS")
+  fi
+  echo "=== tier=$TIER archive=$ARCHIVE_TYPE algo=$algo seed=$seed evaluations=${PYRIBS_EVALUATIONS:-32500} ==="
+  local lock_file="$out/.run.lock"
+  (
+    flock -n 9 || {
+      echo "Another process holds $lock_file; refusing to start duplicate run." >&2
+      exit 1
+    }
+    uv run python "$PYRIBS_SCRIPT" \
+      --algo "$algo" \
+      --seed "$seed" \
+      --output-dir "$out" \
+      --load-archive "$BASELINE_ARCHIVE" \
+      "${extra[@]}"
+  ) 9>"$lock_file"
+}
+
+if [[ "$RUN_PYRIBS" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    for algo in cma_me cma_mae; do
+      run_pyribs_one "$algo" "$seed"
+    done
   done
-done
+else
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    for rep in $(seq 0 $((REPLICATE_COUNT - 1))); do
+      rep_arg=""
+      if [[ "$REPLICATE_COUNT" -gt 1 ]]; then
+        rep_arg="$rep"
+      fi
+      if [[ "$RUN_SHADOW" == true ]]; then
+        run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
+        run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
+      else
+        if [[ "$FILTER_ONLY" == true ]]; then
+          require_stub_hints_for_seed "$seed"
+        else
+          run_one stub "$SCHEDULER_STUB" "$seed" "$rep_arg"
+          run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
+        fi
+        if [[ "$RUN_FILTER" == true ]]; then
+          run_one filter "$SCHEDULER_FILTER" "$seed" "$rep_arg"
+        fi
+      fi
+    done
+  done
+fi
 
 if [[ -f "$AGG_SCRIPT" ]]; then
   if ! uv run python "$AGG_SCRIPT" --root "$EXP_DIR" --output "$EXP_DIR/summary.csv"; then
