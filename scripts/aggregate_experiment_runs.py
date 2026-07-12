@@ -68,8 +68,9 @@ def _skip_rate(surrogate_archive: Path) -> float | None:
 
 
 def _infer_condition(run_dir: Path) -> str:
+    known = {"stub", "hints", "filter", "vanilla", "cma_me", "cma_mae"}
     for part in run_dir.parts:
-        if part in {"stub", "hints", "filter"}:
+        if part in known:
             return part
     return run_dir.parent.name
 

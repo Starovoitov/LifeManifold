@@ -28,6 +28,11 @@ OUT_MD = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.md"
 COMBINED_CSV = ROOT / "artifacts/Q1_COMBINED_SUMMARY.csv"
 STATS_MD_SECTION = "## 7. Confirmatory statistics (Wilcoxon, bootstrap CI, Holm, TOST)"
 
+PYRIBS_CSV = ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"
+FRQ4_JSON = ROOT / "artifacts/experiments/q1-v3-pyribs/frq4_statistics.json"
+FRQ4_ANALYSIS_MD = ROOT / "artifacts/experiments/q1-v3-pyribs/ANALYSIS.md"
+FRQ4_MD_SECTION = "## F-RQ4 (confirmatory)"
+
 BOOTSTRAP_B = 10_000
 RNG = random.Random(42)
 
@@ -868,41 +873,287 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     OUT_MD.write_text(md + "\n".join(lines) + section8, encoding="utf-8")
 
 
-def main() -> None:
-    stats = run_statistics()
+def _metric_block(
+    delta: np.ndarray, direction: Literal["greater", "less"] = "greater"
+) -> dict[str, Any]:
+    p = signed_rank_1s(delta, direction)
+    return {
+        "p": p,
+        "alternative": direction,
+        "mean": float(np.mean(delta)),
+        "sd": float(np.std(delta, ddof=1)),
+        "median": float(np.median(delta)),
+        "sign_positive": int(np.sum(delta > 0)),
+        "n": int(len(delta)),
+        "dz": dz(delta),
+        "ci_median_95": list(bootstrap_ci(delta, stat="median")),
+        "delta": delta.tolist(),
+    }
 
-    combined: list[dict[str, str]] = []
-    combined.extend(load_arm_csv(GRID_CSV, "grid"))
-    combined.extend(load_arm_csv(CVT_CSV, "cvt"))
-    if combined:
-        fieldnames = list(combined[0].keys())
-        with COMBINED_CSV.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(combined)
 
-    if OUT_JSON.is_file():
-        payload = json.loads(OUT_JSON.read_text(encoding="utf-8"))
-    else:
-        payload = {}
-    payload["statistics"] = stats
-    OUT_JSON.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    append_stats_section(stats)
-    print(
-        json.dumps(
-            {
-                "verdict": stats["verdict"],
-                "holm": stats["holm_reject"],
-                "noninferiority": {
-                    "cov_accepted": stats["noninferiority"]["coverage"]["accepted"],
-                    "fit_accepted": stats["noninferiority"]["fitness"]["accepted"],
-                    "fit_ci": stats["noninferiority"]["fitness"]["ci"],
-                    "fit_p": stats["noninferiority"]["fitness"]["p"],
-                },
-            },
-            indent=2,
-        )
+def run_frq4_statistics() -> dict[str, Any]:
+    """F-RQ4: hints − cma_me / cma_mae; Δcov+Δfit one-sided greater; Holm m=4."""
+    grid_rows = load_csv(GRID_CSV)
+    pyribs_rows = load_csv(PYRIBS_CSV)
+    hints = [r for r in grid_rows if r["condition"] == "hints"]
+    if len(hints) != 10:
+        raise SystemExit(f"expected 10 hints rows in {GRID_CSV}, got {len(hints)}")
+    combined = hints + pyribs_rows
+    for cond in ("cma_me", "cma_mae"):
+        seeds = {int(r["seed"]) for r in pyribs_rows if r["condition"] == cond}
+        if seeds != set(range(10)):
+            raise SystemExit(f"{cond}: expected seeds 0–9, got {sorted(seeds)}")
+
+    fam: dict[str, dict[str, Any]] = {}
+    arms: dict[str, dict[str, Any]] = {}
+    for arm, prefix in (("cma_me", "me"), ("cma_mae", "mae")):
+        d_cov = paired_delta(combined, "hints", arm, "coverage_pct")
+        d_fit = paired_delta(combined, "hints", arm, "mean_best_fitness")
+        cov = _metric_block(d_cov, "greater")
+        fit = _metric_block(d_fit, "greater")
+        cov_key = f"RQ4_{prefix}_cov"
+        fit_key = f"RQ4_{prefix}_fit"
+        fam[cov_key] = cov
+        fam[fit_key] = fit
+        local_ok = cov["dz"] >= 0.5 and fit["dz"] >= 0.5
+        arms[arm] = {
+            "p_cov": cov["p"],
+            "p_fit": fit["p"],
+            "p_conjunctive": max(cov["p"], fit["p"]),
+            "local_ok": local_ok,
+            "dz_cov": cov["dz"],
+            "dz_fit": fit["dz"],
+            "mean_dcov": cov["mean"],
+            "mean_dfit": fit["mean"],
+            "median_dcov": cov["median"],
+            "median_dfit": fit["median"],
+            "sign_cov": f"{cov['sign_positive']}/{cov['n']}",
+            "sign_fit": f"{fit['sign_positive']}/{fit['n']}",
+            "ci_cov_95": cov["ci_median_95"],
+            "ci_fit_95": fit["ci_median_95"],
+        }
+
+    holm = holm_step_down({k: fam[k]["p"] for k in fam})
+    all_holm = all(holm.values())
+    all_local = all(a["local_ok"] for a in arms.values())
+    family_pass = bool(all_holm and all_local)
+    verdict = "PASS" if family_pass else "FAIL"
+    note = (
+        "Pre-registered: hints superiority vs each pyribs arm (Δcov+Δfit greater). "
+        "FAIL means the Holm family does not support LLM+hints beating both CMA arms."
+        if verdict == "FAIL"
+        else "All four Holm tests reject and local_ok holds for both arms."
     )
+
+    ordered = sorted(fam.keys(), key=lambda k: fam[k]["p"])
+    return {
+        "family": "F-RQ4",
+        "m": 4,
+        "alpha": 0.05,
+        "contrast": "hints - arm (one-sided greater)",
+        "metrics": ["coverage_pct", "mean_best_fitness"],
+        "n_seeds": 10,
+        "sources": {
+            "hints": str(GRID_CSV),
+            "pyribs": str(PYRIBS_CSV),
+        },
+        "confirmatory_family": fam,
+        "holm_reject": holm,
+        "holm_order": ordered,
+        "arms": arms,
+        "family_pass": family_pass,
+        "verdict": verdict,
+        "note": note,
+    }
+
+
+def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
+    fam = stats["confirmatory_family"]
+    holm = stats["holm_reject"]
+    arms = stats["arms"]
+    lines = [
+        FRQ4_MD_SECTION,
+        "",
+        "Pre-registered (§4.1): paired Δ = **hints − arm**; Wilcoxon one-sided **greater** "
+        "on coverage and mean best fitness; Holm family **m=4**; "
+        "`local_ok` = dz≥0.5 on both metrics per arm (same bar as RQ1).",
+        "",
+        f"**Verdict: F-RQ4 {stats['verdict']}** "
+        f"(family_pass={stats['family_pass']}; all Holm reject={all(holm.values())}; "
+        f"all local_ok={all(a['local_ok'] for a in arms.values())}).",
+        "",
+        stats["note"],
+        "",
+        "### Per-arm Δ (hints − arm)",
+        "",
+        "| Arm | Δcov mean ± SD (pp) | median | sign | Wilcoxon p | dz | "
+        "Δfit mean ± SD | median | sign | Wilcoxon p | dz | local_ok |",
+        "|-----|---------------------|--------|------|------------|----|"
+        "----------------|--------|------|------------|----|----------|",
+    ]
+    for arm in ("cma_me", "cma_mae"):
+        a = arms[arm]
+        prefix = "me" if arm == "cma_me" else "mae"
+        cov = fam[f"RQ4_{prefix}_cov"]
+        fit = fam[f"RQ4_{prefix}_fit"]
+        lines.append(
+            f"| **{arm}** | {cov['mean']:+.2f} ± {cov['sd']:.2f} | {cov['median']:+.2f} | "
+            f"{a['sign_cov']} | {cov['p']:.4g} | {cov['dz']:.2f} | "
+            f"{fit['mean']:+.3f} ± {fit['sd']:.3f} | {fit['median']:+.3f} | "
+            f"{a['sign_fit']} | {fit['p']:.4g} | {fit['dz']:.2f} | {a['local_ok']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "### Holm step-down (m=4, α=0.05)",
+            "",
+            "| Test | raw p | Holm reject @0.05 |",
+            "|------|-------|-------------------|",
+        ]
+    )
+    for name in stats["holm_order"]:
+        lines.append(f"| {name} | {fam[name]['p']:.4g} | **{holm[name]}** |")
+    lines.extend(
+        [
+            "",
+            "Bootstrap 95% CI (median Δ):",
+            "",
+        ]
+    )
+    for arm in ("cma_me", "cma_mae"):
+        a = arms[arm]
+        lines.append(
+            f"- **{arm}**: Δcov {fmt_ci(tuple(a['ci_cov_95']), digits=2)} pp; "
+            f"Δfit {fmt_ci(tuple(a['ci_fit_95']), digits=3)}"
+        )
+    lines.append("")
+    return lines
+
+
+def write_frq4_outputs(stats: dict[str, Any]) -> None:
+    FRQ4_JSON.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
+    section = "\n".join(format_frq4_markdown(stats))
+    if FRQ4_ANALYSIS_MD.is_file():
+        md = FRQ4_ANALYSIS_MD.read_text(encoding="utf-8")
+        # Drop deferred-T4 note from descriptive header once confirmatory exists.
+        md = md.replace(
+            "**Note:** This file is **descriptive** (T3.5). Confirmatory **F-RQ4** "
+            "(Wilcoxon + Holm m=4) is **T4** — not claimed here.\n\n",
+            "",
+        )
+        md = md.replace(
+            "- **Confirmatory F-RQ4** (one-sided greater `hints − arm`, conjunctive, "
+            "Holm m=4) deferred to **T4** — do not treat this note as PASS/FAIL.\n",
+            f"- Confirmatory **F-RQ4 {stats['verdict']}** — see section below.\n",
+        )
+        if FRQ4_MD_SECTION in md:
+            before = md.split(FRQ4_MD_SECTION)[0].rstrip() + "\n\n"
+            # Keep trailing Artifacts if it was after an old section — rewrite cleanly:
+            art = "## Artifacts"
+            after_art = ""
+            if art in md:
+                after_art = "\n" + md[md.index(art) :].rstrip() + "\n"
+                before = md.split(FRQ4_MD_SECTION)[0]
+                if art in before:
+                    before = before.split(art)[0].rstrip() + "\n\n"
+            FRQ4_ANALYSIS_MD.write_text(before + section + after_art, encoding="utf-8")
+        else:
+            art = "## Artifacts"
+            if art in md:
+                head, tail = md.split(art, 1)
+                FRQ4_ANALYSIS_MD.write_text(
+                    head.rstrip() + "\n\n" + section + "\n" + art + tail,
+                    encoding="utf-8",
+                )
+            else:
+                FRQ4_ANALYSIS_MD.write_text(
+                    md.rstrip() + "\n\n" + section + "\n",
+                    encoding="utf-8",
+                )
+    else:
+        FRQ4_ANALYSIS_MD.write_text(section + "\n", encoding="utf-8")
+
+    # Ensure Artifacts lists the JSON
+    md = FRQ4_ANALYSIS_MD.read_text(encoding="utf-8")
+    if "frq4_statistics.json" not in md:
+        md = md.rstrip() + "\n- `frq4_statistics.json` (F-RQ4 confirmatory payload)\n"
+        FRQ4_ANALYSIS_MD.write_text(md, encoding="utf-8")
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Q1 confirmatory statistics (v2 grid/CVT and/or v3 F-RQ4).",
+    )
+    parser.add_argument(
+        "--family",
+        choices=("v2", "frq4", "all"),
+        default="v2",
+        help="v2 = grid/CVT (default); frq4 = B2 F-RQ4 only; all = both",
+    )
+    args = parser.parse_args()
+
+    if args.family in ("v2", "all"):
+        stats = run_statistics()
+
+        combined: list[dict[str, str]] = []
+        combined.extend(load_arm_csv(GRID_CSV, "grid"))
+        combined.extend(load_arm_csv(CVT_CSV, "cvt"))
+        if combined:
+            fieldnames = list(combined[0].keys())
+            with COMBINED_CSV.open("w", newline="", encoding="utf-8") as fh:
+                writer = csv.DictWriter(fh, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(combined)
+
+        if OUT_JSON.is_file():
+            payload = json.loads(OUT_JSON.read_text(encoding="utf-8"))
+        else:
+            payload = {}
+        payload["statistics"] = stats
+        OUT_JSON.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        append_stats_section(stats)
+        print(
+            json.dumps(
+                {
+                    "verdict": stats["verdict"],
+                    "holm": stats["holm_reject"],
+                    "noninferiority": {
+                        "cov_accepted": stats["noninferiority"]["coverage"]["accepted"],
+                        "fit_accepted": stats["noninferiority"]["fitness"]["accepted"],
+                        "fit_ci": stats["noninferiority"]["fitness"]["ci"],
+                        "fit_p": stats["noninferiority"]["fitness"]["p"],
+                    },
+                },
+                indent=2,
+            )
+        )
+
+    if args.family in ("frq4", "all"):
+        frq4 = run_frq4_statistics()
+        write_frq4_outputs(frq4)
+        print(
+            json.dumps(
+                {
+                    "family": "F-RQ4",
+                    "verdict": frq4["verdict"],
+                    "holm_reject": frq4["holm_reject"],
+                    "family_pass": frq4["family_pass"],
+                    "arms": {
+                        name: {
+                            "mean_dcov": arm["mean_dcov"],
+                            "mean_dfit": arm["mean_dfit"],
+                            "local_ok": arm["local_ok"],
+                            "p_cov": arm["p_cov"],
+                            "p_fit": arm["p_fit"],
+                        }
+                        for name, arm in frq4["arms"].items()
+                    },
+                },
+                indent=2,
+            )
+        )
 
 
 if __name__ == "__main__":
