@@ -34,7 +34,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--metric",
-        choices=("coverage", "mean_best_fitness"),
+        choices=("coverage", "mean_best_fitness", "qd_score"),
         default="coverage",
         help="Y-axis metric (default: coverage fraction)",
     )
@@ -71,8 +71,12 @@ def main() -> None:
             ]
         ax.plot(xs, ys, label=label, linewidth=1.5)
 
+    ylabel = {
+        "coverage": "Coverage",
+        "mean_best_fitness": "Mean best fitness",
+        "qd_score": "QD-score",
+    }[args.metric]
     ax.set_xlabel("Evaluations")
-    ylabel = "Coverage" if args.metric == "coverage" else "Mean best fitness"
     ax.set_ylabel(ylabel)
     ax.set_title(f"Anytime {ylabel.lower()} (eval-indexed)")
     ax.grid(True, alpha=0.3)

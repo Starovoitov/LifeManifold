@@ -71,6 +71,7 @@ class TestPyribsBaselineSmoke(unittest.TestCase):
             self.assertEqual(result.warm_start_elites, 0)
             summary = json.loads((out / "nightly_run_summary.json").read_text())
             self.assertEqual(summary["evaluations"], 20)
+            self.assertIn("qd_score", summary)
             self.assertEqual(summary["llm_enabled"], False)
             self.assertTrue((out / "map_elites_archive.jsonl").is_file())
             self.assertGreater(result.filled_cells, 0)
@@ -81,6 +82,7 @@ class TestPyribsBaselineSmoke(unittest.TestCase):
             )
             self.assertEqual(trace["evaluations"], 10)
             self.assertIn("coverage", trace)
+            self.assertIn("qd_score", trace)
 
     def test_cma_mae_short_run_seed_reproducible_coverage(self) -> None:
         cfg = PyribsBaselineConfig(

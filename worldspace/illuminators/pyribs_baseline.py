@@ -34,6 +34,7 @@ from worldspace.illuminators.pyribs_adapter import (
     mean_best_fitness,
     measures_vector,
     mid_bounds_x0,
+    qd_score,
     solution_to_world_spec,
     world_spec_to_solution,
 )
@@ -270,6 +271,7 @@ def write_run_summary(
         "pyribs_ask_size": result.ask_size,
         "pyribs_warm_start_elites": result.warm_start_elites,
         "mean_best_fitness": result.mean_best_fitness,
+        "qd_score": round(qd_score(result.report_archive), 6),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n")
@@ -325,6 +327,7 @@ def run_pyribs_baseline(
     trace_file = trace_path.open("w", encoding="utf-8")
     report0 = result_archive if result_archive is not None else archive
     mean0 = mean_best_fitness(report0)
+    qd0 = qd_score(report0)
     write_archive_trace_line(
         trace_file,
         {
@@ -334,6 +337,7 @@ def run_pyribs_baseline(
             "filled_cells": int(report0.stats.num_elites),
             "coverage": round(coverage_pct(report0) / 100.0, 6),
             "mean_best_fitness": round(mean0, 6) if mean0 is not None else None,
+            "qd_score": round(qd0, 6),
         },
     )
     try:
@@ -347,6 +351,7 @@ def run_pyribs_baseline(
             evaluated += int(solutions.shape[0])
             report = result_archive if result_archive is not None else archive
             mean_fit = mean_best_fitness(report)
+            qd = qd_score(report)
             write_archive_trace_line(
                 trace_file,
                 {
@@ -358,6 +363,7 @@ def run_pyribs_baseline(
                     "mean_best_fitness": (
                         round(mean_fit, 6) if mean_fit is not None else None
                     ),
+                    "qd_score": round(qd, 6),
                 },
             )
             if (ask_index + 1) % 10 == 0 or ask_index + 1 == n_asks:

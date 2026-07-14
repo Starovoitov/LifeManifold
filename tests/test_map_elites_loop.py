@@ -462,6 +462,7 @@ class TestLlmEmitCounters(unittest.TestCase):
             self.assertEqual(trace_first["iteration"], 0)
             self.assertIn("coverage", trace_first)
             self.assertIn("filled_cells", trace_first)
+            self.assertIn("qd_score", trace_first)
             trace_last = json.loads(trace_lines[-1])
             self.assertEqual(trace_last["iteration"], config.iterations)
             self.assertEqual(

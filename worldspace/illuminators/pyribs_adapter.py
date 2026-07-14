@@ -61,6 +61,7 @@ __all__ = [
     "evaluate_solutions_batch",
     "flat_cell_index",
     "mean_best_fitness",
+    "qd_score",
     "measures_vector",
     "mid_bounds_x0",
     "solution_to_world_spec",
@@ -239,3 +240,14 @@ def mean_best_fitness(archive: Any) -> float | None:
             return None
         return float(np.mean(objectives))
     return float(mean)
+
+
+def qd_score(archive: Any) -> float:
+    """Canonical QD-score: sum of objectives over filled pyribs archive elites."""
+    if int(archive.stats.num_elites) == 0:
+        return 0.0
+    data = archive.data()
+    objectives = np.asarray(data["objective"], dtype=np.float64)
+    if objectives.size == 0:
+        return 0.0
+    return float(np.sum(objectives))

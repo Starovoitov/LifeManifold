@@ -911,7 +911,7 @@ def run_scheduler(
         timing_file = timing_path.open("w", encoding="utf-8")
         trace_path = run_dir / ARCHIVE_TRACE_FILENAME
         trace_file = trace_path.open("w", encoding="utf-8")
-        filled, coverage, mean_fit = archive_trace_metrics(archive)
+        filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
         write_archive_trace_line(
             trace_file,
             {
@@ -922,6 +922,7 @@ def run_scheduler(
                 "mean_best_fitness": (
                     round(mean_fit, 6) if mean_fit is not None else None
                 ),
+                "qd_score": round(qd_score, 6),
             },
         )
     try:
@@ -944,7 +945,7 @@ def run_scheduler(
                 iteration_timing_file=timing_file,
             )
             if trace_file is not None:
-                filled, coverage, mean_fit = archive_trace_metrics(archive)
+                filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
                 write_archive_trace_line(
                     trace_file,
                     {
@@ -955,6 +956,7 @@ def run_scheduler(
                         "mean_best_fitness": (
                             round(mean_fit, 6) if mean_fit is not None else None
                         ),
+                        "qd_score": round(qd_score, 6),
                     },
                 )
             if surrogate_buffer is not None:
