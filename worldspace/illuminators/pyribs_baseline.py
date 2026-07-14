@@ -54,6 +54,7 @@ DEFAULT_NUM_EMITTERS = 5
 DEFAULT_EMITTER_BATCH_SIZE = 50
 DEFAULT_SIGMA0 = 0.2
 DEFAULT_EVALUATIONS = 32_500
+PYRIBS_VERSION = "0.11.0"
 DEFAULT_BASELINE_ARCHIVE = Path(
     "artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
 )
@@ -64,6 +65,7 @@ __all__ = [
     "DEFAULT_EVALUATIONS",
     "DEFAULT_NUM_EMITTERS",
     "DEFAULT_SIGMA0",
+    "PYRIBS_VERSION",
     "PyribsBaselineConfig",
     "PyribsBaselineResult",
     "build_scheduler",
@@ -71,6 +73,7 @@ __all__ = [
     "genome_bounds",
     "load_baseline_into_archives",
     "run_pyribs_baseline",
+    "pyribs_hyperparams",
     "write_run_summary",
 ]
 
@@ -117,6 +120,68 @@ def genome_bounds() -> list[tuple[float, float]]:
     ]
     bounds.extend(FLOAT_PARAM_BOUNDS)
     return bounds
+
+
+def pyribs_hyperparams(config: PyribsBaselineConfig) -> dict[str, Any]:
+    """T0-locked pyribs/CMA knobs for ``nightly_run_summary.json`` and tables."""
+    ask_size = config.num_emitters * config.emitter_batch_size
+    n_asks = config.evaluations // ask_size if ask_size else 0
+    x0 = mid_bounds_x0()
+    common: dict[str, Any] = {
+        "pyribs_version": PYRIBS_VERSION,
+        "algo": config.algo,
+        "solution_dim": GENOME_SIZE,
+        "archive_dims": list(ARCHIVE_DIMS),
+        "archive_ranges": [list(r) for r in ARCHIVE_RANGES],
+        "num_emitters": config.num_emitters,
+        "emitter_batch_size": config.emitter_batch_size,
+        "ask_size": ask_size,
+        "asks": n_asks,
+        "total_evaluations": config.evaluations,
+        "sigma0": config.sigma0,
+        "x0": [float(v) for v in x0],
+        "x0_description": (
+            "18×0.5 rule bits + mid(noise, resource_regen, predation) bounds"
+        ),
+        "genome_bounds_note": (
+            "No ES hard box bounds; clip/rint at decode (continuous relaxation)"
+        ),
+        "warm_start_archive": (
+            str(config.load_archive.resolve())
+            if config.load_archive is not None
+            else None
+        ),
+        "grid_size": config.grid_size,
+        "steps": config.steps,
+        "early_extinction_step": config.early_extinction_step,
+    }
+    if config.algo == "cma_me":
+        common.update(
+            {
+                "learning_rate": 1.0,
+                "threshold_min": None,
+                "result_archive": False,
+                "ranker": "2imp",
+                "selection_rule": "filter",
+                "restart_rule": "no_improvement",
+            }
+        )
+    elif config.algo == "cma_mae":
+        common.update(
+            {
+                "learning_rate": 0.01,
+                "threshold_min": 0.0,
+                "result_archive": True,
+                "report_archive": "result",
+                "ranker": "imp",
+                "selection_rule": "mu",
+                "restart_rule": "basic",
+            }
+        )
+    else:
+        msg = f"unknown algo {config.algo!r}"
+        raise ValueError(msg)
+    return common
 
 
 def build_scheduler(
@@ -270,6 +335,7 @@ def write_run_summary(
         "pyribs_algo": config.algo,
         "pyribs_ask_size": result.ask_size,
         "pyribs_warm_start_elites": result.warm_start_elites,
+        "pyribs_hyperparams": pyribs_hyperparams(config),
         "mean_best_fitness": result.mean_best_fitness,
         "qd_score": round(qd_score(result.report_archive), 6),
     }

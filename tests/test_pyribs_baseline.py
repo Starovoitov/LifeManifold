@@ -8,11 +8,13 @@ import unittest
 from pathlib import Path
 
 from worldspace.illuminators.pyribs_baseline import (
+    AlgoName,
     PyribsBaselineConfig,
     build_scheduler,
     export_archive_jsonl,
     genome_bounds,
     load_baseline_into_archives,
+    pyribs_hyperparams,
     run_pyribs_baseline,
 )
 
@@ -23,6 +25,22 @@ class TestPyribsBaselineUnit(unittest.TestCase):
         self.assertEqual(len(bounds), 21)
         self.assertEqual(bounds[0], (0.0, 1.0))
         self.assertEqual(bounds[18], (0.0, 0.2))
+
+    def test_pyribs_hyperparams_locked_fields(self) -> None:
+        cases: tuple[tuple[AlgoName, str, str], ...] = (
+            ("cma_me", "no_improvement", "2imp"),
+            ("cma_mae", "basic", "imp"),
+        )
+        for algo, restart, ranker in cases:
+            with self.subTest(algo=algo):
+                hp = pyribs_hyperparams(PyribsBaselineConfig(algo=algo, seed=0))
+                self.assertEqual(hp["pyribs_version"], "0.11.0")
+                self.assertEqual(hp["sigma0"], 0.2)
+                self.assertEqual(hp["ask_size"], 250)
+                self.assertEqual(hp["asks"], 130)
+                self.assertEqual(hp["restart_rule"], restart)
+                self.assertEqual(hp["ranker"], ranker)
+                self.assertEqual(len(hp["x0"]), 21)
 
     def test_build_scheduler_cma_me_and_mae(self) -> None:
         for algo in ("cma_me", "cma_mae"):
@@ -72,6 +90,12 @@ class TestPyribsBaselineSmoke(unittest.TestCase):
             summary = json.loads((out / "nightly_run_summary.json").read_text())
             self.assertEqual(summary["evaluations"], 20)
             self.assertIn("qd_score", summary)
+            self.assertIn("pyribs_hyperparams", summary)
+            self.assertEqual(summary["pyribs_hyperparams"]["sigma0"], 0.2)
+            self.assertEqual(
+                summary["pyribs_hyperparams"]["restart_rule"],
+                "no_improvement",
+            )
             self.assertEqual(summary["llm_enabled"], False)
             self.assertTrue((out / "map_elites_archive.jsonl").is_file())
             self.assertGreater(result.filled_cells, 0)
