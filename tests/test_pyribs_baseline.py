@@ -74,6 +74,13 @@ class TestPyribsBaselineSmoke(unittest.TestCase):
             self.assertEqual(summary["llm_enabled"], False)
             self.assertTrue((out / "map_elites_archive.jsonl").is_file())
             self.assertGreater(result.filled_cells, 0)
+            trace = json.loads(
+                (out / "archive_trace.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()[1]
+            )
+            self.assertEqual(trace["evaluations"], 10)
+            self.assertIn("coverage", trace)
 
     def test_cma_mae_short_run_seed_reproducible_coverage(self) -> None:
         cfg = PyribsBaselineConfig(

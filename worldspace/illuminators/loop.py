@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, TextIO
 
 import numpy as np
 
+from worldspace.illuminators.archive_trace import (
+    ARCHIVE_TRACE_FILENAME,
+    archive_trace_metrics,
+    write_archive_trace_line,
+)
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
     ARCHIVE_SCHEMA_VERSION_V1_3,
@@ -898,10 +903,27 @@ def run_scheduler(
         max_llm_slots=max_llm_slots,
     )
     timing_file: TextIO | None = None
+    trace_file: TextIO | None = None
     if config.performance.log_iteration_timing and jsonl_path is not None:
-        timing_path = Path(jsonl_path).parent / "iteration_timing.jsonl"
-        timing_path.parent.mkdir(parents=True, exist_ok=True)
+        run_dir = Path(jsonl_path).parent
+        run_dir.mkdir(parents=True, exist_ok=True)
+        timing_path = run_dir / "iteration_timing.jsonl"
         timing_file = timing_path.open("w", encoding="utf-8")
+        trace_path = run_dir / ARCHIVE_TRACE_FILENAME
+        trace_file = trace_path.open("w", encoding="utf-8")
+        filled, coverage, mean_fit = archive_trace_metrics(archive)
+        write_archive_trace_line(
+            trace_file,
+            {
+                "iteration": 0,
+                "evaluations": counters.candidates_evaluated,
+                "filled_cells": filled,
+                "coverage": round(coverage, 6),
+                "mean_best_fitness": (
+                    round(mean_fit, 6) if mean_fit is not None else None
+                ),
+            },
+        )
     try:
         for iteration_index in range(1, config.iterations + 1):
             run_iteration(
@@ -921,6 +943,20 @@ def run_scheduler(
                 llm_pool=llm_pool,
                 iteration_timing_file=timing_file,
             )
+            if trace_file is not None:
+                filled, coverage, mean_fit = archive_trace_metrics(archive)
+                write_archive_trace_line(
+                    trace_file,
+                    {
+                        "iteration": iteration_index,
+                        "evaluations": counters.candidates_evaluated,
+                        "filled_cells": filled,
+                        "coverage": round(coverage, 6),
+                        "mean_best_fitness": (
+                            round(mean_fit, 6) if mean_fit is not None else None
+                        ),
+                    },
+                )
             if surrogate_buffer is not None:
                 surrogate_buffer.flush()
             if surrogate_archive is not None:
@@ -946,6 +982,8 @@ def run_scheduler(
             llm_pool.shutdown()
         if timing_file is not None:
             timing_file.close()
+        if trace_file is not None:
+            trace_file.close()
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
     if surrogate_archive is not None:

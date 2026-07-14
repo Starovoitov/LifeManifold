@@ -19,6 +19,10 @@ from ribs.emitters import EvolutionStrategyEmitter
 from ribs.schedulers import Scheduler
 
 from worldspace.illuminators.archive import ARCHIVE_SCHEMA_VERSION
+from worldspace.illuminators.archive_trace import (
+    ARCHIVE_TRACE_FILENAME,
+    write_archive_trace_line,
+)
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS, bin_index
 from worldspace.illuminators.pyribs_adapter import (
     ARCHIVE_DIMS,
@@ -317,24 +321,56 @@ def run_pyribs_baseline(
 
     started = time.perf_counter()
     evaluated = 0
-    for ask_index in range(n_asks):
-        solutions = scheduler.ask()
-        if solutions.shape[0] != ask_size:
-            msg = f"expected ask size {ask_size}, got {solutions.shape[0]}"
-            raise RuntimeError(msg)
-        batch = evaluate_solutions_batch(solutions, knobs=knobs)
-        scheduler.tell(batch.objectives, batch.measures)
-        evaluated += int(solutions.shape[0])
-        if (ask_index + 1) % 10 == 0 or ask_index + 1 == n_asks:
+    trace_path = output_dir / ARCHIVE_TRACE_FILENAME
+    trace_file = trace_path.open("w", encoding="utf-8")
+    report0 = result_archive if result_archive is not None else archive
+    mean0 = mean_best_fitness(report0)
+    write_archive_trace_line(
+        trace_file,
+        {
+            "ask": 0,
+            "asks_total": n_asks,
+            "evaluations": 0,
+            "filled_cells": int(report0.stats.num_elites),
+            "coverage": round(coverage_pct(report0) / 100.0, 6),
+            "mean_best_fitness": round(mean0, 6) if mean0 is not None else None,
+        },
+    )
+    try:
+        for ask_index in range(n_asks):
+            solutions = scheduler.ask()
+            if solutions.shape[0] != ask_size:
+                msg = f"expected ask size {ask_size}, got {solutions.shape[0]}"
+                raise RuntimeError(msg)
+            batch = evaluate_solutions_batch(solutions, knobs=knobs)
+            scheduler.tell(batch.objectives, batch.measures)
+            evaluated += int(solutions.shape[0])
             report = result_archive if result_archive is not None else archive
-            logger.info(
-                "ask %s/%s evals=%s elites=%s coverage=%.4f",
-                ask_index + 1,
-                n_asks,
-                evaluated,
-                report.stats.num_elites,
-                coverage_pct(report) / 100.0,
+            mean_fit = mean_best_fitness(report)
+            write_archive_trace_line(
+                trace_file,
+                {
+                    "ask": ask_index + 1,
+                    "asks_total": n_asks,
+                    "evaluations": evaluated,
+                    "filled_cells": int(report.stats.num_elites),
+                    "coverage": round(coverage_pct(report) / 100.0, 6),
+                    "mean_best_fitness": (
+                        round(mean_fit, 6) if mean_fit is not None else None
+                    ),
+                },
             )
+            if (ask_index + 1) % 10 == 0 or ask_index + 1 == n_asks:
+                logger.info(
+                    "ask %s/%s evals=%s elites=%s coverage=%.4f",
+                    ask_index + 1,
+                    n_asks,
+                    evaluated,
+                    report.stats.num_elites,
+                    coverage_pct(report) / 100.0,
+                )
+    finally:
+        trace_file.close()
 
     if evaluated != config.evaluations:
         msg = f"expected {config.evaluations} evaluations, got {evaluated}"

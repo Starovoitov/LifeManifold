@@ -450,6 +450,23 @@ class TestLlmEmitCounters(unittest.TestCase):
             first = json.loads(lines[0])
             self.assertIn("emit_s", first)
             self.assertIn("eval_s", first)
+            trace_path = Path(tmp) / "archive_trace.jsonl"
+            self.assertTrue(trace_path.is_file())
+            trace_lines = [
+                line
+                for line in trace_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(trace_lines), config.iterations + 1)
+            trace_first = json.loads(trace_lines[0])
+            self.assertEqual(trace_first["iteration"], 0)
+            self.assertIn("coverage", trace_first)
+            self.assertIn("filled_cells", trace_first)
+            trace_last = json.loads(trace_lines[-1])
+            self.assertEqual(trace_last["iteration"], config.iterations)
+            self.assertEqual(
+                trace_last["evaluations"], config.iterations * config.batch_size
+            )
 
 
 if __name__ == "__main__":

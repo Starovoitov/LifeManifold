@@ -11,6 +11,7 @@ from typing import Literal
 import numpy as np
 
 from worldspace.illuminators.archive import load_and_collapse_jsonl
+from worldspace.illuminators.archive_trace import ARCHIVE_TRACE_FILENAME
 from worldspace.illuminators.archive_factory import (
     archive_factory_config_from_scheduler,
     create_archive,
@@ -214,6 +215,7 @@ _RUN_ARTIFACT_NAMES = (
     _ARCHIVE_JSONL_NAME,
     "surrogate_archive.jsonl",
     "iteration_timing.jsonl",
+    ARCHIVE_TRACE_FILENAME,
 )
 
 

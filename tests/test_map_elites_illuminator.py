@@ -137,6 +137,7 @@ class TestMapElitesIlluminator(unittest.TestCase):
             stale_archive.write_text('{"stale": true}\n', encoding="utf-8")
             (out / "surrogate_archive.jsonl").write_text("stale\n", encoding="utf-8")
             (out / "iteration_timing.jsonl").write_text("stale\n", encoding="utf-8")
+            (out / "archive_trace.jsonl").write_text("stale\n", encoding="utf-8")
 
             MapElitesIlluminator().run(
                 scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
@@ -154,6 +155,7 @@ class TestMapElitesIlluminator(unittest.TestCase):
             record = json.loads(text.strip().splitlines()[0])
             self.assertEqual(record["schema_version"], "1.2")
             self.assertFalse((out / "iteration_timing.jsonl").exists())
+            self.assertFalse((out / "archive_trace.jsonl").exists())
 
     def test_external_cvt_baseline_copies_centroids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
