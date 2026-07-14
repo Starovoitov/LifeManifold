@@ -75,6 +75,7 @@ def _infer_condition(run_dir: Path) -> str:
         "filter",
         "vanilla",
         "genetic_me",
+        "genetic_me_filter",
         "cma_me",
         "cma_mae",
     }
