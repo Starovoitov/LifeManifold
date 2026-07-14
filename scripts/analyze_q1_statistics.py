@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Confirmatory + sensitivity statistics for Q1 grid/CVT (Wilcoxon, bootstrap CI, Holm, TOST)."""
+"""Confirmatory + sensitivity statistics for Q1 grid/CVT (Wilcoxon, bootstrap CI, Holm, TOST, A₁₂)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ COMPOSE_GATE_LIVE_MINFIT010_JSON = (
 OUT_JSON = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.json"
 OUT_MD = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.md"
 COMBINED_CSV = ROOT / "artifacts/Q1_COMBINED_SUMMARY.csv"
-STATS_MD_SECTION = "## 7. Confirmatory statistics (Wilcoxon, bootstrap CI, Holm, TOST)"
+STATS_MD_SECTION = "## 7. Confirmatory statistics (Wilcoxon, bootstrap CI, Holm, TOST, Vargha–Delaney A₁₂)"
 
 PYRIBS_CSV = ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"
 FRQ4_JSON = ROOT / "artifacts/experiments/q1-v3-pyribs/frq4_statistics.json"
@@ -176,6 +176,28 @@ def signed_rank_1s(delta: np.ndarray, direction: Literal["greater", "less"]) -> 
 def dz(delta: np.ndarray) -> float:
     sd = float(np.std(delta, ddof=1))
     return float(np.mean(delta) / sd) if sd > 1e-12 else float("inf")
+
+
+def vargha_delaney_a12_paired(
+    delta: np.ndarray,
+    *,
+    direction: Literal["greater", "less"] = "greater",
+) -> float:
+    """Paired Vargha–Delaney A (probability of superiority on matched seeds).
+
+    ``delta`` = treatment − control per seed. For ``direction='greater'``,
+    A = P(Δ > 0) + 0.5·P(Δ = 0). For ``direction='less'``, wins when Δ < 0.
+    A = 0.5 is null; ~0.56 small, ~0.64 medium, ~0.71 large (Vargha & Delaney).
+    """
+    n = len(delta)
+    if n == 0:
+        return float("nan")
+    if direction == "greater":
+        wins = int(np.sum(delta > 0))
+    else:
+        wins = int(np.sum(delta < 0))
+    ties = int(np.sum(np.isclose(delta, 0)))
+    return (wins + 0.5 * ties) / n
 
 
 def bootstrap_ci(
@@ -501,6 +523,8 @@ def run_statistics() -> dict[str, Any]:
         "local_ok": dz(d_cov) >= 0.5 and dz(d_fit) >= 0.5,
         "dz_cov": dz(d_cov),
         "dz_fit": dz(d_fit),
+        "a12_cov": vargha_delaney_a12_paired(d_cov, direction="greater"),
+        "a12_fit": vargha_delaney_a12_paired(d_fit, direction="greater"),
         "ci_cov_95": bootstrap_ci(d_cov, stat="median"),
         "ci_fit_95": bootstrap_ci(d_fit, stat="median"),
         "wilcoxon_cov": {"p": p1a, "alternative": "greater"},
@@ -528,6 +552,7 @@ def run_statistics() -> dict[str, Any]:
         "p": p_eval,
         "local_ok": float(np.median(d_ev)) <= -0.20,
         "median_rel_change": float(np.median(d_ev)),
+        "a12": vargha_delaney_a12_paired(d_ev, direction="less"),
         "ci_95": bootstrap_ci(d_ev, stat="median"),
         "wilcoxon": {"p": p_eval, "alternative": "less"},
         "noise_indistinguishable": (
@@ -651,6 +676,8 @@ def run_statistics() -> dict[str, Any]:
     cvt_descriptive = {
         "wilcoxon_delta_cov_greater": signed_rank_1s(ds_cov, "greater"),
         "wilcoxon_eval_rel_less": signed_rank_1s(ds_ev, "less"),
+        "a12_cov": vargha_delaney_a12_paired(ds_cov, direction="greater"),
+        "a12_eval": vargha_delaney_a12_paired(ds_ev, direction="less"),
         "bootstrap_ci_cov_median_95": bootstrap_ci(ds_cov),
         "bootstrap_ci_eval_rel_median_95": bootstrap_ci(ds_ev),
     }
@@ -780,6 +807,7 @@ def append_stats_section(stats: dict[str, Any]) -> None:
         row(
             "RQ1",
             f"conjunctive max-p; p_cov={r1['p_cov']:.4g}, p_fit={r1['p_fit']:.4g}; "
+            f"A₁₂ cov={r1['a12_cov']:.2f}, fit={r1['a12_fit']:.2f}; "
             f"dz_cov={r1['dz_cov']:.2f}, dz_fit={r1['dz_fit']:.2f}; "
             f"CI95 cov {fmt_ci(r1['ci_cov_95'])}, fit {fmt_ci(r1['ci_fit_95'])}",
         )
@@ -788,7 +816,8 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     lines.append(
         row(
             "RQ3_eval",
-            f"median rel={r3e['median_rel_change']:.3f}; CI95 {fmt_ci(r3e['ci_95'])}",
+            f"median rel={r3e['median_rel_change']:.3f}; A₁₂={r3e['a12']:.2f}; "
+            f"CI95 {fmt_ci(r3e['ci_95'])}",
         )
     )
     r3c = fam["RQ3_cov_TOST"]
@@ -856,8 +885,10 @@ def append_stats_section(stats: dict[str, Any]) -> None:
         [
             "### B.7 CVT descriptive (not in confirmatory Holm family)",
             "",
-            f"- Wilcoxon Δcoverage hints−stub (greater): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_delta_cov_greater']:.4g}",
-            f"- Wilcoxon Δeval rel filter−hints (less): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_eval_rel_less']:.4g}",
+            f"- Wilcoxon Δcoverage hints−stub (greater): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_delta_cov_greater']:.4g}; "
+            f"A₁₂={stats['sensitivity']['cvt_descriptive']['a12_cov']:.2f}",
+            f"- Wilcoxon Δeval rel filter−hints (less): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_eval_rel_less']:.4g}; "
+            f"A₁₂={stats['sensitivity']['cvt_descriptive']['a12_eval']:.2f}",
             f"- Bootstrap 95% CI Δcoverage median: {fmt_ci(tuple(stats['sensitivity']['cvt_descriptive']['bootstrap_ci_cov_median_95']))}",
             "",
         ]
@@ -886,6 +917,7 @@ def _metric_block(
         "sign_positive": int(np.sum(delta > 0)),
         "n": int(len(delta)),
         "dz": dz(delta),
+        "a12": vargha_delaney_a12_paired(delta, direction=direction),
         "ci_median_95": list(bootstrap_ci(delta, stat="median")),
         "delta": delta.tolist(),
     }
@@ -923,6 +955,8 @@ def run_frq4_statistics() -> dict[str, Any]:
             "local_ok": local_ok,
             "dz_cov": cov["dz"],
             "dz_fit": fit["dz"],
+            "a12_cov": cov["a12"],
+            "a12_fit": fit["a12"],
             "mean_dcov": cov["mean"],
             "mean_dfit": fit["mean"],
             "median_dcov": cov["median"],
@@ -976,7 +1010,8 @@ def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
         "",
         "Pre-registered (§4.1): paired Δ = **hints − arm**; Wilcoxon one-sided **greater** "
         "on coverage and mean best fitness; Holm family **m=4**; "
-        "`local_ok` = dz≥0.5 on both metrics per arm (same bar as RQ1).",
+        "`local_ok` = dz≥0.5 on both metrics per arm (same bar as RQ1). "
+        "Descriptive effect size: paired **Vargha–Delaney A₁₂** (§4.5).",
         "",
         f"**Verdict: F-RQ4 {stats['verdict']}** "
         f"(family_pass={stats['family_pass']}; all Holm reject={all(holm.values())}; "
@@ -986,10 +1021,10 @@ def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
         "",
         "### Per-arm Δ (hints − arm)",
         "",
-        "| Arm | Δcov mean ± SD (pp) | median | sign | Wilcoxon p | dz | "
-        "Δfit mean ± SD | median | sign | Wilcoxon p | dz | local_ok |",
-        "|-----|---------------------|--------|------|------------|----|"
-        "----------------|--------|------|------------|----|----------|",
+        "| Arm | Δcov mean ± SD (pp) | median | sign | Wilcoxon p | A₁₂ | dz | "
+        "Δfit mean ± SD | median | sign | Wilcoxon p | A₁₂ | dz | local_ok |",
+        "|-----|---------------------|--------|------|------------|-----|----|"
+        "----------------|--------|------|------------|-----|----|----------|",
     ]
     for arm in ("cma_me", "cma_mae"):
         a = arms[arm]
@@ -998,9 +1033,9 @@ def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
         fit = fam[f"RQ4_{prefix}_fit"]
         lines.append(
             f"| **{arm}** | {cov['mean']:+.2f} ± {cov['sd']:.2f} | {cov['median']:+.2f} | "
-            f"{a['sign_cov']} | {cov['p']:.4g} | {cov['dz']:.2f} | "
+            f"{a['sign_cov']} | {cov['p']:.4g} | {cov['a12']:.2f} | {cov['dz']:.2f} | "
             f"{fit['mean']:+.3f} ± {fit['sd']:.3f} | {fit['median']:+.3f} | "
-            f"{a['sign_fit']} | {fit['p']:.4g} | {fit['dz']:.2f} | {a['local_ok']} |"
+            f"{a['sign_fit']} | {fit['p']:.4g} | {fit['a12']:.2f} | {fit['dz']:.2f} | {a['local_ok']} |"
         )
     lines.extend(
         [
@@ -1147,6 +1182,13 @@ def main() -> None:
                             "local_ok": arm["local_ok"],
                             "p_cov": arm["p_cov"],
                             "p_fit": arm["p_fit"],
+                        }
+                        for name, arm in frq4["arms"].items()
+                    },
+                    "a12": {
+                        name: {
+                            "cov": arm["a12_cov"],
+                            "fit": arm["a12_fit"],
                         }
                         for name, arm in frq4["arms"].items()
                     },
