@@ -7,27 +7,48 @@ from pathlib import Path
 from typing import Literal
 
 from worldspace.prompt_files import PROMPTS_DIR, read_prompt
+from worldspace.surrogate.types import SurrogatePrediction
 
 ArchiveTypeLiteral = Literal["grid", "cvt"]
 
 DEFAULT_SYSTEM_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_system.txt"
 DEFAULT_SYSTEM_PROMPT_PATH_CVT = PROMPTS_DIR / "map_elites_llm_emitter_system_cvt.txt"
 DEFAULT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user.txt"
+COMPONENTS_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_components.txt"
 CVT_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system_cvt.txt"
 GRID_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system.txt"
+COMPONENTS_USER_PROMPT_FILE = "map_elites_llm_emitter_user_components.txt"
+
+SURROGATE_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = (
+    "surrogate_stability",
+    "surrogate_diversity",
+    "surrogate_oscillation",
+    "surrogate_topology_interface",
+    "surrogate_topology_heterogeneity",
+    "surrogate_final_density",
+    "surrogate_early_extinction_prob",
+    "surrogate_mean",
+    "surrogate_uncertainty",
+)
 
 __all__ = [
+    "COMPONENTS_USER_PROMPT_FILE",
+    "COMPONENTS_USER_PROMPT_PATH",
     "CVT_SYSTEM_PROMPT_FILE",
     "DEFAULT_SYSTEM_PROMPT_PATH",
     "DEFAULT_SYSTEM_PROMPT_PATH_CVT",
     "DEFAULT_USER_PROMPT_PATH",
     "GRID_SYSTEM_PROMPT_FILE",
+    "SURROGATE_USER_PROMPT_FIELD_NAMES",
     "USER_PROMPT_TEMPLATE",
+    "components_user_prompt_path",
     "load_system_prompt_template",
     "load_user_prompt_template",
     "render_cvt_system_prompt",
     "render_system_prompt",
     "render_system_prompt_for_archive_type",
+    "render_user_prompt",
+    "surrogate_prompt_fields",
     "system_prompt_path_for_archive_type",
     "emitter_prompt_version",
     "system_prompt_version",
@@ -59,6 +80,11 @@ def load_system_prompt_template(
     return src.read_text(encoding="utf-8")
 
 
+def components_user_prompt_path() -> Path:
+    """Return the on-disk path for the component-rich MAP-Elites user prompt."""
+    return COMPONENTS_USER_PROMPT_PATH
+
+
 def load_user_prompt_template(path: str | Path | None = None) -> str:
     """Read the MAP-Elites LLM user prompt template from disk."""
     if path is None:
@@ -67,6 +93,40 @@ def load_user_prompt_template(path: str | Path | None = None) -> str:
     if not src.is_file():
         raise FileNotFoundError(f"LLM user prompt not found: {src.resolve()}")
     return src.read_text(encoding="utf-8")
+
+
+def surrogate_prompt_fields(prediction: SurrogatePrediction) -> dict[str, float]:
+    """Map a surrogate prediction to user-prompt ``.format()`` kwargs."""
+    components = prediction.components
+    return {
+        "surrogate_stability": float(components["stability"]),
+        "surrogate_diversity": float(components["diversity"]),
+        "surrogate_oscillation": float(components["oscillation_score"]),
+        "surrogate_topology_interface": float(components["topology_interface_index"]),
+        "surrogate_topology_heterogeneity": float(
+            components["topology_window_heterogeneity"]
+        ),
+        "surrogate_final_density": float(components["final_density"]),
+        "surrogate_early_extinction_prob": float(components["early_extinction_prob"]),
+        "surrogate_mean": float(prediction.fitness),
+        "surrogate_uncertainty": float(prediction.uncertainty),
+    }
+
+
+def render_user_prompt(
+    template: str,
+    *,
+    required_keys: tuple[str, ...] | None = None,
+    **kwargs: object,
+) -> str:
+    """Substitute placeholders into a user prompt template."""
+    if required_keys is not None:
+        missing = [key for key in required_keys if key not in kwargs]
+        if missing:
+            missing_text = ", ".join(missing)
+            msg = f"Missing user prompt fields: {missing_text}"
+            raise KeyError(msg)
+    return template.format(**kwargs)
 
 
 def render_system_prompt(

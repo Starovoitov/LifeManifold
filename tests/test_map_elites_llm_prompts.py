@@ -21,14 +21,20 @@ from worldspace.illuminators.emitters.llm_emitter import (
     format_few_shot_block,
 )
 from worldspace.illuminators.emitters.llm_prompts import (
+    COMPONENTS_USER_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     DEFAULT_USER_PROMPT_PATH,
+    SURROGATE_USER_PROMPT_FIELD_NAMES,
     USER_PROMPT_TEMPLATE,
+    components_user_prompt_path,
     emitter_prompt_version,
     load_system_prompt_template,
+    load_user_prompt_template,
     render_cvt_system_prompt,
     render_system_prompt,
+    render_user_prompt,
+    surrogate_prompt_fields,
     system_prompt_version,
     user_prompt_version,
 )
@@ -39,6 +45,7 @@ from worldspace.specs.world_spec_constraints import (
     WORLD_SPEC_CONSTRAINTS,
     format_world_spec_constraints,
 )
+from worldspace.surrogate.types import SurrogatePrediction
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _BASE_SPEC = WorldSpec(
@@ -199,6 +206,96 @@ class TestUserPrompt(unittest.TestCase):
         self.assertIn(str(NOISE_MIN), text)
         self.assertIn(str(NOISE_MAX), text)
         self.assertEqual(WORLD_SPEC_CONSTRAINTS["noise"], f"[{NOISE_MIN},{NOISE_MAX}]")
+
+
+_COMPONENT_PREDICTION = SurrogatePrediction(
+    components={
+        "stability": 0.41,
+        "diversity": 0.55,
+        "oscillation_score": 0.12,
+        "topology_interface_index": 0.33,
+        "topology_window_heterogeneity": 0.28,
+        "final_density": 0.62,
+        "early_extinction_prob": 0.38,
+    },
+    measures={"stability": 0.41, "diversity": 0.55},
+    fitness=0.487,
+    uncertainty=0.71,
+)
+
+
+def _component_prompt_kwargs() -> dict[str, object]:
+    return {
+        "target_stability": 0.42,
+        "target_diversity": 0.57,
+        **surrogate_prompt_fields(_COMPONENT_PREDICTION),
+        "current_elite_json": "null",
+        "few_shot_examples": "no occupied neighboring elites",
+        "constraints": format_world_spec_constraints(),
+    }
+
+
+class TestComponentUserPrompt(unittest.TestCase):
+    def test_components_template_has_all_placeholders(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        for field_name in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}:", template)
+        self.assertIn("{target_stability:", template)
+        self.assertIn("{current_elite_json}", template)
+
+    def test_surrogate_prompt_fields_from_prediction(self) -> None:
+        fields = surrogate_prompt_fields(_COMPONENT_PREDICTION)
+        self.assertEqual(set(fields), set(SURROGATE_USER_PROMPT_FIELD_NAMES))
+        self.assertAlmostEqual(fields["surrogate_stability"], 0.41)
+        self.assertAlmostEqual(fields["surrogate_mean"], 0.487)
+        self.assertAlmostEqual(fields["surrogate_uncertainty"], 0.71)
+
+    def test_surrogate_prompt_fields_stub_pattern(self) -> None:
+        stub_mean = 0.5
+        prediction = SurrogatePrediction(
+            components={
+                "stability": stub_mean,
+                "diversity": stub_mean,
+                "oscillation_score": stub_mean,
+                "topology_interface_index": stub_mean,
+                "topology_window_heterogeneity": stub_mean,
+                "final_density": stub_mean,
+                "early_extinction_prob": stub_mean,
+            },
+            measures={"stability": stub_mean, "diversity": stub_mean},
+            fitness=stub_mean,
+            uncertainty=1.0,
+        )
+        fields = surrogate_prompt_fields(prediction)
+        for key in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            if key == "surrogate_uncertainty":
+                self.assertAlmostEqual(fields[key], 1.0)
+            else:
+                self.assertAlmostEqual(fields[key], stub_mean)
+
+    def test_render_components_template_no_key_error(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        rendered = render_user_prompt(template, **_component_prompt_kwargs())
+        self.assertNotIn("{surrogate_", rendered)
+        self.assertIn("world_spec", rendered)
+
+    def test_components_prompt_version_differs_from_default(self) -> None:
+        self.assertNotEqual(
+            user_prompt_version(components_user_prompt_path()),
+            user_prompt_version(),
+        )
+        self.assertEqual(
+            components_user_prompt_path(),
+            COMPONENTS_USER_PROMPT_PATH,
+        )
+
+    def test_render_components_includes_extinction_and_uncertainty(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        rendered = render_user_prompt(template, **_component_prompt_kwargs())
+        self.assertIn("0.380", rendered)
+        self.assertIn("0.620", rendered)
+        self.assertIn("0.710", rendered)
+        self.assertIn("early_extinction_prob", rendered)
 
 
 if __name__ == "__main__":
