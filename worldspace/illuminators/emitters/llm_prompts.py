@@ -5,12 +5,20 @@ from __future__ import annotations
 import hashlib
 import math
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from worldspace.illuminators.archive import ArchiveElite
 from worldspace.illuminators.evaluation import extinction_probability
 from worldspace.prompt_files import PROMPTS_DIR, read_prompt
+from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.direction_hints import (
+    DIRECTION_HINT_EMPTY,
+    direction_prompt_fields,
+)
 from worldspace.surrogate.types import SurrogatePrediction
+
+if TYPE_CHECKING:
+    from worldspace.surrogate.model import SurrogateModel
 
 ArchiveTypeLiteral = Literal["grid", "cvt"]
 
@@ -19,14 +27,17 @@ DEFAULT_SYSTEM_PROMPT_PATH_CVT = PROMPTS_DIR / "map_elites_llm_emitter_system_cv
 DEFAULT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user.txt"
 COMPONENTS_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_components.txt"
 PARENT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_parent_hints.txt"
+DIRECTION_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_direction.txt"
 CVT_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system_cvt.txt"
 GRID_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system.txt"
 COMPONENTS_USER_PROMPT_FILE = "map_elites_llm_emitter_user_components.txt"
 PARENT_USER_PROMPT_FILE = "map_elites_llm_emitter_user_parent_hints.txt"
+DIRECTION_USER_PROMPT_FILE = "map_elites_llm_emitter_user_direction.txt"
 
 PARENT_HINT_EMPTY = "Parent cell: empty (no archive elite in this niche yet)."
 
 PARENT_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = ("parent_hint_block",)
+DIRECTION_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = ("direction_hint_block",)
 
 SURROGATE_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = (
     "surrogate_stability",
@@ -47,6 +58,9 @@ __all__ = [
     "DEFAULT_SYSTEM_PROMPT_PATH",
     "DEFAULT_SYSTEM_PROMPT_PATH_CVT",
     "DEFAULT_USER_PROMPT_PATH",
+    "DIRECTION_USER_PROMPT_FIELD_NAMES",
+    "DIRECTION_USER_PROMPT_FILE",
+    "DIRECTION_USER_PROMPT_PATH",
     "GRID_SYSTEM_PROMPT_FILE",
     "PARENT_HINT_EMPTY",
     "PARENT_USER_PROMPT_FIELD_NAMES",
@@ -55,10 +69,12 @@ __all__ = [
     "SURROGATE_USER_PROMPT_FIELD_NAMES",
     "USER_PROMPT_TEMPLATE",
     "components_user_prompt_path",
+    "direction_user_prompt_path",
     "load_system_prompt_template",
     "load_user_prompt_template",
     "parent_prompt_fields",
     "parent_user_prompt_path",
+    "resolve_direction_prompt_fields",
     "render_cvt_system_prompt",
     "render_system_prompt",
     "render_system_prompt_for_archive_type",
@@ -103,6 +119,32 @@ def components_user_prompt_path() -> Path:
 def parent_user_prompt_path() -> Path:
     """Return the on-disk path for the parent-metrics MAP-Elites user prompt."""
     return PARENT_USER_PROMPT_PATH
+
+
+def direction_user_prompt_path() -> Path:
+    """Return the on-disk path for the direction-hints MAP-Elites user prompt."""
+    return DIRECTION_USER_PROMPT_PATH
+
+
+def resolve_direction_prompt_fields(
+    template: str,
+    *,
+    parent_world_spec: WorldSpec | None = None,
+    surrogate_model: SurrogateModel | None = None,
+    use_soft_extinction: bool = False,
+    extinction_gate_threshold: float = 0.5,
+) -> dict[str, str]:
+    """Build direction hint kwargs when the user template includes the placeholder."""
+    if "{direction_hint_block}" not in template:
+        return {}
+    if parent_world_spec is None or surrogate_model is None:
+        return {"direction_hint_block": DIRECTION_HINT_EMPTY}
+    return direction_prompt_fields(
+        parent_world_spec,
+        surrogate_model,
+        use_soft_extinction=use_soft_extinction,
+        extinction_gate_threshold=extinction_gate_threshold,
+    )
 
 
 def load_user_prompt_template(path: str | Path | None = None) -> str:

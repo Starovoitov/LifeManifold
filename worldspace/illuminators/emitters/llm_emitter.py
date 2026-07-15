@@ -22,6 +22,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
     load_user_prompt_template,
     parent_prompt_fields,
     render_system_prompt_for_archive_type,
+    resolve_direction_prompt_fields,
     surrogate_prompt_fields,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
@@ -31,6 +32,7 @@ from worldspace.illuminators.scheduler import (
     resolve_surrogate_prediction,
 )
 from worldspace.surrogate import StubSurrogate
+from worldspace.surrogate.model import SurrogateModel
 from worldspace.surrogate.types import SurrogatePrediction, SurrogateProtocol
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
@@ -170,12 +172,29 @@ class LlmEmitter:
             n_centroids=archive.n_cells,
         )
         user_prompt_path = (
-            self._scheduler.llm_user_prompt_path if self._scheduler is not None else None
+            self._scheduler.llm_user_prompt_path
+            if self._scheduler is not None
+            else None
         )
         user_prompt_template = load_user_prompt_template(user_prompt_path)
         prompt_version = emitter_prompt_version(
             archive_type=prompt_kind,
             user_path=user_prompt_path,
+        )
+        surrogate_model = (
+            getattr(self._surrogate, "model", None)
+            if self._surrogate is not None
+            else None
+        )
+        use_soft_extinction = (
+            self._scheduler.surrogate_use_soft_extinction
+            if self._scheduler is not None
+            else False
+        )
+        extinction_gate_threshold = (
+            self._scheduler.surrogate_extinction_gate_threshold
+            if self._scheduler is not None
+            else 0.5
         )
         user_prompt = build_user_prompt(
             target=target,
@@ -183,6 +202,10 @@ class LlmEmitter:
             prediction=prediction,
             user_prompt_template=user_prompt_template,
             rng=rng,
+            direction_parent_spec=prepared_parent,
+            direction_surrogate_model=cast(SurrogateModel | None, surrogate_model),
+            direction_use_soft_extinction=use_soft_extinction,
+            direction_extinction_gate_threshold=extinction_gate_threshold,
         )
         return LlmPreparedSlot(
             target=target,
@@ -308,7 +331,9 @@ class LlmEmitter:
             return archive_type
         return kind
 
-    def _resolve_surrogate_prediction(self, world_spec: WorldSpec) -> SurrogatePrediction:
+    def _resolve_surrogate_prediction(
+        self, world_spec: WorldSpec
+    ) -> SurrogatePrediction:
         """Return surrogate prediction for the user prompt."""
         if self._scheduler is not None and self._surrogate is not None:
             return resolve_surrogate_prediction(
@@ -352,6 +377,10 @@ def build_user_prompt(
     surrogate_uncertainty: float = 1.0,
     user_prompt_template: str | None = None,
     max_few_shot: int = _DEFAULT_FEW_SHOT,
+    direction_parent_spec: WorldSpec | None = None,
+    direction_surrogate_model: SurrogateModel | None = None,
+    direction_use_soft_extinction: bool = False,
+    direction_extinction_gate_threshold: float = 0.5,
 ) -> str:
     """Build the LLM user prompt for one emitter slot."""
     if prediction is None:
@@ -375,6 +404,13 @@ def build_user_prompt(
         target_diversity=target.target_diversity,
         **surrogate_prompt_fields(prediction),
         **parent_prompt_fields(current),
+        **resolve_direction_prompt_fields(
+            template,
+            parent_world_spec=direction_parent_spec,
+            surrogate_model=direction_surrogate_model,
+            use_soft_extinction=direction_use_soft_extinction,
+            extinction_gate_threshold=direction_extinction_gate_threshold,
+        ),
         current_elite_json=format_current_elite_json(current),
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),

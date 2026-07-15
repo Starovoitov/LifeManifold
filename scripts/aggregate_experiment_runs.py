@@ -145,6 +145,7 @@ def _infer_condition(run_dir: Path) -> str:
         "hints",
         "hints_rich",
         "hints_parent",
+        "hints_direction",
         "filter",
         "vanilla",
         "genetic_me",

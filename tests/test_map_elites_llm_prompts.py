@@ -394,7 +394,9 @@ class TestParentUserPrompt(unittest.TestCase):
     def test_parent_prompt_version_differs_from_default_and_components(self) -> None:
         parent_hash = user_prompt_version(parent_user_prompt_path())
         self.assertNotEqual(parent_hash, user_prompt_version())
-        self.assertNotEqual(parent_hash, user_prompt_version(components_user_prompt_path()))
+        self.assertNotEqual(
+            parent_hash, user_prompt_version(components_user_prompt_path())
+        )
         self.assertEqual(parent_user_prompt_path(), PARENT_USER_PROMPT_PATH)
 
 

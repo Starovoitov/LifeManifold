@@ -17,6 +17,7 @@ from worldspace.illuminators.archive import (
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.llm_prompts import (
     components_user_prompt_path,
+    direction_user_prompt_path,
     emitter_prompt_version,
     parent_user_prompt_path,
     user_prompt_version,
@@ -91,6 +92,7 @@ class TestWorldSpecFromLlm(unittest.TestCase):
         text = f"```json\n{_VALID_RESPONSE}\n```"
         parsed = extract_json_object_from_text(text)
         self.assertIsNotNone(parsed)
+        assert parsed is not None
         spec = world_spec_from_llm_payload(parsed, grid_size=8, steps=200, base=_BASE)
         self.assertIsNotNone(spec)
         assert spec is not None
@@ -499,6 +501,58 @@ class TestLlmEmitterParentPrompt(unittest.TestCase):
         self.assertEqual(
             prepared.prompt_version.split(":")[-1],
             user_prompt_version(parent_user_prompt_path()),
+        )
+
+
+class TestLlmEmitterDirectionPrompt(unittest.TestCase):
+    def test_prepare_emit_includes_direction_hint_block(self) -> None:
+        class _DirectionModel:
+            def predict_components(self, features: np.ndarray) -> dict[str, float]:
+                _ = features
+                return {key: 0.5 for key in TARGET_KEYS}
+
+            def predict_fitness(self, features: np.ndarray) -> float:
+                vector = np.asarray(features, dtype=float).reshape(-1)
+                return float(np.sum(vector))
+
+        class _FacadeSurrogate:
+            model = _DirectionModel()
+
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={key: 0.5 for key in TARGET_KEYS},
+                    measures={"stability": 0.5, "diversity": 0.5},
+                    fitness=0.5,
+                    uncertainty=0.71,
+                )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
+
+        config = _scheduler_config(
+            surrogate_enabled=True,
+            llm_user_prompt_path="prompts/map_elites_llm_emitter_user_direction.txt",
+        )
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_FacadeSurrogate(),
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=GridArchive(10),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("Surrogate local sensitivity", prepared.user_prompt)
+        self.assertIn("0.500", prepared.user_prompt)
+        self.assertEqual(
+            prepared.prompt_version.split(":")[-1],
+            user_prompt_version(direction_user_prompt_path()),
         )
 
 

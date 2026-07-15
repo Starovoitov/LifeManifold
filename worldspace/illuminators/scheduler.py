@@ -35,7 +35,11 @@ from worldspace.surrogate.acquisition_config import (
     RetrainConfig,
 )
 from worldspace.surrogate import StubSurrogate
-from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction, SurrogateProtocol
+from worldspace.surrogate.types import (
+    SurrogateConfig,
+    SurrogatePrediction,
+    SurrogateProtocol,
+)
 
 logger = logging.getLogger(__name__)
 

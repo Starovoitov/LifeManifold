@@ -13,6 +13,7 @@
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
+# RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
@@ -59,6 +60,7 @@ SCHEDULER_STUB_UNIFORM_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nigh
 SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm.yaml"
 SCHEDULER_HINTS_RICH_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_rich.yaml"
 SCHEDULER_HINTS_PARENT_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_parent.yaml"
+SCHEDULER_HINTS_DIRECTION_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_direction.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
@@ -83,6 +85,7 @@ RUN_GENETIC_ME_FILTER=false
 RUN_STUB_UNIFORM_ONLY=false
 RUN_HINTS_RICH_ONLY=false
 RUN_HINTS_PARENT_ONLY=false
+RUN_HINTS_DIRECTION_ONLY=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -249,9 +252,18 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_HINTS_PARENT_ONLY=true
     ;;
+  q1-hints-direction-pilot)
+    # RQ1e: finite-difference direction hints; 1-seed pilot default (seed 0).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-hints-direction-pilot"
+    SCHEDULER_HINTS_DIRECTION="$SCHEDULER_HINTS_DIRECTION_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_HINTS_DIRECTION_ONLY=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot" >&2
     exit 1
     ;;
 esac
@@ -311,6 +323,11 @@ if [[ "$REQUESTED_TIER" == "q1-hints-parent-pilot" && $# -lt 2 ]]; then
   SEED_END=0
   echo "NOTE: q1-hints-parent-pilot default seed 0 only; extend: $0 q1-hints-parent-pilot 0 4" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-hints-direction-pilot" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=0
+  echo "NOTE: q1-hints-direction-pilot default seed 0 only; extend: $0 q1-hints-direction-pilot 0 4" >&2
+fi
 
 if [[ "$LLM_PROVIDER" == "deepseek" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
   echo "DEEPSEEK_API_KEY is required for LLM_PROVIDER=deepseek" >&2
@@ -337,7 +354,7 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot)
     apply_long_run_llm_defaults
     ;;
   q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-filter)
@@ -427,7 +444,7 @@ run_one() {
   remove_incomplete_run_dir "$out"
   mkdir -p "$out"
   local extra=()
-  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "hints_rich" || "$condition" == "hints_parent" ]]; then
+  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "hints_rich" || "$condition" == "hints_parent" || "$condition" == "hints_direction" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
   if [[ -n "$replicate" ]]; then
@@ -509,6 +526,8 @@ else
         run_one hints_rich "$SCHEDULER_HINTS_RICH" "$seed" "$rep_arg"
       elif [[ "$RUN_HINTS_PARENT_ONLY" == true ]]; then
         run_one hints_parent "$SCHEDULER_HINTS_PARENT" "$seed" "$rep_arg"
+      elif [[ "$RUN_HINTS_DIRECTION_ONLY" == true ]]; then
+        run_one hints_direction "$SCHEDULER_HINTS_DIRECTION" "$seed" "$rep_arg"
       else
         if [[ "$FILTER_ONLY" == true ]]; then
           require_stub_hints_for_seed "$seed"
