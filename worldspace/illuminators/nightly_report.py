@@ -131,7 +131,10 @@ def build_llm_run_info(
         ),
         llm_parallel_emit=config.performance.llm_parallel_emit,
         llm_parallel_workers=parallel_workers,
-        prompt_version=emitter_prompt_version(archive_type=prompt_archive_type),
+        prompt_version=emitter_prompt_version(
+            archive_type=prompt_archive_type,
+            user_path=config.llm_user_prompt_path,
+        ),
         system_prompt_kind=prompt_archive_type,
     )
 

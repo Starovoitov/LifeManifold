@@ -143,6 +143,7 @@ def _infer_condition(run_dir: Path) -> str:
         "stub",
         "stub_uniform",
         "hints",
+        "hints_rich",
         "filter",
         "vanilla",
         "genetic_me",

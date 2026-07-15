@@ -7,6 +7,7 @@ import pickle
 import tempfile
 import unittest
 from dataclasses import dataclass, replace
+from typing import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from worldspace.illuminators.loop import run_iteration
 from worldspace.illuminators.scheduler import (
     RunCounters,
     SchedulerConfig,
+    resolve_surrogate_prediction,
     resolve_surrogate_stub,
 )
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
@@ -24,7 +26,7 @@ from worldspace.surrogate import StubSurrogate, get_surrogate
 from worldspace.surrogate.buffer import SurrogateBuffer
 from worldspace.surrogate.feature_extractor import FEATURE_SCHEMA_VERSION
 from worldspace.surrogate.genome_features import FEATURE_DIM_V21
-from worldspace.surrogate.model import SurrogateModel
+from worldspace.surrogate.model import TARGET_KEYS, SurrogateModel
 from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction
 
 
@@ -71,12 +73,50 @@ class _FixedSurrogate:
 
     def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
         _ = world_spec
+        components = {key: 0.1 for key in TARGET_KEYS}
+        components["diversity"] = 0.2
         return SurrogatePrediction(
-            components={"stability": 0.1, "diversity": 0.2},
+            components=components,
             measures={"stability": 0.1, "diversity": 0.2},
             fitness=self.fitness,
             uncertainty=self.uncertainty,
         )
+
+    def predict_batch(
+        self, world_specs: Sequence[WorldSpec]
+    ) -> list[SurrogatePrediction]:
+        return [self.predict(world_spec) for world_spec in world_specs]
+
+
+class TestResolveSurrogatePrediction(unittest.TestCase):
+    def test_disabled_returns_stub_prediction_without_facade_predict(self) -> None:
+        config = _scheduler_config(
+            surrogate_enabled=False,
+            surrogate_stub_mean=0.42,
+            surrogate_stub_uncertainty=0.88,
+        )
+        surrogate = _FixedSurrogate(fitness=0.99, uncertainty=0.11)
+        prediction = resolve_surrogate_prediction(config, surrogate, _sample_spec())
+        expected = StubSurrogate(0.42, 0.88).predict(_sample_spec())
+        self.assertEqual(prediction, expected)
+        for key in TARGET_KEYS:
+            self.assertAlmostEqual(prediction.components[key], 0.42)
+
+    def test_enabled_returns_surrogate_predict(self) -> None:
+        config = _scheduler_config(surrogate_enabled=True)
+        surrogate = _FixedSurrogate(fitness=0.77, uncertainty=0.33)
+        prediction = resolve_surrogate_prediction(config, surrogate, _sample_spec())
+        self.assertAlmostEqual(prediction.fitness, 0.77)
+        self.assertAlmostEqual(prediction.uncertainty, 0.33)
+        self.assertAlmostEqual(prediction.components["stability"], 0.1)
+        self.assertAlmostEqual(prediction.components["diversity"], 0.2)
+
+    def test_resolve_surrogate_stub_matches_prediction_tuple(self) -> None:
+        config = _scheduler_config(surrogate_enabled=True)
+        surrogate = _FixedSurrogate(fitness=0.61, uncertainty=0.44)
+        prediction = resolve_surrogate_prediction(config, surrogate, _sample_spec())
+        values = resolve_surrogate_stub(config, surrogate, _sample_spec())
+        self.assertEqual(values, (prediction.fitness, prediction.uncertainty))
 
 
 class TestResolveSurrogateStub(unittest.TestCase):

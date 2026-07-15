@@ -11,6 +11,7 @@
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
+# RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 #
 # q1-repeat: stub+hints only; 3 replicates per seed (default seeds 0–1) for LLM variance floor.
 # q1-prompt-ablation: CVT archive + grid system prompt; stub+hints (default seed 0).
@@ -55,6 +56,7 @@ AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
 SCHEDULER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
 SCHEDULER_STUB_UNIFORM_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_uniform.yaml"
 SCHEDULER_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm.yaml"
+SCHEDULER_HINTS_RICH_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_rich.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
@@ -77,6 +79,7 @@ RUN_VANILLA=false
 RUN_GENETIC_ME=false
 RUN_GENETIC_ME_FILTER=false
 RUN_STUB_UNIFORM_ONLY=false
+RUN_HINTS_RICH_ONLY=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -225,9 +228,18 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_STUB_UNIFORM_ONLY=true
     ;;
+  q1-hints-rich-pilot)
+    # RQ1b: component-rich surrogate hints; 1-seed pilot default (seed 0).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-hints-rich-pilot"
+    SCHEDULER_HINTS_RICH="$SCHEDULER_HINTS_RICH_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_HINTS_RICH_ONLY=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot" >&2
     exit 1
     ;;
 esac
@@ -277,6 +289,11 @@ if [[ "$REQUESTED_TIER" == "q1-stub-uniform-sensitivity" && $# -lt 2 ]]; then
   SEED_END=2
   echo "NOTE: q1-stub-uniform-sensitivity default seeds 0–2 (post-arXiv pilot); full: $0 q1-stub-uniform-sensitivity 0 4" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-hints-rich-pilot" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=0
+  echo "NOTE: q1-hints-rich-pilot default seed 0 only; extend: $0 q1-hints-rich-pilot 0 4" >&2
+fi
 
 if [[ "$LLM_PROVIDER" == "deepseek" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
   echo "DEEPSEEK_API_KEY is required for LLM_PROVIDER=deepseek" >&2
@@ -303,7 +320,7 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot)
     apply_long_run_llm_defaults
     ;;
   q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-filter)
@@ -393,7 +410,7 @@ run_one() {
   remove_incomplete_run_dir "$out"
   mkdir -p "$out"
   local extra=()
-  if [[ "$condition" == "hints" || "$condition" == "filter" ]]; then
+  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "hints_rich" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
   if [[ -n "$replicate" ]]; then
@@ -471,6 +488,8 @@ else
         run_one genetic_me_filter "$SCHEDULER_GENETIC_ME_FILTER" "$seed" "$rep_arg"
       elif [[ "$RUN_STUB_UNIFORM_ONLY" == true ]]; then
         run_one stub_uniform "$SCHEDULER_STUB_UNIFORM" "$seed" "$rep_arg"
+      elif [[ "$RUN_HINTS_RICH_ONLY" == true ]]; then
+        run_one hints_rich "$SCHEDULER_HINTS_RICH" "$seed" "$rep_arg"
       else
         if [[ "$FILTER_ONLY" == true ]]; then
           require_stub_hints_for_seed "$seed"

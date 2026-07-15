@@ -34,7 +34,8 @@ from worldspace.surrogate.acquisition_config import (
     DEFAULT_SURROGATE_ARCHIVE_PATH,
     RetrainConfig,
 )
-from worldspace.surrogate.types import SurrogateConfig, SurrogateProtocol
+from worldspace.surrogate import StubSurrogate
+from worldspace.surrogate.types import SurrogateConfig, SurrogatePrediction, SurrogateProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,7 @@ __all__ = [
     "load_scheduler",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
+    "resolve_surrogate_prediction",
     "resolve_surrogate_stub",
     "select_target_bin",
     "select_target_cell",
@@ -138,6 +140,7 @@ class SchedulerConfig:
     )
     target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
     llm_system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
+    llm_user_prompt_path: str | None = None
 
     @property
     def n_cells(self) -> int:
@@ -258,6 +261,7 @@ def load_scheduler(
         initial_random_candidates=doc.initial_random_candidates,
         llm_enabled=doc.llm.enabled,
         llm_system_prompt_kind=doc.llm.system_prompt_kind,
+        llm_user_prompt_path=doc.llm.user_prompt_path,
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_model_type=doc.surrogate.model_type,
         surrogate_checkpoint=doc.surrogate.checkpoint,
@@ -381,15 +385,27 @@ def surrogate_config_from_scheduler(
     )
 
 
+def resolve_surrogate_prediction(
+    config: SchedulerConfig,
+    surrogate: SurrogateProtocol,
+    world_spec: WorldSpec,
+) -> SurrogatePrediction:
+    """Return full surrogate prediction for LLM user prompts."""
+    if not config.surrogate_enabled:
+        return StubSurrogate(
+            config.surrogate_stub_mean,
+            config.surrogate_stub_uncertainty,
+        ).predict(world_spec)
+    return surrogate.predict(world_spec)
+
+
 def resolve_surrogate_stub(
     config: SchedulerConfig,
     surrogate: SurrogateProtocol,
     world_spec: WorldSpec,
 ) -> tuple[float, float]:
     """Return surrogate fitness and uncertainty for LLM user prompts."""
-    if not config.surrogate_enabled:
-        return (config.surrogate_stub_mean, config.surrogate_stub_uncertainty)
-    prediction = surrogate.predict(world_spec)
+    prediction = resolve_surrogate_prediction(config, surrogate, world_spec)
     return (float(prediction.fitness), float(prediction.uncertainty))
 
 
@@ -414,6 +430,7 @@ class _LlmSchedulerBlock(BaseModel):
     enabled: bool
     # auto = match archive.type; grid/cvt force that system prompt (prompt ablation).
     system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
+    user_prompt_path: str | None = None
 
 
 class _AcquisitionYamlBlock(BaseModel):

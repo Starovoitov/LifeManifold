@@ -19,15 +19,18 @@ from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
     emitter_prompt_version,
+    load_user_prompt_template,
     render_system_prompt_for_archive_type,
+    surrogate_prompt_fields,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.scheduler import (
     SchedulerConfig,
     TargetCell,
-    resolve_surrogate_stub,
+    resolve_surrogate_prediction,
 )
-from worldspace.surrogate.types import SurrogateProtocol
+from worldspace.surrogate import StubSurrogate
+from worldspace.surrogate.types import SurrogatePrediction, SurrogateProtocol
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
 from worldspace.specs.world_spec_from_llm import (
@@ -67,6 +70,7 @@ class LlmPreparedSlot:
     prompt_version: str
     grid_size: int
     steps: int
+    surrogate_prediction: SurrogatePrediction | None = None
 
 
 class LlmEmitter:
@@ -150,9 +154,7 @@ class LlmEmitter:
             steps=steps,
         )
         prepared_parent = replace(parent_spec, grid_size=grid_size, steps=steps)
-        surrogate_mean, surrogate_uncertainty = self._resolve_surrogate_values(
-            prepared_parent
-        )
+        prediction = self._resolve_surrogate_prediction(prepared_parent)
         archive_type = cast(
             Literal["grid", "cvt"],
             archive.archive_type,
@@ -166,12 +168,19 @@ class LlmEmitter:
             grid_resolution=self._grid_resolution,
             n_centroids=archive.n_cells,
         )
-        prompt_version = emitter_prompt_version(archive_type=prompt_kind)
+        user_prompt_path = (
+            self._scheduler.llm_user_prompt_path if self._scheduler is not None else None
+        )
+        user_prompt_template = load_user_prompt_template(user_prompt_path)
+        prompt_version = emitter_prompt_version(
+            archive_type=prompt_kind,
+            user_path=user_prompt_path,
+        )
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
-            surrogate_mean=surrogate_mean,
-            surrogate_uncertainty=surrogate_uncertainty,
+            prediction=prediction,
+            user_prompt_template=user_prompt_template,
             rng=rng,
         )
         return LlmPreparedSlot(
@@ -183,6 +192,7 @@ class LlmEmitter:
             prompt_version=prompt_version,
             grid_size=grid_size,
             steps=steps,
+            surrogate_prediction=prediction,
         )
 
     def request_llm(self, prepared: LlmPreparedSlot) -> str:
@@ -297,11 +307,18 @@ class LlmEmitter:
             return archive_type
         return kind
 
-    def _resolve_surrogate_values(self, world_spec: WorldSpec) -> tuple[float, float]:
-        """Return ``(fitness hint, uncertainty)`` for the user prompt."""
+    def _resolve_surrogate_prediction(self, world_spec: WorldSpec) -> SurrogatePrediction:
+        """Return surrogate prediction for the user prompt."""
         if self._scheduler is not None and self._surrogate is not None:
-            return resolve_surrogate_stub(self._scheduler, self._surrogate, world_spec)
-        return (self._surrogate_mean, self._surrogate_uncertainty)
+            return resolve_surrogate_prediction(
+                self._scheduler,
+                self._surrogate,
+                world_spec,
+            )
+        return StubSurrogate(
+            self._surrogate_mean,
+            self._surrogate_uncertainty,
+        ).predict(world_spec)
 
     def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
         """Invoke the configured text caller (live API or test mock)."""
@@ -328,14 +345,23 @@ def build_user_prompt(
     *,
     target: TargetCell,
     archive: ArchiveProtocol,
-    surrogate_mean: float,
-    surrogate_uncertainty: float,
     rng: np.random.Generator,
+    prediction: SurrogatePrediction | None = None,
+    surrogate_mean: float = 0.5,
+    surrogate_uncertainty: float = 1.0,
+    user_prompt_template: str | None = None,
     max_few_shot: int = _DEFAULT_FEW_SHOT,
 ) -> str:
     """Build the LLM user prompt for one emitter slot."""
-    from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
-
+    if prediction is None:
+        prediction = StubSurrogate(surrogate_mean, surrogate_uncertainty).predict(
+            _PROMPT_STUB_WORLD_SPEC
+        )
+    template = (
+        user_prompt_template
+        if user_prompt_template is not None
+        else load_user_prompt_template()
+    )
     neighbors = neighbor_elites(
         archive,
         target.cell_id,
@@ -343,15 +369,27 @@ def build_user_prompt(
         max_count=max_few_shot,
     )
     current = archive.get_cell(target.cell_id)
-    return USER_PROMPT_TEMPLATE.format(
+    return template.format(
         target_stability=target.target_stability,
         target_diversity=target.target_diversity,
-        surrogate_mean=surrogate_mean,
-        surrogate_uncertainty=surrogate_uncertainty,
+        **surrogate_prompt_fields(prediction),
         current_elite_json=format_current_elite_json(current),
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),
     )
+
+
+_PROMPT_STUB_WORLD_SPEC = WorldSpec(
+    birth=[1],
+    survival=[2, 3],
+    noise=0.0,
+    resource_regen=0.0,
+    predation=0.0,
+    cell_types=["life", "food"],
+    grid_size=8,
+    steps=200,
+    seed=0,
+)
 
 
 def format_current_elite_json(elite: ArchiveElite | None) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 from dataclasses import replace
+from typing import Sequence
 
 import numpy as np
 
@@ -14,13 +15,18 @@ from worldspace.illuminators.archive import (
     new_elite_metadata,
 )
 from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
-from worldspace.illuminators.emitters.llm_prompts import emitter_prompt_version
+from worldspace.illuminators.emitters.llm_prompts import (
+    components_user_prompt_path,
+    emitter_prompt_version,
+    user_prompt_version,
+)
 from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
     world_spec_from_llm_payload,
 )
+from worldspace.surrogate.model import TARGET_KEYS
 from worldspace.surrogate.types import SurrogatePrediction
 
 _TARGET = TargetCell(
@@ -253,11 +259,16 @@ class TestLlmEmitterCalibratedSurrogate(unittest.TestCase):
             def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
                 _ = world_spec
                 return SurrogatePrediction(
-                    components={},
+                    components={key: 0.31 for key in TARGET_KEYS},
                     measures={"stability": 0.31, "diversity": 0.29},
                     fitness=0.31,
                     uncertainty=0.07,
                 )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
 
         def mock_llm(**kwargs: object) -> str:
             captured.append(str(kwargs.get("prompt", "")))
@@ -280,6 +291,99 @@ class TestLlmEmitterCalibratedSurrogate(unittest.TestCase):
         self.assertIn("0.310", captured[0])
         self.assertIn("0.070", captured[0])
         self.assertNotIn("0.500", captured[0])
+
+
+class TestLlmEmitterComponentsPrompt(unittest.TestCase):
+    def test_prepare_emit_uses_components_user_prompt(self) -> None:
+        class _RichSurrogate:
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={
+                        "stability": 0.41,
+                        "diversity": 0.55,
+                        "oscillation_score": 0.12,
+                        "topology_interface_index": 0.33,
+                        "topology_window_heterogeneity": 0.28,
+                        "final_density": 0.62,
+                        "early_extinction_prob": 0.38,
+                    },
+                    measures={"stability": 0.41, "diversity": 0.55},
+                    fitness=0.487,
+                    uncertainty=0.71,
+                )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
+
+        config = _scheduler_config(
+            surrogate_enabled=True,
+            llm_user_prompt_path="prompts/map_elites_llm_emitter_user_components.txt",
+        )
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_RichSurrogate(),
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("early_extinction_prob", prepared.user_prompt)
+        self.assertIn("0.380", prepared.user_prompt)
+        self.assertIn("0.710", prepared.user_prompt)
+        self.assertIsNotNone(prepared.surrogate_prediction)
+        assert prepared.surrogate_prediction is not None
+        self.assertAlmostEqual(
+            prepared.surrogate_prediction.components["early_extinction_prob"],
+            0.38,
+        )
+
+    def test_components_prompt_version_differs_from_default(self) -> None:
+        class _RichSurrogate:
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={key: 0.5 for key in TARGET_KEYS},
+                    measures={"stability": 0.5, "diversity": 0.5},
+                    fitness=0.5,
+                    uncertainty=1.0,
+                )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
+
+        config = _scheduler_config(
+            surrogate_enabled=True,
+            llm_user_prompt_path="prompts/map_elites_llm_emitter_user_components.txt",
+        )
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_RichSurrogate(),
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=GridArchive(5),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertNotEqual(
+            prepared.prompt_version.split(":")[-1],
+            user_prompt_version(),
+        )
+        self.assertEqual(
+            prepared.prompt_version.split(":")[-1],
+            user_prompt_version(components_user_prompt_path()),
+        )
 
 
 class TestSurrogateStub(unittest.TestCase):

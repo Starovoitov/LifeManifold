@@ -15,8 +15,13 @@ from worldspace.illuminators.illuminator import MapElitesRunResult
 from worldspace.illuminators.nightly_report import (
     LLM_STACK_VERSION,
     _collapsed_archive_for_validation,
+    build_llm_run_info,
     build_nightly_report,
     write_nightly_summary,
+)
+from worldspace.illuminators.emitters.llm_prompts import (
+    components_user_prompt_path,
+    user_prompt_version,
 )
 from worldspace.illuminators.scheduler import (
     DEFAULT_MINI_SCHEDULER_PATH,
@@ -255,6 +260,19 @@ class TestMapElitesNightlyReport(unittest.TestCase):
             self.assertEqual(payload["llm_temperature"], 0.2)
             self.assertIn("llm_top_p", payload)
             self.assertEqual(payload["llm_fallback_rate_pct"], 10.0)
+
+    def test_build_llm_run_info_uses_components_user_prompt_path(self) -> None:
+        config = load_scheduler(
+            _REPO_ROOT
+            / "worldspace/specs/map_elites_scheduler_nightly_llm_hints_rich.yaml"
+        )
+        info = build_llm_run_info(config, llm_spec_path=_LLM_SPEC)
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(
+            info.prompt_version.split(":")[-1],
+            user_prompt_version(components_user_prompt_path()),
+        )
 
 
 if __name__ == "__main__":

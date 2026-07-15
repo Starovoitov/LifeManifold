@@ -241,6 +241,65 @@ class TestLoadScheduler(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             load_scheduler("/nonexistent/map_elites_scheduler.yaml")
 
+    def test_default_scheduler_llm_user_prompt_path_none(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm.yaml"
+        )
+        self.assertIsNone(config.llm_user_prompt_path)
+
+    def test_load_scheduler_reads_llm_user_prompt_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "components_prompt.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"]["user_prompt_path"] = (
+                "prompts/map_elites_llm_emitter_user_components.txt"
+            )
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertEqual(
+                config.llm_user_prompt_path,
+                "prompts/map_elites_llm_emitter_user_components.txt",
+            )
+
+    def test_load_scheduler_llm_user_prompt_path_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "null_prompt.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"]["user_prompt_path"] = None
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertIsNone(config.llm_user_prompt_path)
+
+    def test_load_scheduler_rejects_unknown_llm_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_llm.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"]["user_prompt_path_extra"] = "prompts/foo.txt"
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_scheduler(path)
+
+    def test_load_hints_rich_scheduler(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm_hints_rich.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+        self.assertTrue(config.surrogate_enabled)
+        self.assertEqual(
+            config.llm_user_prompt_path,
+            "prompts/map_elites_llm_emitter_user_components.txt",
+        )
+        self.assertIn(
+            "hints_rich",
+            config.surrogate_buffer_path,
+        )
+
 
 class TestSelectTargetBin(unittest.TestCase):
     def test_empty_archive_uniform_among_empty(self) -> None:
