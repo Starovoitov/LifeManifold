@@ -18,9 +18,11 @@ from worldspace.illuminators.emitters.llm_emitter import LlmEmitter
 from worldspace.illuminators.emitters.llm_prompts import (
     components_user_prompt_path,
     emitter_prompt_version,
+    parent_user_prompt_path,
     user_prompt_version,
 )
 from worldspace.illuminators.scheduler import SchedulerConfig, TargetCell
+from worldspace.metrics import WorldMetrics
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 from worldspace.specs.world_spec_from_llm import (
     extract_json_object_from_text,
@@ -383,6 +385,120 @@ class TestLlmEmitterComponentsPrompt(unittest.TestCase):
         self.assertEqual(
             prepared.prompt_version.split(":")[-1],
             user_prompt_version(components_user_prompt_path()),
+        )
+
+
+class TestLlmEmitterParentPrompt(unittest.TestCase):
+    def test_prepare_emit_uses_parent_metrics_hint_block(self) -> None:
+        class _RichSurrogate:
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={
+                        "stability": 0.41,
+                        "diversity": 0.55,
+                        "oscillation_score": 0.12,
+                        "topology_interface_index": 0.33,
+                        "topology_window_heterogeneity": 0.28,
+                        "final_density": 0.62,
+                        "early_extinction_prob": 0.38,
+                    },
+                    measures={"stability": 0.41, "diversity": 0.55},
+                    fitness=0.487,
+                    uncertainty=0.71,
+                )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
+
+        archive = GridArchive(10)
+        parent_bin = archive.bin_from_cell_id(_TARGET.cell_id)
+        archive.try_insert(
+            ArchiveElite(
+                bin=parent_bin,
+                fitness=0.782,
+                world_spec=replace(_BASE, seed=1),
+                measures={"stability": 0.642, "diversity": 0.875},
+                metrics=WorldMetrics(
+                    entropy=0.5,
+                    stability=0.642,
+                    average_lifespan=0.4,
+                    density_mean=0.62,
+                    oscillation_score=0.12,
+                    diversity=0.875,
+                    mo_eoc_indicator=0.1,
+                    topology_interface_index=0.33,
+                    topology_window_heterogeneity=0.28,
+                    compressibility_score=0.2,
+                    ecology_state_entropy_norm=0.3,
+                    ecology_resource_adjacency=0.4,
+                ),
+                metadata=new_elite_metadata(
+                    generated_by="random",
+                    emitter_type="random",
+                    elite_id="parent-cell",
+                    timestamp="2026-01-01T00:00:00+00:00",
+                ),
+            )
+        )
+        config = _scheduler_config(
+            surrogate_enabled=True,
+            llm_user_prompt_path="prompts/map_elites_llm_emitter_user_parent_hints.txt",
+        )
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_RichSurrogate(),
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=archive,
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertIn("Parent cell (observed from simulation)", prepared.user_prompt)
+        self.assertIn("fitness: 0.782", prepared.user_prompt)
+        self.assertIn("composed fitness: 0.487", prepared.user_prompt)
+        self.assertIn("0.710", prepared.user_prompt)
+
+    def test_parent_prompt_version_differs_from_default(self) -> None:
+        class _RichSurrogate:
+            def predict(self, world_spec: WorldSpec) -> SurrogatePrediction:
+                _ = world_spec
+                return SurrogatePrediction(
+                    components={key: 0.5 for key in TARGET_KEYS},
+                    measures={"stability": 0.5, "diversity": 0.5},
+                    fitness=0.5,
+                    uncertainty=1.0,
+                )
+
+            def predict_batch(
+                self, world_specs: Sequence[WorldSpec]
+            ) -> list[SurrogatePrediction]:
+                return [self.predict(world_spec) for world_spec in world_specs]
+
+        config = _scheduler_config(
+            surrogate_enabled=True,
+            llm_user_prompt_path="prompts/map_elites_llm_emitter_user_parent_hints.txt",
+        )
+        emitter = LlmEmitter(
+            grid_resolution=config.grid_resolution,
+            scheduler=config,
+            surrogate=_RichSurrogate(),
+        )
+        prepared = emitter.prepare_emit(
+            target=_TARGET,
+            archive=GridArchive(10),
+            rng=np.random.default_rng(0),
+            grid_size=8,
+            steps=200,
+        )
+        self.assertEqual(
+            prepared.prompt_version.split(":")[-1],
+            user_prompt_version(parent_user_prompt_path()),
         )
 
 

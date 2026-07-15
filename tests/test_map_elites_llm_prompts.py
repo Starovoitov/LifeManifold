@@ -25,12 +25,17 @@ from worldspace.illuminators.emitters.llm_prompts import (
     DEFAULT_SYSTEM_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
     DEFAULT_USER_PROMPT_PATH,
+    PARENT_USER_PROMPT_PATH,
+    PARENT_USER_PROMPT_FIELD_NAMES,
+    PARENT_HINT_EMPTY,
     SURROGATE_USER_PROMPT_FIELD_NAMES,
     USER_PROMPT_TEMPLATE,
     components_user_prompt_path,
     emitter_prompt_version,
     load_system_prompt_template,
     load_user_prompt_template,
+    parent_prompt_fields,
+    parent_user_prompt_path,
     render_cvt_system_prompt,
     render_system_prompt,
     render_user_prompt,
@@ -38,6 +43,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
     system_prompt_version,
     user_prompt_version,
 )
+from worldspace.metrics import WorldMetrics
 from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_param_bounds import NOISE_MAX, NOISE_MIN
@@ -296,6 +302,100 @@ class TestComponentUserPrompt(unittest.TestCase):
         self.assertIn("0.620", rendered)
         self.assertIn("0.710", rendered)
         self.assertIn("early_extinction_prob", rendered)
+
+
+def _sample_metrics() -> WorldMetrics:
+    return WorldMetrics(
+        entropy=0.5,
+        stability=0.642,
+        average_lifespan=0.4,
+        density_mean=0.62,
+        oscillation_score=0.12,
+        diversity=0.875,
+        mo_eoc_indicator=0.1,
+        topology_interface_index=0.33,
+        topology_window_heterogeneity=0.28,
+        compressibility_score=0.2,
+        ecology_state_entropy_norm=0.3,
+        ecology_resource_adjacency=0.4,
+    )
+
+
+def _parent_prompt_kwargs() -> dict[str, object]:
+    return {
+        **_component_prompt_kwargs(),
+        **parent_prompt_fields(_elite_with_metrics()),
+    }
+
+
+def _elite_with_metrics() -> ArchiveElite:
+    return ArchiveElite(
+        bin=(1, 1),
+        fitness=0.782,
+        world_spec=replace(_BASE_SPEC, seed=1),
+        measures={"stability": 0.642, "diversity": 0.875},
+        metrics=_sample_metrics(),
+        metadata=new_elite_metadata(
+            generated_by="random",
+            emitter_type="random",
+            elite_id="parent-1",
+            timestamp="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+
+class TestParentUserPrompt(unittest.TestCase):
+    def test_parent_template_has_required_placeholders(self) -> None:
+        template = load_user_prompt_template(parent_user_prompt_path())
+        for field_name in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}:", template)
+        for field_name in PARENT_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}}}", template)
+        self.assertIn("parent observed fitness", template)
+
+    def test_parent_prompt_fields_occupied_elite(self) -> None:
+        fields = parent_prompt_fields(_elite_with_metrics())
+        block = fields["parent_hint_block"]
+        self.assertIn("Parent cell (observed from simulation)", block)
+        self.assertIn("fitness: 0.782", block)
+        self.assertIn("stability: 0.642", block)
+        self.assertIn("oscillation_score: 0.120", block)
+        self.assertIn("early_extinction_prob: 0.380", block)
+
+    def test_parent_prompt_fields_empty_cell(self) -> None:
+        fields = parent_prompt_fields(None)
+        self.assertEqual(fields["parent_hint_block"], PARENT_HINT_EMPTY)
+
+    def test_parent_prompt_fields_missing_metrics_uses_na(self) -> None:
+        elite = ArchiveElite(
+            bin=(1, 1),
+            fitness=0.5,
+            world_spec=replace(_BASE_SPEC, seed=1),
+            measures={"stability": 0.5, "diversity": 0.6},
+            metrics=None,
+            metadata=new_elite_metadata(
+                generated_by="random",
+                emitter_type="random",
+                elite_id="no-metrics",
+                timestamp="2026-01-01T00:00:00+00:00",
+            ),
+        )
+        block = parent_prompt_fields(elite)["parent_hint_block"]
+        self.assertIn("fitness: 0.500", block)
+        self.assertIn("final_density: n/a", block)
+
+    def test_render_parent_template_no_key_error(self) -> None:
+        template = load_user_prompt_template(parent_user_prompt_path())
+        rendered = render_user_prompt(template, **_parent_prompt_kwargs())
+        self.assertNotIn("{parent_hint_block}", rendered)
+        self.assertIn("Parent cell (observed from simulation)", rendered)
+        self.assertIn("composed fitness: 0.487", rendered)
+
+    def test_parent_prompt_version_differs_from_default_and_components(self) -> None:
+        parent_hash = user_prompt_version(parent_user_prompt_path())
+        self.assertNotEqual(parent_hash, user_prompt_version())
+        self.assertNotEqual(parent_hash, user_prompt_version(components_user_prompt_path()))
+        self.assertEqual(parent_user_prompt_path(), PARENT_USER_PROMPT_PATH)
 
 
 if __name__ == "__main__":

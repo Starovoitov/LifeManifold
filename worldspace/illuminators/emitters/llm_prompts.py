@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 from typing import Literal
 
+from worldspace.illuminators.archive import ArchiveElite
+from worldspace.illuminators.evaluation import extinction_probability
 from worldspace.prompt_files import PROMPTS_DIR, read_prompt
 from worldspace.surrogate.types import SurrogatePrediction
 
@@ -15,9 +18,15 @@ DEFAULT_SYSTEM_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_system.txt"
 DEFAULT_SYSTEM_PROMPT_PATH_CVT = PROMPTS_DIR / "map_elites_llm_emitter_system_cvt.txt"
 DEFAULT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user.txt"
 COMPONENTS_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_components.txt"
+PARENT_USER_PROMPT_PATH = PROMPTS_DIR / "map_elites_llm_emitter_user_parent_hints.txt"
 CVT_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system_cvt.txt"
 GRID_SYSTEM_PROMPT_FILE = "map_elites_llm_emitter_system.txt"
 COMPONENTS_USER_PROMPT_FILE = "map_elites_llm_emitter_user_components.txt"
+PARENT_USER_PROMPT_FILE = "map_elites_llm_emitter_user_parent_hints.txt"
+
+PARENT_HINT_EMPTY = "Parent cell: empty (no archive elite in this niche yet)."
+
+PARENT_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = ("parent_hint_block",)
 
 SURROGATE_USER_PROMPT_FIELD_NAMES: tuple[str, ...] = (
     "surrogate_stability",
@@ -39,11 +48,17 @@ __all__ = [
     "DEFAULT_SYSTEM_PROMPT_PATH_CVT",
     "DEFAULT_USER_PROMPT_PATH",
     "GRID_SYSTEM_PROMPT_FILE",
+    "PARENT_HINT_EMPTY",
+    "PARENT_USER_PROMPT_FIELD_NAMES",
+    "PARENT_USER_PROMPT_FILE",
+    "PARENT_USER_PROMPT_PATH",
     "SURROGATE_USER_PROMPT_FIELD_NAMES",
     "USER_PROMPT_TEMPLATE",
     "components_user_prompt_path",
     "load_system_prompt_template",
     "load_user_prompt_template",
+    "parent_prompt_fields",
+    "parent_user_prompt_path",
     "render_cvt_system_prompt",
     "render_system_prompt",
     "render_system_prompt_for_archive_type",
@@ -85,6 +100,11 @@ def components_user_prompt_path() -> Path:
     return COMPONENTS_USER_PROMPT_PATH
 
 
+def parent_user_prompt_path() -> Path:
+    """Return the on-disk path for the parent-metrics MAP-Elites user prompt."""
+    return PARENT_USER_PROMPT_PATH
+
+
 def load_user_prompt_template(path: str | Path | None = None) -> str:
     """Read the MAP-Elites LLM user prompt template from disk."""
     if path is None:
@@ -93,6 +113,75 @@ def load_user_prompt_template(path: str | Path | None = None) -> str:
     if not src.is_file():
         raise FileNotFoundError(f"LLM user prompt not found: {src.resolve()}")
     return src.read_text(encoding="utf-8")
+
+
+def _fmt_prompt_metric(value: float, *, precision: int = 3) -> str:
+    if not math.isfinite(value):
+        return "n/a"
+    return f"{value:.{precision}f}"
+
+
+def _format_parent_hint_block(
+    *,
+    fitness: float,
+    stability: float,
+    diversity: float,
+    final_density: float,
+    early_extinction_prob: float,
+    oscillation: float,
+    topology_interface: float,
+    topology_heterogeneity: float,
+) -> str:
+    return (
+        "Parent cell (observed from simulation):\n"
+        f"  fitness: {_fmt_prompt_metric(fitness)}\n"
+        f"  stability: {_fmt_prompt_metric(stability)}\n"
+        f"  diversity: {_fmt_prompt_metric(diversity)}\n"
+        f"  final_density: {_fmt_prompt_metric(final_density)}\n"
+        f"  early_extinction_prob: {_fmt_prompt_metric(early_extinction_prob)}\n"
+        f"  oscillation_score: {_fmt_prompt_metric(oscillation)}\n"
+        f"  topology_interface_index: {_fmt_prompt_metric(topology_interface)}\n"
+        f"  topology_window_heterogeneity: "
+        f"{_fmt_prompt_metric(topology_heterogeneity)}"
+    )
+
+
+def parent_prompt_fields(elite: ArchiveElite | None) -> dict[str, str]:
+    """Map the current archive elite to parent hint-block ``.format()`` kwargs."""
+    if elite is None or elite.world_spec is None:
+        return {"parent_hint_block": PARENT_HINT_EMPTY}
+    measures = elite.measures or {}
+    stability = float(measures.get("stability", float("nan")))
+    diversity = float(measures.get("diversity", float("nan")))
+    fitness = float(elite.fitness)
+    metrics = elite.metrics
+    if metrics is not None:
+        final_density = float(metrics.density_mean)
+        oscillation = float(metrics.oscillation_score)
+        topology_interface = float(metrics.topology_interface_index)
+        topology_heterogeneity = float(metrics.topology_window_heterogeneity)
+    else:
+        final_density = float("nan")
+        oscillation = float("nan")
+        topology_interface = float("nan")
+        topology_heterogeneity = float("nan")
+    early_extinction_prob = (
+        extinction_probability(final_density)
+        if math.isfinite(final_density)
+        else float("nan")
+    )
+    return {
+        "parent_hint_block": _format_parent_hint_block(
+            fitness=fitness,
+            stability=stability,
+            diversity=diversity,
+            final_density=final_density,
+            early_extinction_prob=early_extinction_prob,
+            oscillation=oscillation,
+            topology_interface=topology_interface,
+            topology_heterogeneity=topology_heterogeneity,
+        )
+    }
 
 
 def surrogate_prompt_fields(prediction: SurrogatePrediction) -> dict[str, float]:

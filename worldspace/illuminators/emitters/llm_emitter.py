@@ -20,6 +20,7 @@ from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
     emitter_prompt_version,
     load_user_prompt_template,
+    parent_prompt_fields,
     render_system_prompt_for_archive_type,
     surrogate_prompt_fields,
 )
@@ -373,6 +374,7 @@ def build_user_prompt(
         target_stability=target.target_stability,
         target_diversity=target.target_diversity,
         **surrogate_prompt_fields(prediction),
+        **parent_prompt_fields(current),
         current_elite_json=format_current_elite_json(current),
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),
