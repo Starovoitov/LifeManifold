@@ -210,6 +210,19 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertIn("api.openai.com", str(provider["api_base"]))
         self.assertEqual(provider["api_key_env"], "OPENAI_API_KEY")
 
+    def test_resolve_llm_spec_weak(self) -> None:
+        from scripts.run_github_llm_map_elites import resolve_llm_spec_path
+        from worldspace.generators.llm_config import load_llm_config
+
+        path = resolve_llm_spec_path("weak")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.name, "llm_world_generator_weak.yaml")
+        cfg = load_llm_config(path)
+        self.assertEqual(cfg.active_provider, "weak")
+        provider = cfg.providers["weak"]
+        self.assertEqual(provider["model"], "qwen2.5-omni-7b")
+        self.assertEqual(provider["api_key_env"], "QWEN_API_KEY")
+
     def test_call_llm_messages_sends_thinking_disabled(self) -> None:
         import json
         import os

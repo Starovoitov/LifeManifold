@@ -313,6 +313,17 @@ class TestLoadScheduler(unittest.TestCase):
             config.surrogate_buffer_path,
         )
 
+    def test_load_weak_hints_scheduler(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm_weak_hints.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+        self.assertTrue(config.surrogate_enabled)
+        self.assertIn(
+            "weak_hints",
+            config.surrogate_buffer_path,
+        )
+
 
 class TestSelectTargetBin(unittest.TestCase):
     def test_empty_archive_uniform_among_empty(self) -> None:

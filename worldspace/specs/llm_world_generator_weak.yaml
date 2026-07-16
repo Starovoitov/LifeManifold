@@ -1,0 +1,25 @@
+version: 1
+
+# Q1 v3 G2 / RQ1f — weak 7B on DashScope intl (same API as qwen-turbo).
+# Protocol: artifacts/Q1_RQ1F_WEAK_MODEL_HINTS_TASKS.md
+# Env: QWEN_API_KEY (or DASHSCOPE_API_KEY)
+#
+# Pin: qwen2.5-omni-7b — verified GO on intl endpoint (2026-07-16).
+# qwen2.5-7b-instruct returns HTTP 403 on this workspace; use omni-7b instead.
+llm:
+  mode: remote
+  active_provider: weak
+  global_search: false
+  temperature: 0.2
+  max_tokens: 350
+  fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
+  providers:
+    weak:
+      provider: openai
+      model: qwen2.5-omni-7b
+      api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+      api_key_env: QWEN_API_KEY
