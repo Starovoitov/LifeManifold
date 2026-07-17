@@ -82,7 +82,8 @@ def _collapsed_archive_for_summary(
         resolution=resolution,
     )
     if (
-        archive_type == "grid"
+        not bool(payload.get("standard_benchmark", False))
+        and archive_type == "grid"
         and expected_filled > run_archive.filled_count()
         and GRID_BASELINE_ARCHIVE.is_file()
     ):
@@ -101,8 +102,6 @@ def _archive_metrics(
     archive_path: Path,
 ) -> tuple[float | None, float | None]:
     """Return ``(mean_best_fitness, qd_score)`` from collapsed archive state."""
-    if not archive_path.is_file():
-        return None, None
     if (
         payload.get("qd_score") is not None
         and payload.get("mean_best_fitness") is not None
@@ -111,6 +110,8 @@ def _archive_metrics(
         qd_val = _as_float(payload["qd_score"])
         if mean_fit is not None and qd_val is not None:
             return mean_fit, qd_val
+    if not archive_path.is_file():
+        return None, None
     collapsed = _collapsed_archive_for_summary(payload, archive_path)
     qd = qd_score_from_archive(collapsed)
     filled = collapsed.filled_count()
@@ -149,9 +150,11 @@ def _infer_condition(run_dir: Path) -> str:
         "filter",
         "vanilla",
         "genetic_me",
+        "genetic_me_uniform",
         "genetic_me_filter",
         "cma_me",
         "cma_mae",
+        "me_random",
     }
     for part in run_dir.parts:
         if part in known:
@@ -182,6 +185,8 @@ def main() -> None:
         rows.append(
             {
                 "condition": _infer_condition(run_dir),
+                "benchmark": payload.get("benchmark"),
+                "standard_benchmark": payload.get("standard_benchmark", False),
                 "seed": payload.get("seed"),
                 "replicate": payload.get("replicate", _infer_replicate(run_dir)),
                 "iterations": payload.get("iterations"),
@@ -197,6 +202,8 @@ def main() -> None:
                 "skip_rate_pct": _skip_rate(surrogate_archive),
                 "llm_enabled": payload.get("llm_enabled"),
                 "surrogate_enabled": payload.get("surrogate_enabled"),
+                "pyribs_version": payload.get("pyribs_version"),
+                "pyribs_algo": payload.get("pyribs_algo"),
                 "elapsed_seconds": payload.get("elapsed_seconds"),
                 "llm_stack_version": payload.get("llm_stack_version"),
                 "llm_model": payload.get("llm_model"),
