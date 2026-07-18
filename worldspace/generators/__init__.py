@@ -820,6 +820,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
             ConnectionError,
             http.client.RemoteDisconnected,
             http.client.IncompleteRead,
+            ssl.SSLError,
         ) as exc:
             if attempt < _LLM_HTTP_MAX_ATTEMPTS:
                 last_error = exc

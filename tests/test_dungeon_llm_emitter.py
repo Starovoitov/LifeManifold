@@ -31,6 +31,16 @@ class _Caller:
         return self.response
 
 
+class _ErrorCaller(_Caller):
+    def __init__(self, message: str) -> None:
+        super().__init__("")
+        self.message = message
+
+    def __call__(self, **kwargs: object) -> str:
+        self.prompts.append(str(kwargs["prompt"]))
+        raise RuntimeError(self.message)
+
+
 class _SequenceCaller(_Caller):
     def __init__(self, responses: list[str]) -> None:
         super().__init__("")
@@ -38,7 +48,10 @@ class _SequenceCaller(_Caller):
 
     def __call__(self, **kwargs: object) -> str:
         self.prompts.append(str(kwargs["prompt"]))
-        return next(self.responses)
+        item = next(self.responses)
+        if isinstance(item, BaseException):
+            raise item
+        return str(item)
 
 
 def _target() -> tuple[DungeonArchive, object]:
@@ -147,6 +160,47 @@ class TestDungeonLlmEmitter(unittest.TestCase):
         self.assertEqual(result.emitter_type, "llm")
         self.assertEqual(emitter.audit.retries, 1)
         self.assertEqual(emitter.audit.fallbacks, 0)
+
+    def test_transient_network_error_recovers_before_fallback(self) -> None:
+        archive, target = _target()
+        child = random_dungeon(np.random.default_rng(21))
+        emitter = DungeonLlmEmitter(
+            prompt_mode="stub",
+            call_llm_text=_SequenceCaller(  # type: ignore[arg-type]
+                [
+                    RuntimeError(
+                        "LLM request failed: [SSL: UNEXPECTED_EOF_WHILE_READING]"
+                    ),
+                    child.canonical_json(),
+                ]
+            ),
+        )
+        result = emitter.emit(
+            target=target,  # type: ignore[arg-type]
+            archive=archive,
+            rng=np.random.default_rng(6),
+            prediction=None,
+        )
+        self.assertEqual(result.emitter_type, "llm")
+        self.assertEqual(emitter.audit.retries, 1)
+        self.assertEqual(emitter.audit.fallbacks, 0)
+        self.assertEqual(emitter.audit.invalid_response_reasons.get("network"), 1)
+
+    def test_persistent_network_error_uses_genetic_fallback(self) -> None:
+        archive, target = _target()
+        emitter = DungeonLlmEmitter(
+            prompt_mode="stub",
+            call_llm_text=_ErrorCaller("LLM request failed: connection reset"),  # type: ignore[arg-type]
+        )
+        result = emitter.emit(
+            target=target,  # type: ignore[arg-type]
+            archive=archive,
+            rng=np.random.default_rng(6),
+            prediction=None,
+        )
+        self.assertEqual(result.emitter_type, "llm_fallback_genetic")
+        self.assertEqual(emitter.audit.fallbacks, 1)
+        self.assertEqual(emitter.audit.failure_reasons.get("network"), 1)
 
     def test_unsolvable_patch_can_retain_a_solvable_subset(self) -> None:
         parent_rows = ["#" * 16, "#S............G#"] + ["#" * 16] * 14

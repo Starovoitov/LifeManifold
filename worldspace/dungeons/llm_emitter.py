@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
@@ -165,10 +166,14 @@ class DungeonLlmEmitter:
                 break
             except (ValueError, ValidationError, json.JSONDecodeError) as error:
                 last_reason = _failure_reason(error)
-                with self._audit_lock:
-                    self.audit.invalid_response_reasons[last_reason] = (
-                        self.audit.invalid_response_reasons.get(last_reason, 0) + 1
-                    )
+                _record_invalid_response(self, last_reason)
+            except RuntimeError as error:
+                if "LLM request failed" not in str(error):
+                    raise
+                last_reason = "network"
+                _record_invalid_response(self, last_reason)
+                if request_index < self.max_retries:
+                    time.sleep(2.0 * (request_index + 1))
         if child is None:
             with self._audit_lock:
                 self.audit.fallbacks += 1
@@ -310,6 +315,13 @@ def repair_solvable_mutation(
         ):
             return candidate
     return None
+
+
+def _record_invalid_response(emitter: DungeonLlmEmitter, reason: str) -> None:
+    with emitter._audit_lock:
+        emitter.audit.invalid_response_reasons[reason] = (
+            emitter.audit.invalid_response_reasons.get(reason, 0) + 1
+        )
 
 
 def _failure_reason(error: Exception) -> str:

@@ -120,7 +120,9 @@ def main() -> None:
             "",
             "## Evaluations to coverage thresholds (descriptive)",
             "",
-            "These thresholds were frozen only for a resumed matrix, not before this pilot.",
+            "These thresholds were **not** pre-specified before the first feasibility "
+            "pilot; values below are disclosed for transparency only and are **not** "
+            "preregistered endpoints (protocol v4 §6).",
             "",
             "| Arm | 25% | 40% | 50% |",
             "|-----|----:|----:|----:|",
