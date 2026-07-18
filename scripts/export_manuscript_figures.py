@@ -1,18 +1,72 @@
 #!/usr/bin/env python3
-"""Export matplotlib figures for the manuscript (Fig. 4–6)."""
+"""Export manuscript figures (Fig. 2–7; Fig. 3 via mermaid-cli)."""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import subprocess
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-FIG_DIR = ROOT / "artifacts/manuscript/figures"
+MS_DIR = ROOT / "artifacts/manuscript"
+FIG_DIR = MS_DIR / "figures"
+SURROGATE_FLOW_MMD = FIG_DIR / "surrogate_flow.mmd"
+PUPPETEER_CONFIG = FIG_DIR / "puppeteer-config.json"
+
+
+def fig03_surrogate_flow(out: Path) -> None:
+    if not SURROGATE_FLOW_MMD.is_file():
+        raise FileNotFoundError(SURROGATE_FLOW_MMD)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    base_cmd = [
+        "npx",
+        "--yes",
+        "@mermaid-js/mermaid-cli@10.9.0",
+        "-p",
+        str(PUPPETEER_CONFIG),
+        "-i",
+        str(SURROGATE_FLOW_MMD),
+        "-b",
+        "white",
+    ]
+    for target in (out, out.with_suffix(".png")):
+        subprocess.run([*base_cmd, "-o", str(target)], check=True, cwd=FIG_DIR)
+        print(f"Wrote {target}")
+
+
+def fig02_elite_worlds(out: Path) -> None:
+    from PIL import Image
+
+    panels = [
+        ("High fitness (0.81)", MS_DIR / "top_fitness_cropped.png"),
+        ("Median fitness (0.58)", MS_DIR / "median_fitness_cropped.png"),
+        ("Low fitness (0.24)", MS_DIR / "low_fitness_cropped.png"),
+    ]
+    arrays = [np.array(Image.open(path)) for _, path in panels]
+    max_h = max(arr.shape[0] for arr in arrays)
+    padded: list[np.ndarray] = []
+    for arr in arrays:
+        if arr.shape[0] < max_h:
+            pad = max_h - arr.shape[0]
+            arr = np.pad(arr, ((0, pad), (0, 0), (0, 0)), mode="constant")
+        padded.append(arr)
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7.2))
+    for ax, (title, arr) in zip(axes, zip((t for t, _ in panels), padded), strict=True):
+        ax.imshow(arr)
+        ax.set_title(title, loc="left", fontsize=11, pad=6)
+        ax.axis("off")
+
+    fig.tight_layout(h_pad=0.25)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=200, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Wrote {out}")
 
 
 def _load_summary(path: Path, condition: str) -> dict[int, dict[str, float]]:
@@ -145,12 +199,109 @@ def fig06_acquisition(out: Path) -> None:
     print(f"Wrote {out}")
 
 
+def _coverage_pct(summary_path: Path, condition: str, seed: int) -> float:
+    with summary_path.open(encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row["condition"] == condition and int(row["seed"]) == seed:
+                return float(row["coverage_pct"])
+    msg = f"no {condition} row for seed {seed} in {summary_path}"
+    raise KeyError(msg)
+
+
+def _load_fitness_pivot(archive_path: Path) -> np.ndarray:
+    import sys
+
+    repo = ROOT
+    dash = repo / "dashboard"
+    for entry in (str(repo), str(dash)):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+
+    from dashboard.components.archive_loader import load_archive_bundle
+    from dashboard.utils.config import load_config
+
+    cfg = load_config()
+    bundle = load_archive_bundle(archive_path, archive_path.stat().st_mtime, cfg)
+    if bundle.archive_type != "grid":
+        msg = f"expected grid archive, got {bundle.archive_type}: {archive_path}"
+        raise ValueError(msg)
+    return bundle.pivots["fitness"]
+
+
+def fig07_archive_heatmaps(out: Path, *, seed: int = 4) -> None:
+    hints_archive = (
+        ROOT / f"artifacts/experiments/q1-full/hints/seed_{seed}/map_elites_archive.jsonl"
+    )
+    cma_archive = (
+        ROOT
+        / f"artifacts/experiments/q1-v3-pyribs/cma_me/seed_{seed}/map_elites_archive.jsonl"
+    )
+    for path in (hints_archive, cma_archive):
+        if not path.is_file():
+            raise FileNotFoundError(path)
+
+    hints_cov = _coverage_pct(
+        ROOT / "artifacts/experiments/q1-full/summary.csv", "hints", seed
+    )
+    cma_cov = _coverage_pct(
+        ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv", "cma_me", seed
+    )
+
+    panels = [
+        ("hints", hints_archive, hints_cov),
+        ("cma_me", cma_archive, cma_cov),
+    ]
+    grids = [_load_fitness_pivot(path) for _, path, _ in panels]
+
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("#dddddd")
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.8), layout="constrained")
+    im = None
+    for ax, (label, _, cov), grid in zip(axes, panels, grids, strict=True):
+        masked = np.ma.masked_invalid(grid)
+        im = ax.imshow(
+            masked,
+            origin="lower",
+            aspect="equal",
+            cmap=cmap,
+            vmin=0.0,
+            vmax=1.0,
+            interpolation="nearest",
+        )
+        ax.set_title(f"{label} (seed {seed}, coverage {cov:.1f}%)", fontsize=11)
+        ax.set_xlabel("Diversity bin")
+        ax.set_ylabel("Stability bin")
+        ax.set_xlim(-0.5, grid.shape[1] - 0.5)
+        ax.set_ylim(-0.5, grid.shape[0] - 0.5)
+
+    if im is not None:
+        fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85, label="Fitness")
+    fig.suptitle(
+        "Archive fitness in behaviour space (collapsed warm-start archives)",
+        fontsize=12,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=220, bbox_inches="tight", facecolor="white")
+    png_out = out.with_suffix(".png")
+    fig.savefig(png_out, dpi=220, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Wrote {out}")
+    print(f"Wrote {png_out}")
+
+    alias_dir = FIG_DIR / "archive_heatmaps"
+    alias_dir.mkdir(parents=True, exist_ok=True)
+    alias = alias_dir / f"seed{seed}_hints_vs_cma_me.png"
+    alias.write_bytes(png_out.read_bytes())
+    print(f"Wrote {alias}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--fig",
         type=int,
-        choices=(4, 5, 6),
+        choices=(2, 3, 4, 5, 6, 7),
         action="append",
         dest="figs",
         help="Which figure(s) to export (repeatable)",
@@ -158,22 +309,35 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Export Fig. 4, 5, and 6",
+        help="Export Fig. 2–7",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=4,
+        help="Paired seed for Fig. 7 archive heatmaps (default: 4, largest hints−cma_me Δ)",
     )
     args = parser.parse_args()
-    figs = args.figs or ([4, 5, 6] if args.all else [])
+    figs = args.figs or ([2, 3, 4, 5, 6, 7] if args.all else [])
     if not figs:
         parser.error("pass --fig N and/or --all")
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     exporters = {
+        2: (fig02_elite_worlds, FIG_DIR / "fig02_elite_worlds.png"),
+        3: (fig03_surrogate_flow, FIG_DIR / "fig03_surrogate_flow.pdf"),
         4: (fig04_rq1_rq0, FIG_DIR / "fig04_rq1_rq0.pdf"),
         5: (fig05_ladder, FIG_DIR / "fig05_ladder.pdf"),
         6: (fig06_acquisition, FIG_DIR / "fig06_acquisition_anytime.pdf"),
+        7: (fig07_archive_heatmaps, FIG_DIR / "fig07_archive_heatmaps_seed4.pdf"),
     }
     for number in figs:
         fn, path = exporters[number]
-        fn(path)
+        if number == 7:
+            out_path = FIG_DIR / f"fig07_archive_heatmaps_seed{args.seed}.pdf"
+            fn(out_path, seed=args.seed)
+        else:
+            fn(path)
 
 
 if __name__ == "__main__":
