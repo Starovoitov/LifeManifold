@@ -1115,6 +1115,106 @@ def write_frq4_outputs(stats: dict[str, Any]) -> None:
         FRQ4_ANALYSIS_MD.write_text(md, encoding="utf-8")
 
 
+def _dungeon_trace_auc(path: Path, metric: str, budget: int) -> float:
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    by_eval: dict[int, float] = {}
+    for row in rows:
+        value = row.get(metric)
+        if value is not None:
+            by_eval[int(row["evaluations"])] = float(value)
+    evaluations = np.asarray(sorted(by_eval), dtype=float)
+    values = np.asarray([by_eval[int(item)] for item in evaluations], dtype=float)
+    grid = np.arange(0, budget + 1, 50, dtype=float)
+    if grid[-1] != budget:
+        grid = np.append(grid, float(budget))
+    interpolated = np.interp(grid, evaluations, values)
+    return float(np.trapezoid(interpolated, grid) / float(budget))
+
+
+def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
+    """Run the frozen v4 dungeon Holm family on matched anytime AUCs."""
+    conditions = (
+        "genetic",
+        "genetic_filter",
+        "llm_stub",
+        "llm_hints",
+        "llm_hints_filter",
+    )
+    seeds_by_condition: dict[str, set[int]] = {}
+    summaries: dict[tuple[str, int], dict[str, Any]] = {}
+    for condition in conditions:
+        seeds: set[int] = set()
+        for path in sorted((root / condition).glob("seed_*/nightly_run_summary.json")):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            seed = int(payload["seed"])
+            seeds.add(seed)
+            summaries[(condition, seed)] = payload
+        seeds_by_condition[condition] = seeds
+    matched = set.intersection(*(seeds_by_condition[item] for item in conditions))
+    if len(matched) < 5:
+        raise SystemExit(
+            f"v4 dungeon family requires at least 5 matched seeds, got {sorted(matched)}"
+        )
+    matched_seeds = sorted(matched)
+    common_budget = min(
+        int(summaries[(condition, seed)]["evaluations"])
+        for condition in conditions
+        for seed in matched_seeds
+    )
+    aucs: dict[str, dict[str, np.ndarray]] = {}
+    for condition in conditions:
+        aucs[condition] = {}
+        for metric in ("coverage", "qd_score"):
+            aucs[condition][metric] = np.asarray(
+                [
+                    _dungeon_trace_auc(
+                        root / condition / f"seed_{seed}" / "archive_trace.jsonl",
+                        metric,
+                        common_budget,
+                    )
+                    for seed in matched_seeds
+                ]
+            )
+    contrasts = {
+        "hints_minus_stub": ("llm_hints", "llm_stub"),
+        "genetic_filter_minus_genetic": ("genetic_filter", "genetic"),
+        "llm_filter_minus_hints": ("llm_hints_filter", "llm_hints"),
+    }
+    tests: dict[str, dict[str, Any]] = {}
+    for name, (treatment, control) in contrasts.items():
+        for metric in ("coverage", "qd_score"):
+            delta = aucs[treatment][metric] - aucs[control][metric]
+            tests[f"{name}_{metric}_auc"] = _metric_block(delta, "greater")
+    for metric in ("coverage", "qd_score"):
+        interaction = (
+            aucs["llm_hints_filter"][metric]
+            - aucs["llm_hints"][metric]
+            - aucs["genetic_filter"][metric]
+            + aucs["genetic"][metric]
+        )
+        tests[f"acquisition_interaction_{metric}_auc"] = _metric_block(
+            interaction,
+            "greater",
+        )
+    holm = holm_step_down({name: block["p"] for name, block in tests.items()})
+    return {
+        "family": "F-B4-dungeon",
+        "m": len(tests),
+        "alpha": 0.05,
+        "n_seeds": len(matched_seeds),
+        "seeds": matched_seeds,
+        "common_evaluation_budget": common_budget,
+        "tests": tests,
+        "holm_reject": holm,
+        "family_pass": all(holm.values()),
+        "sources": str(root),
+    }
+
+
 def main() -> None:
     import argparse
 
@@ -1123,9 +1223,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--family",
-        choices=("v2", "frq4", "all"),
+        choices=("v2", "frq4", "v4-dungeon", "all"),
         default="v2",
         help="v2 = grid/CVT (default); frq4 = B2 F-RQ4 only; all = both",
+    )
+    parser.add_argument(
+        "--dungeon-root",
+        type=Path,
+        default=ROOT / "artifacts/experiments/q1-v4-dungeon",
     )
     args = parser.parse_args()
 
@@ -1196,6 +1301,15 @@ def main() -> None:
                 indent=2,
             )
         )
+
+    if args.family in ("v4-dungeon", "all"):
+        dungeon = run_v4_dungeon_statistics(args.dungeon_root.resolve())
+        output = args.dungeon_root.resolve() / "v4_dungeon_statistics.json"
+        output.write_text(
+            json.dumps(dungeon, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(dungeon, indent=2))
 
 
 if __name__ == "__main__":

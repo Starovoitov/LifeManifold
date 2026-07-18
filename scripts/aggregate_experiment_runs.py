@@ -83,6 +83,7 @@ def _collapsed_archive_for_summary(
     )
     if (
         not bool(payload.get("standard_benchmark", False))
+        and not bool(payload.get("dungeon_benchmark", False))
         and archive_type == "grid"
         and expected_filled > run_archive.filled_count()
         and GRID_BASELINE_ARCHIVE.is_file()
@@ -155,6 +156,12 @@ def _infer_condition(run_dir: Path) -> str:
         "cma_me",
         "cma_mae",
         "me_random",
+        "random",
+        "genetic",
+        "genetic_filter",
+        "llm_stub",
+        "llm_hints",
+        "llm_hints_filter",
     }
     for part in run_dir.parts:
         if part in known:
@@ -187,10 +194,13 @@ def main() -> None:
                 "condition": _infer_condition(run_dir),
                 "benchmark": payload.get("benchmark"),
                 "standard_benchmark": payload.get("standard_benchmark", False),
+                "dungeon_benchmark": payload.get("dungeon_benchmark", False),
                 "seed": payload.get("seed"),
                 "replicate": payload.get("replicate", _infer_replicate(run_dir)),
                 "iterations": payload.get("iterations"),
                 "evaluations": payload.get("evaluations"),
+                "proposals": payload.get("proposals"),
+                "skipped": payload.get("skipped"),
                 "filled_cells": payload.get("filled_cells"),
                 "coverage_pct": round(
                     (_as_float(payload.get("coverage", 0.0)) or 0.0) * 100.0, 4
@@ -199,7 +209,14 @@ def main() -> None:
                     round(mean_fit, 6) if mean_fit is not None else None
                 ),
                 "qd_score": round(qd, 6) if qd is not None else None,
-                "skip_rate_pct": _skip_rate(surrogate_archive),
+                "skip_rate_pct": (
+                    round(
+                        (_as_float(payload.get("skip_rate", 0.0)) or 0.0) * 100.0,
+                        4,
+                    )
+                    if payload.get("dungeon_benchmark")
+                    else _skip_rate(surrogate_archive)
+                ),
                 "llm_enabled": payload.get("llm_enabled"),
                 "surrogate_enabled": payload.get("surrogate_enabled"),
                 "pyribs_version": payload.get("pyribs_version"),
@@ -211,6 +228,9 @@ def main() -> None:
                 "llm_top_p": payload.get("llm_top_p"),
                 "llm_spec_hash": payload.get("llm_spec_hash"),
                 "llm_fallback_rate_pct": payload.get("llm_fallback_rate_pct"),
+                "llm_calls": payload.get("llm_calls"),
+                "llm_parse_success_rate": payload.get("llm_parse_success_rate"),
+                "llm_mean_tile_distance": payload.get("llm_mean_tile_distance"),
                 "llm_parallel_emit": payload.get("llm_parallel_emit"),
                 "llm_parallel_workers": payload.get("llm_parallel_workers"),
                 "emit_llm_seconds": payload.get("emit_llm_seconds"),

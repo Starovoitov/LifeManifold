@@ -1,0 +1,16 @@
+Target behavior cell:
+- normalized path length: {target_path:.3f}
+- normalized branching: {target_branching:.3f}
+
+Surrogate estimate for the parent:
+- predicted fitness: {surrogate_fitness:.4f}
+- uncertainty: {surrogate_uncertainty:.4f}
+- predicted path descriptor: {surrogate_path:.4f}
+- predicted branching descriptor: {surrogate_branching:.4f}
+
+Parent dungeon:
+{parent_json}
+
+Return 4–20 interior tile edits to move toward the target cell. Returning no
+effective changes is invalid. Return the edits JSON object and no explanation.
+
