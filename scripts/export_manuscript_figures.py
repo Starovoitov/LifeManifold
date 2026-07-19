@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export manuscript figures (Fig. 2–7; Fig. 3 via mermaid-cli)."""
+"""Export manuscript figures (Fig. 1–7; Fig. 1/3 via mermaid-cli)."""
 
 from __future__ import annotations
 
@@ -16,12 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 MS_DIR = ROOT / "artifacts/manuscript"
 FIG_DIR = MS_DIR / "figures"
 SURROGATE_FLOW_MMD = FIG_DIR / "surrogate_flow.mmd"
+PIPELINE_MMD = FIG_DIR / "pipeline.mmd"
 PUPPETEER_CONFIG = FIG_DIR / "puppeteer-config.json"
 
 
-def fig03_surrogate_flow(out: Path) -> None:
-    if not SURROGATE_FLOW_MMD.is_file():
-        raise FileNotFoundError(SURROGATE_FLOW_MMD)
+def _export_mermaid(mmd: Path, out: Path, *, width: int, height: int) -> None:
+    """Export a mermaid diagram via mermaid-cli at print resolution."""
+    if not mmd.is_file():
+        raise FileNotFoundError(mmd)
     out.parent.mkdir(parents=True, exist_ok=True)
     base_cmd = [
         "npx",
@@ -30,13 +32,35 @@ def fig03_surrogate_flow(out: Path) -> None:
         "-p",
         str(PUPPETEER_CONFIG),
         "-i",
-        str(SURROGATE_FLOW_MMD),
+        str(mmd),
         "-b",
         "white",
+        "-w",
+        str(width),
+        "-H",
+        str(height),
+        "-s",
+        "3",
     ]
-    for target in (out, out.with_suffix(".png")):
-        subprocess.run([*base_cmd, "-o", str(target)], check=True, cwd=FIG_DIR)
-        print(f"Wrote {target}")
+    subprocess.run(
+        [*base_cmd, "-o", str(out), "-e", "pdf", "-f"],
+        check=True,
+        cwd=FIG_DIR,
+    )
+    print(f"Wrote {out}")
+    png = out.with_suffix(".png")
+    subprocess.run([*base_cmd, "-o", str(png)], check=True, cwd=FIG_DIR)
+    print(f"Wrote {png}")
+
+
+def fig01_pipeline(out: Path) -> None:
+    """Fig. 1: two surrogate integration roles (conceptual architecture)."""
+    _export_mermaid(PIPELINE_MMD, out, width=1400, height=1800)
+
+
+def fig03_surrogate_flow(out: Path) -> None:
+    """Fig. 3: detailed surrogate feature → Role 1 / Role 2 flow."""
+    _export_mermaid(SURROGATE_FLOW_MMD, out, width=1400, height=2400)
 
 
 def fig02_elite_worlds(out: Path) -> None:
@@ -87,7 +111,9 @@ def fig04_rq1_rq0(out: Path) -> None:
     stub = _load_summary(ROOT / "artifacts/experiments/q1-full/summary.csv", "stub")
     hints = _load_summary(ROOT / "artifacts/experiments/q1-full/summary.csv", "hints")
     seeds = sorted(set(stub) & set(hints))
-    delta_cov = np.array([hints[s]["coverage_pct"] - stub[s]["coverage_pct"] for s in seeds])
+    delta_cov = np.array(
+        [hints[s]["coverage_pct"] - stub[s]["coverage_pct"] for s in seeds]
+    )
     delta_fit = np.array(
         [hints[s]["mean_best_fitness"] - stub[s]["mean_best_fitness"] for s in seeds]
     )
@@ -122,10 +148,20 @@ def fig04_rq1_rq0(out: Path) -> None:
 
 
 def fig05_ladder(out: Path) -> None:
+    # Ladder around two-role framing: policy jump, then Role-2 filter, then LLM.
     specs = [
         ("vanilla", ROOT / "artifacts/experiments/q1-v3-vanilla/summary.csv"),
         ("genetic_me", ROOT / "artifacts/experiments/q1-v3-genetic-me/summary.csv"),
         ("stub", ROOT / "artifacts/experiments/q1-full/summary.csv"),
+        (
+            "genetic_me_uniform",
+            ROOT / "artifacts/experiments/q1-v3-genetic-me-uniform/summary.csv",
+        ),
+        (
+            "genetic_me_filter",
+            ROOT / "artifacts/experiments/q1-v3-genetic-me-filter/summary.csv",
+        ),
+        ("filter", ROOT / "artifacts/experiments/q1-full/summary.csv"),
         ("hints", ROOT / "artifacts/experiments/q1-full/summary.csv"),
         ("cma_me", ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"),
         ("cma_mae", ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"),
@@ -145,7 +181,7 @@ def fig05_ladder(out: Path) -> None:
     ax.bar(x, means, yerr=sds, capsize=4, color=bar_colors)
     ax.set_xticks(x, labels, rotation=25, ha="right")
     ax.set_ylabel("Mean coverage (%)")
-    ax.set_title("CA performance ladder (n=10 seeds)")
+    ax.set_title("CA ladder: policy, Role-2 filter, LLM stack (n=10)")
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -171,8 +207,14 @@ def _trace_curve(path: Path, metric: str, grid: np.ndarray) -> np.ndarray:
 def fig06_acquisition(out: Path) -> None:
     grid = np.arange(0, 20_001, 500, dtype=float)
     arm_paths = [
-        ("uniform", ROOT / "artifacts/experiments/q1-v3-genetic-me-uniform/genetic_me_uniform"),
-        ("filter", ROOT / "artifacts/experiments/q1-v3-genetic-me-filter/genetic_me_filter"),
+        (
+            "uniform",
+            ROOT / "artifacts/experiments/q1-v3-genetic-me-uniform/genetic_me_uniform",
+        ),
+        (
+            "filter",
+            ROOT / "artifacts/experiments/q1-v3-genetic-me-filter/genetic_me_filter",
+        ),
     ]
     fig, ax = plt.subplots(figsize=(8, 4.5))
     colors = {"uniform": "#1f77b4", "filter": "#ff7f0e"}
@@ -189,7 +231,7 @@ def fig06_acquisition(out: Path) -> None:
         ax.fill_between(grid, q25, q75, color=colors[label], alpha=0.2)
     ax.set_xlabel("Simulator evaluations")
     ax.set_ylabel("Coverage (%)")
-    ax.set_title("Matched acquisition: genetic_me_uniform vs filter (n=10, IQR)")
+    ax.set_title("Role 2: genetic_me_uniform vs genetic_me_filter (n=10, IQR)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -230,7 +272,8 @@ def _load_fitness_pivot(archive_path: Path) -> np.ndarray:
 
 def fig07_archive_heatmaps(out: Path, *, seed: int = 4) -> None:
     hints_archive = (
-        ROOT / f"artifacts/experiments/q1-full/hints/seed_{seed}/map_elites_archive.jsonl"
+        ROOT
+        / f"artifacts/experiments/q1-full/hints/seed_{seed}/map_elites_archive.jsonl"
     )
     cma_archive = (
         ROOT
@@ -301,7 +344,7 @@ def main() -> None:
     parser.add_argument(
         "--fig",
         type=int,
-        choices=(2, 3, 4, 5, 6, 7),
+        choices=(1, 2, 3, 4, 5, 6, 7),
         action="append",
         dest="figs",
         help="Which figure(s) to export (repeatable)",
@@ -309,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Export Fig. 2–7",
+        help="Export Fig. 1–7",
     )
     parser.add_argument(
         "--seed",
@@ -318,12 +361,13 @@ def main() -> None:
         help="Paired seed for Fig. 7 archive heatmaps (default: 4, largest hints−cma_me Δ)",
     )
     args = parser.parse_args()
-    figs = args.figs or ([2, 3, 4, 5, 6, 7] if args.all else [])
+    figs = args.figs or ([1, 2, 3, 4, 5, 6, 7] if args.all else [])
     if not figs:
         parser.error("pass --fig N and/or --all")
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     exporters = {
+        1: (fig01_pipeline, FIG_DIR / "fig01_pipeline.pdf"),
         2: (fig02_elite_worlds, FIG_DIR / "fig02_elite_worlds.png"),
         3: (fig03_surrogate_flow, FIG_DIR / "fig03_surrogate_flow.pdf"),
         4: (fig04_rq1_rq0, FIG_DIR / "fig04_rq1_rq0.pdf"),

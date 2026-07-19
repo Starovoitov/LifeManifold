@@ -13,6 +13,7 @@
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
+# Anytime:     q1-anytime-ladder (vanilla + hints + cma_me; archive_trace; new root)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
 # RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
@@ -98,6 +99,7 @@ RUN_HINTS_RICH_ONLY=false
 RUN_HINTS_PARENT_ONLY=false
 RUN_HINTS_DIRECTION_ONLY=false
 RUN_WEAK_HINTS_PILOT=false
+RUN_ANYTIME_LADDER=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -285,6 +287,18 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_STUB_UNIFORM_ONLY=true
     ;;
+  q1-anytime-ladder)
+    # Selective re-runs for archive_trace curves (vanilla + hints + cma_me); does not touch q1-full.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-anytime-ladder"
+    ARCHIVE_TYPE=grid
+    BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+    SCHEDULER_VANILLA="$SCHEDULER_VANILLA_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_ANYTIME_LADDER=true
+    ;;
   q1-hints-rich-pilot)
     # RQ1b: component-rich surrogate hints; 1-seed pilot default (seed 0).
     ITERATIONS=650
@@ -325,7 +339,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-anytime-ladder|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac
@@ -388,7 +402,12 @@ fi
 if [[ "$REQUESTED_TIER" == "q1-stub-uniform-sensitivity" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=2
-  echo "NOTE: q1-stub-uniform-sensitivity default seeds 0–2 (post-arXiv pilot); full: $0 q1-stub-uniform-sensitivity 0 4" >&2
+  echo "NOTE: q1-stub-uniform-sensitivity default seeds 0–2 (post-arXiv pilot); full: $0 q1-stub-uniform-sensitivity 0 9" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-anytime-ladder" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=4
+  echo "NOTE: q1-anytime-ladder default seeds 0–4 (vanilla + hints + cma_me); full: $0 q1-anytime-ladder 0 9" >&2
 fi
 if [[ "$REQUESTED_TIER" == "q1-hints-rich-pilot" && $# -lt 2 ]]; then
   SEED_START=0
@@ -445,6 +464,10 @@ case "$TIER" in
     ;;
   q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter)
     apply_vanilla_run_defaults
+    ;;
+  q1-anytime-ladder)
+    apply_vanilla_run_defaults
+    apply_long_run_llm_defaults
     ;;
 esac
 
@@ -665,6 +688,12 @@ elif [[ "$RUN_PYRIBS" == true ]]; then
     for algo in cma_me cma_mae; do
       run_pyribs_one "$algo" "$seed"
     done
+  done
+elif [[ "$RUN_ANYTIME_LADDER" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    run_one vanilla "$SCHEDULER_VANILLA" "$seed"
+    run_one hints "$SCHEDULER_HINTS" "$seed"
+    run_pyribs_one cma_me "$seed"
   done
 else
   for seed in $(seq "$SEED_START" "$SEED_END"); do
