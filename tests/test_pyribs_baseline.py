@@ -36,11 +36,28 @@ class TestPyribsBaselineUnit(unittest.TestCase):
                 hp = pyribs_hyperparams(PyribsBaselineConfig(algo=algo, seed=0))
                 self.assertEqual(hp["pyribs_version"], "0.11.0")
                 self.assertEqual(hp["sigma0"], 0.2)
+                self.assertEqual(hp["decode_mode"], "rint")
+                self.assertTrue(hp["warm_start_enabled"])
                 self.assertEqual(hp["ask_size"], 250)
                 self.assertEqual(hp["asks"], 130)
                 self.assertEqual(hp["restart_rule"], restart)
                 self.assertEqual(hp["ranker"], ranker)
                 self.assertEqual(len(hp["x0"]), 21)
+
+    def test_pyribs_hyperparams_decode_mode_and_cold_start(self) -> None:
+        warm = pyribs_hyperparams(PyribsBaselineConfig(algo="cma_me", seed=0))
+        self.assertEqual(warm["decode_mode"], "rint")
+        self.assertTrue(warm["warm_start_enabled"])
+        cold = pyribs_hyperparams(
+            PyribsBaselineConfig(
+                algo="cma_me",
+                seed=0,
+                load_archive=None,
+                decode_mode="threshold",
+            )
+        )
+        self.assertEqual(cold["decode_mode"], "threshold")
+        self.assertFalse(cold["warm_start_enabled"])
 
     def test_build_scheduler_cma_me_and_mae(self) -> None:
         for algo in ("cma_me", "cma_mae"):

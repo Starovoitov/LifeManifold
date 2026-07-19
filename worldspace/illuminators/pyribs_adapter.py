@@ -17,6 +17,7 @@ import numpy as np
 
 from worldspace.illuminators.emitters.genetics import (
     GENOME_SIZE,
+    DecodeMode,
     decode_genome,
     encode_world,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "ARCHIVE_DIMS",
     "ARCHIVE_RANGES",
     "GENOME_SIZE",
+    "DecodeMode",
     "MEASURE_ORDER",
     "PyribsEvalBatch",
     "PyribsEvalKnobs",
@@ -87,6 +89,8 @@ class PyribsEvalKnobs:
     early_extinction_step: int = 200
     enforce_min_steps: bool = True
     performance: SimulatorPerformanceOptions = DEFAULT_SIMULATOR_PERFORMANCE
+    decode_mode: DecodeMode = "rint"
+    eval_seed: int = 0
 
 
 @dataclass(frozen=True)
@@ -118,11 +122,19 @@ def solution_to_world_spec(
     *,
     grid_size: int = 50,
     steps: int = ILLUMINATOR_MIN_STEPS,
+    decode_mode: DecodeMode = "rint",
+    rng: np.random.Generator | None = None,
 ) -> WorldSpec:
-    """Decode CMA ``theta`` to ``WorldSpec`` (rule bits rinted; floats clipped)."""
+    """Decode CMA ``theta`` to ``WorldSpec`` (rule bits per ``decode_mode``; floats clipped)."""
     genes = np.asarray(theta, dtype=np.float64).reshape(GENOME_SIZE).copy()
     clip_genome_float_params(genes, start_index=18)
-    return decode_genome(genes, grid_size=grid_size, steps=steps)
+    return decode_genome(
+        genes,
+        grid_size=grid_size,
+        steps=steps,
+        decode_mode=decode_mode,
+        rng=rng,
+    )
 
 
 def measures_vector(measures: dict[str, float]) -> np.ndarray:
@@ -148,10 +160,17 @@ def evaluate_solution(
     theta: np.ndarray | Sequence[float],
     *,
     knobs: PyribsEvalKnobs | None = None,
+    rng: np.random.Generator | None = None,
 ) -> tuple[float, np.ndarray, EvalResult]:
     """Decode one solution and evaluate with illuminator ``evaluate_candidate``."""
     cfg = knobs or PyribsEvalKnobs()
-    spec = solution_to_world_spec(theta, grid_size=cfg.grid_size, steps=cfg.steps)
+    spec = solution_to_world_spec(
+        theta,
+        grid_size=cfg.grid_size,
+        steps=cfg.steps,
+        decode_mode=cfg.decode_mode,
+        rng=rng,
+    )
     result = evaluate_candidate(
         spec,
         resolution=cfg.resolution,
@@ -167,6 +186,7 @@ def evaluate_solutions_batch(
     *,
     knobs: PyribsEvalKnobs | None = None,
     eval_pool: ParallelEvalPool | None = None,
+    batch_index: int = 0,
 ) -> PyribsEvalBatch:
     """Evaluate a batch of solutions; optional persistent parallel pool."""
     cfg = knobs or PyribsEvalKnobs()
@@ -174,10 +194,22 @@ def evaluate_solutions_batch(
     if arr.ndim != 2 or arr.shape[1] != GENOME_SIZE:
         msg = f"thetas must have shape (n, {GENOME_SIZE}), got {arr.shape}"
         raise ValueError(msg)
-    specs = [
-        solution_to_world_spec(row, grid_size=cfg.grid_size, steps=cfg.steps)
-        for row in arr
-    ]
+    specs: list[WorldSpec] = []
+    for row_index, row in enumerate(arr):
+        rng = None
+        if cfg.decode_mode == "bernoulli":
+            rng = np.random.default_rng(
+                cfg.eval_seed + batch_index * 10_000 + row_index
+            )
+        specs.append(
+            solution_to_world_spec(
+                row,
+                grid_size=cfg.grid_size,
+                steps=cfg.steps,
+                decode_mode=cfg.decode_mode,
+                rng=rng,
+            )
+        )
     own_pool = False
     pool = eval_pool
     if pool is None:

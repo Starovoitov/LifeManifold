@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
@@ -24,13 +26,47 @@ GENOME_SIZE = 21
 _BIT_FLIP_SCALE = 5.0
 _FLOAT_GENE_START = 18
 
+DecodeMode = Literal["rint", "threshold", "bernoulli"]
+
 __all__ = [
     "GENOME_SIZE",
+    "DecodeMode",
     "decode_genome",
+    "decode_rule_bits",
     "encode_world",
     "gaussian_mutate",
     "uniform_crossover",
 ]
+
+
+def decode_rule_bits(
+    vals: np.ndarray,
+    *,
+    mode: DecodeMode = "rint",
+    rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Decode 18 rule-gene channels into birth/survival bit masks."""
+    clipped = np.clip(
+        np.asarray(vals[:18], dtype=np.float64), RULE_BIT_MIN, RULE_BIT_MAX
+    )
+    birth_vals = clipped[:9]
+    survival_vals = clipped[9:18]
+    if mode == "rint":
+        birth_mask = np.rint(birth_vals).astype(np.int8)
+        survival_mask = np.rint(survival_vals).astype(np.int8)
+    elif mode == "threshold":
+        birth_mask = (birth_vals >= 0.5).astype(np.int8)
+        survival_mask = (survival_vals >= 0.5).astype(np.int8)
+    elif mode == "bernoulli":
+        if rng is None:
+            msg = "bernoulli decode requires rng"
+            raise ValueError(msg)
+        birth_mask = (rng.random(9) < birth_vals).astype(np.int8)
+        survival_mask = (rng.random(9) < survival_vals).astype(np.int8)
+    else:
+        msg = f"unknown decode_mode {mode!r}"
+        raise ValueError(msg)
+    return birth_mask, survival_mask
 
 
 def encode_world(world: WorldSpec) -> np.ndarray:
@@ -48,13 +84,12 @@ def decode_genome(
     *,
     grid_size: int,
     steps: int,
+    decode_mode: DecodeMode = "rint",
+    rng: np.random.Generator | None = None,
 ) -> WorldSpec:
     """Decode a genome vector into a ``WorldSpec`` (``seed`` left at 0)."""
     vals = np.asarray(genes, dtype=np.float64)
-    birth_mask = np.rint(np.clip(vals[:9], RULE_BIT_MIN, RULE_BIT_MAX)).astype(np.int8)
-    survival_mask = np.rint(np.clip(vals[9:18], RULE_BIT_MIN, RULE_BIT_MAX)).astype(
-        np.int8
-    )
+    birth_mask, survival_mask = decode_rule_bits(vals, mode=decode_mode, rng=rng)
     birth = [i for i in range(RULE_INDEX_COUNT) if int(birth_mask[i]) == 1]
     survival = [i for i in range(RULE_INDEX_COUNT) if int(survival_mask[i]) == 1]
     if not birth:

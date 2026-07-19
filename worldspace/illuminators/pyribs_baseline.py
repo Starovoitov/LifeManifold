@@ -24,6 +24,7 @@ from worldspace.illuminators.archive_trace import (
     write_archive_trace_line,
 )
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS, bin_index
+from worldspace.illuminators.emitters.genetics import DecodeMode
 from worldspace.illuminators.pyribs_adapter import (
     ARCHIVE_DIMS,
     ARCHIVE_RANGES,
@@ -94,6 +95,8 @@ class PyribsBaselineConfig:
     load_archive: Path | None = DEFAULT_BASELINE_ARCHIVE
     parallel_eval: bool = True
     parallel_workers: int = 0
+    decode_mode: DecodeMode = "rint"
+    condition_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -144,8 +147,10 @@ def pyribs_hyperparams(config: PyribsBaselineConfig) -> dict[str, Any]:
             "18×0.5 rule bits + mid(noise, resource_regen, predation) bounds"
         ),
         "genome_bounds_note": (
-            "No ES hard box bounds; clip/rint at decode (continuous relaxation)"
+            "No ES hard box bounds; clip/decode at eval (continuous relaxation)"
         ),
+        "decode_mode": config.decode_mode,
+        "warm_start_enabled": config.load_archive is not None,
         "warm_start_archive": (
             str(config.load_archive.resolve())
             if config.load_archive is not None
@@ -266,7 +271,12 @@ def load_baseline_into_archives(
     return int(sol_arr.shape[0])
 
 
-def export_archive_jsonl(archive: GridArchive, path: Path) -> int:
+def export_archive_jsonl(
+    archive: GridArchive,
+    path: Path,
+    *,
+    decode_mode: DecodeMode = "rint",
+) -> int:
     """Write pyribs elites as minimal LifeManifold archive JSONL for aggregate."""
     data = archive.data()
     solutions = np.asarray(data["solution"], dtype=np.float64)
@@ -279,8 +289,14 @@ def export_archive_jsonl(archive: GridArchive, path: Path) -> int:
             stability = float(measures[index, 0])
             diversity = float(measures[index, 1])
             i, j = bin_index(stability, diversity, ARCHIVE_DIMS[0])
+            export_decode: DecodeMode = (
+                "threshold" if decode_mode == "bernoulli" else decode_mode
+            )
             spec = solution_to_world_spec(
-                solutions[index], grid_size=50, steps=ILLUMINATOR_MIN_STEPS
+                solutions[index],
+                grid_size=50,
+                steps=ILLUMINATOR_MIN_STEPS,
+                decode_mode=export_decode,
             )
             record = {
                 "schema_version": ARCHIVE_SCHEMA_VERSION,
@@ -317,7 +333,7 @@ def write_run_summary(
     payload = {
         "schema_version": ARCHIVE_SCHEMA_VERSION,
         "scheduler": scheduler_label,
-        "condition": config.algo,
+        "condition": config.condition_label or config.algo,
         "seed": result.seed,
         "iterations": result.asks,
         "evaluations": result.evaluations,
@@ -385,6 +401,8 @@ def run_pyribs_baseline(
             parallel_eval=config.parallel_eval,
             parallel_workers=config.parallel_workers,
         ),
+        decode_mode=config.decode_mode,
+        eval_seed=config.seed,
     )
 
     started = time.perf_counter()
@@ -412,7 +430,9 @@ def run_pyribs_baseline(
             if solutions.shape[0] != ask_size:
                 msg = f"expected ask size {ask_size}, got {solutions.shape[0]}"
                 raise RuntimeError(msg)
-            batch = evaluate_solutions_batch(solutions, knobs=knobs)
+            batch = evaluate_solutions_batch(
+                solutions, knobs=knobs, batch_index=ask_index
+            )
             scheduler.tell(batch.objectives, batch.measures)
             evaluated += int(solutions.shape[0])
             report = result_archive if result_archive is not None else archive
@@ -455,7 +475,11 @@ def run_pyribs_baseline(
     mean_fit = mean_best_fitness(report_archive)
 
     archive_jsonl = output_dir / "map_elites_archive.jsonl"
-    export_archive_jsonl(report_archive, archive_jsonl)
+    export_archive_jsonl(
+        report_archive,
+        archive_jsonl,
+        decode_mode=config.decode_mode,
+    )
 
     result = PyribsBaselineResult(
         algo=config.algo,

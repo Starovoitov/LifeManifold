@@ -78,6 +78,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable forkserver parallel simulation.",
     )
     parser.add_argument("--parallel-workers", type=int, default=0)
+    parser.add_argument(
+        "--decode-mode",
+        choices=("rint", "threshold", "bernoulli"),
+        default="rint",
+        help="Rule-bit decode for CMA continuous genome (default: rint = frozen B2).",
+    )
+    parser.add_argument(
+        "--condition-label",
+        default=None,
+        help="Summary/aggregate condition name (default: --algo value).",
+    )
     return parser.parse_args(argv)
 
 
@@ -97,6 +108,8 @@ def main(argv: list[str] | None = None) -> None:
         load_archive=load_archive,
         parallel_eval=not args.no_parallel_eval,
         parallel_workers=args.parallel_workers,
+        decode_mode=args.decode_mode,
+        condition_label=args.condition_label,
     )
     result = run_pyribs_baseline(config, output_dir=Path(args.output_dir))
     logging.info(

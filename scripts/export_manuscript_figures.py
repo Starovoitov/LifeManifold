@@ -204,6 +204,39 @@ def _trace_curve(path: Path, metric: str, grid: np.ndarray) -> np.ndarray:
     return y
 
 
+def fig08_anytime_ladder(out: Path) -> None:
+    """Coverage vs evaluations: vanilla / hints / cma_me (q1-anytime-ladder, n=5)."""
+    grid = np.arange(0, 32_501, 500, dtype=float)
+    arm_paths = [
+        ("vanilla", ROOT / "artifacts/experiments/q1-anytime-ladder/vanilla"),
+        ("hints", ROOT / "artifacts/experiments/q1-anytime-ladder/hints"),
+        ("cma_me", ROOT / "artifacts/experiments/q1-anytime-ladder/cma_me"),
+    ]
+    colors = {"vanilla": "#9467bd", "hints": "#2ca02c", "cma_me": "#d62728"}
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for label, arm_root in arm_paths:
+        curves = []
+        for seed in range(5):
+            path = arm_root / f"seed_{seed}" / "archive_trace.jsonl"
+            curves.append(_trace_curve(path, "coverage", grid))
+        arr = np.vstack(curves)
+        med = np.median(arr, axis=0)
+        q25 = np.quantile(arr, 0.25, axis=0)
+        q75 = np.quantile(arr, 0.75, axis=0)
+        ax.plot(grid, med, label=label, color=colors[label], linewidth=2)
+        ax.fill_between(grid, q25, q75, color=colors[label], alpha=0.2)
+    ax.set_xlabel("Simulator evaluations")
+    ax.set_ylabel("Coverage (%)")
+    ax.set_title("Anytime ladder: vanilla vs hints vs cma_me (n=5, IQR)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 def fig06_acquisition(out: Path) -> None:
     grid = np.arange(0, 20_001, 500, dtype=float)
     arm_paths = [
@@ -344,7 +377,7 @@ def main() -> None:
     parser.add_argument(
         "--fig",
         type=int,
-        choices=(1, 2, 3, 4, 5, 6, 7),
+        choices=(1, 2, 3, 4, 5, 6, 7, 8),
         action="append",
         dest="figs",
         help="Which figure(s) to export (repeatable)",
@@ -352,7 +385,7 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Export Fig. 1–7",
+        help="Export Fig. 1–8",
     )
     parser.add_argument(
         "--seed",
@@ -361,7 +394,7 @@ def main() -> None:
         help="Paired seed for Fig. 7 archive heatmaps (default: 4, largest hints−cma_me Δ)",
     )
     args = parser.parse_args()
-    figs = args.figs or ([1, 2, 3, 4, 5, 6, 7] if args.all else [])
+    figs = args.figs or ([1, 2, 3, 4, 5, 6, 7, 8] if args.all else [])
     if not figs:
         parser.error("pass --fig N and/or --all")
 
@@ -374,6 +407,7 @@ def main() -> None:
         5: (fig05_ladder, FIG_DIR / "fig05_ladder.pdf"),
         6: (fig06_acquisition, FIG_DIR / "fig06_acquisition_anytime.pdf"),
         7: (fig07_archive_heatmaps, FIG_DIR / "fig07_archive_heatmaps_seed4.pdf"),
+        8: (fig08_anytime_ladder, FIG_DIR / "fig08_anytime_ladder.pdf"),
     }
     for number in figs:
         fn, path = exporters[number]

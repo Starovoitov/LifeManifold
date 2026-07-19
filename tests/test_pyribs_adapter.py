@@ -59,6 +59,39 @@ class TestPyribsAdapterGenome(unittest.TestCase):
         self.assertAlmostEqual(float(x0[19]), 0.25)
         self.assertAlmostEqual(float(x0[20]), 0.5)
 
+    def test_threshold_decode_at_half(self) -> None:
+        theta = np.zeros(GENOME_SIZE, dtype=np.float64)
+        theta[:18] = 0.5
+        spec = solution_to_world_spec(
+            theta, grid_size=16, steps=200, decode_mode="threshold"
+        )
+        self.assertEqual(len(spec.birth), 9)
+        self.assertEqual(len(spec.survival), 9)
+
+    def test_rint_vs_threshold_differ_at_half(self) -> None:
+        theta = mid_bounds_x0().copy()
+        rint_spec = solution_to_world_spec(
+            theta, grid_size=16, steps=200, decode_mode="rint"
+        )
+        threshold_spec = solution_to_world_spec(
+            theta, grid_size=16, steps=200, decode_mode="threshold"
+        )
+        self.assertEqual(len(rint_spec.birth), 1)
+        self.assertEqual(len(threshold_spec.birth), 9)
+
+    def test_bernoulli_decode_is_reproducible_with_rng(self) -> None:
+        theta = mid_bounds_x0()
+        rng_a = np.random.default_rng(42)
+        rng_b = np.random.default_rng(42)
+        spec_a = solution_to_world_spec(
+            theta, grid_size=16, steps=200, decode_mode="bernoulli", rng=rng_a
+        )
+        spec_b = solution_to_world_spec(
+            theta, grid_size=16, steps=200, decode_mode="bernoulli", rng=rng_b
+        )
+        self.assertEqual(spec_a.birth, spec_b.birth)
+        self.assertEqual(spec_a.survival, spec_b.survival)
+
     def test_float_genes_round_trip_within_clip(self) -> None:
         theta = world_spec_to_solution(_BASE_SPEC)
         theta[18] = 0.15
