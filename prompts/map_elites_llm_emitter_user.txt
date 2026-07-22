@@ -18,6 +18,5 @@ Constraints for world_spec:
 
 Return JSON only:
 {{
-  "reasoning": "2–4 sentences",
   "world_spec": {{ ... full WorldSpec without the seed field ... }}
 }}

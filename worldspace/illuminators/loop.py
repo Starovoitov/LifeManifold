@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from time import perf_counter
+from typing import TYPE_CHECKING, TextIO
 
 import numpy as np
 
+from worldspace.illuminators.archive_trace import (
+    ARCHIVE_TRACE_FILENAME,
+    archive_trace_metrics,
+    write_archive_trace_line,
+)
 from worldspace.illuminators.archive import (
     ARCHIVE_SCHEMA_VERSION,
     ARCHIVE_SCHEMA_VERSION_V1_3,
@@ -18,7 +25,12 @@ from worldspace.illuminators.archive import (
     insert_evaluated,
 )
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
-from worldspace.illuminators.emitters.base import CandidateEmitter
+from worldspace.illuminators.emitters.base import (
+    CandidateEmitter,
+    EmitterOutput,
+    MapElitesEmitter,
+)
+from worldspace.illuminators.emitters.llm_emitter import LlmPreparedSlot
 from worldspace.illuminators.evaluation import (
     ILLUMINATOR_MIN_STEPS,
     EvalResult,
@@ -31,6 +43,13 @@ from worldspace.illuminators.parallel_eval import (
     evaluate_batch_parallel,
     parallel_eval_context,
 )
+from worldspace.illuminators.parallel_llm_emit import (
+    ParallelLlmPool,
+    llm_slot_count_for_batch,
+    parallel_llm_context,
+    request_llm_batch,
+    supports_parallel_llm_emit,
+)
 from worldspace.illuminators.scheduler import (
     EmitterKind,
     RunCounters,
@@ -40,7 +59,10 @@ from worldspace.illuminators.scheduler import (
     resolve_emitter_for_slot,
     select_target_cell,
 )
-from worldspace.simulator_perf import effective_parallel_workers
+from worldspace.simulator_perf import (
+    effective_llm_parallel_workers,
+    effective_parallel_workers,
+)
 from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.acquisition import (
     AcquisitionDecision,
@@ -136,6 +158,8 @@ def run_iteration(
     surrogate: SurrogateProtocol | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
     eval_pool: ParallelEvalPool | None = None,
+    llm_pool: ParallelLlmPool | None = None,
+    iteration_timing_file: TextIO | None = None,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     """Run one batch: slots ``0 .. batch_size-1`` in order, evaluate or skip, insert.
 
@@ -150,6 +174,7 @@ def run_iteration(
     """
     acquisition_active = _acquisition_logging_active(config)
 
+    emit_started = perf_counter()
     drafts = _emit_iteration_drafts(
         config,
         archive,
@@ -158,7 +183,10 @@ def run_iteration(
         grid_size=grid_size,
         steps=steps,
         counters=counters,
+        llm_pool=llm_pool,
     )
+    emit_seconds = perf_counter() - emit_started
+    _record_llm_emit_stats(counters, drafts)
 
     predictions: list[SurrogatePrediction | None]
     if config.surrogate_enabled and surrogate is not None:
@@ -167,8 +195,9 @@ def run_iteration(
     else:
         predictions = [None] * len(drafts)
 
+    eval_started = perf_counter()
     if _use_parallel_eval_path(config):
-        return _process_iteration_parallel(
+        stats, outcomes = _process_iteration_parallel(
             config,
             archive,
             counters,
@@ -181,20 +210,32 @@ def run_iteration(
             acquisition_active=acquisition_active,
             eval_pool=eval_pool,
         )
-
-    return _process_iteration_sequential(
-        config,
-        archive,
-        counters,
-        drafts=drafts,
-        predictions=predictions,
-        iteration_index=iteration_index,
-        jsonl_path=jsonl_path,
-        surrogate_buffer=surrogate_buffer,
-        surrogate=surrogate,
-        surrogate_archive=surrogate_archive,
-        acquisition_active=acquisition_active,
-    )
+    else:
+        stats, outcomes = _process_iteration_sequential(
+            config,
+            archive,
+            counters,
+            drafts=drafts,
+            predictions=predictions,
+            iteration_index=iteration_index,
+            jsonl_path=jsonl_path,
+            surrogate_buffer=surrogate_buffer,
+            surrogate=surrogate,
+            surrogate_archive=surrogate_archive,
+            acquisition_active=acquisition_active,
+        )
+    eval_seconds = perf_counter() - eval_started
+    counters.emit_llm_seconds += emit_seconds
+    counters.eval_seconds += eval_seconds
+    if iteration_timing_file is not None:
+        _write_iteration_timing(
+            iteration_timing_file,
+            iteration_index=iteration_index,
+            emit_seconds=emit_seconds,
+            eval_seconds=eval_seconds,
+            drafts=drafts,
+        )
+    return stats, outcomes
 
 
 def _use_parallel_eval_path(config: SchedulerConfig) -> bool:
@@ -617,36 +658,221 @@ def _emit_iteration_drafts(
     grid_size: int,
     steps: int,
     counters: RunCounters,
+    llm_pool: ParallelLlmPool | None = None,
 ) -> list[_SlotDraft]:
-    drafts: list[_SlotDraft] = []
+    llm_slot_count = llm_slot_count_for_batch(
+        config,
+        candidates_evaluated=counters.candidates_evaluated,
+    )
+    workers = effective_llm_parallel_workers(
+        config.performance,
+        llm_slot_count=llm_slot_count,
+    )
+    if workers > 0 and supports_parallel_llm_emit(emitter, config):
+        return _emit_iteration_drafts_parallel_llm(
+            config,
+            archive,
+            rng,
+            emitter,
+            grid_size=grid_size,
+            steps=steps,
+            counters=counters,
+            llm_workers=workers,
+            llm_pool=llm_pool,
+        )
+    return _emit_iteration_drafts_sequential(
+        config,
+        archive,
+        rng,
+        emitter,
+        grid_size=grid_size,
+        steps=steps,
+        counters=counters,
+    )
+
+
+def _emit_iteration_drafts_sequential(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+) -> list[_SlotDraft]:
+    return [
+        _emit_one_slot_draft(
+            config,
+            archive,
+            rng,
+            emitter,
+            candidate_id=candidate_id,
+            grid_size=grid_size,
+            steps=steps,
+            counters=counters,
+        )
+        for candidate_id in range(config.batch_size)
+    ]
+
+
+def _emit_iteration_drafts_parallel_llm(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+    llm_workers: int,
+    llm_pool: ParallelLlmPool | None = None,
+) -> list[_SlotDraft]:
+    if not isinstance(emitter, MapElitesEmitter):
+        msg = "parallel LLM emit requires MapElitesEmitter"
+        raise TypeError(msg)
+
+    llm = emitter.llm_emitter
+    drafts: list[_SlotDraft | None] = [None] * config.batch_size
+    pending: list[tuple[int, LlmPreparedSlot]] = []
+
     for candidate_id in range(config.batch_size):
         emitter_kind = resolve_emitter_for_slot(
             config,
             candidate_id=candidate_id,
             candidates_evaluated=counters.candidates_evaluated,
         )
-        target_cell = select_target_cell(archive, rng)
-        target_bin = TargetBin.from_target_cell(target_cell)
-        output = emitter.emit(
-            emitter_kind=emitter_kind,
-            target=target_cell,
-            archive=archive,
-            rng=rng,
-            grid_size=grid_size,
-            steps=steps,
+        target_cell = select_target_cell(
+            archive,
+            rng,
+            target_selection=config.target_selection,
         )
-        spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
-        drafts.append(
-            _SlotDraft(
+        target_bin = TargetBin.from_target_cell(target_cell)
+        if emitter_kind == "llm":
+            prepared = llm.prepare_emit(
+                target=target_cell,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
+            pending.append((candidate_id, prepared))
+        else:
+            output = emitter.emit(
+                emitter_kind=emitter_kind,
+                target=target_cell,
+                archive=archive,
+                rng=rng,
+                grid_size=grid_size,
+                steps=steps,
+            )
+            drafts[candidate_id] = _slot_draft_from_output(
                 candidate_id=candidate_id,
                 emitter_kind=emitter_kind,
                 target_cell=target_cell,
                 target_bin=target_bin,
-                spec=spec,
-                metadata=output.metadata,
+                output=output,
+                grid_size=grid_size,
+                steps=steps,
             )
+
+    if pending:
+        prepared_slots = [slot for _, slot in pending]
+        results = request_llm_batch(
+            llm,
+            prepared_slots,
+            max_workers=llm_workers,
+            llm_pool=llm_pool,
         )
-    return drafts
+        for (candidate_id, prepared), http_result in zip(pending, results, strict=True):
+            target_cell = prepared.target
+            target_bin = TargetBin.from_target_cell(target_cell)
+            output = llm.finalize_emit(
+                prepared,
+                response=http_result.response,
+                rng=rng,
+                request_error=http_result.request_error,
+            )
+            drafts[candidate_id] = _slot_draft_from_output(
+                candidate_id=candidate_id,
+                emitter_kind="llm",
+                target_cell=target_cell,
+                target_bin=target_bin,
+                output=output,
+                grid_size=grid_size,
+                steps=steps,
+            )
+
+    result: list[_SlotDraft] = []
+    for i in range(config.batch_size):
+        draft = drafts[i]
+        if draft is None:
+            msg = f"parallel LLM emit left unfilled slot {i}"
+            raise RuntimeError(msg)
+        result.append(draft)
+    return result
+
+
+def _emit_one_slot_draft(
+    config: SchedulerConfig,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    emitter: CandidateEmitter,
+    *,
+    candidate_id: int,
+    grid_size: int,
+    steps: int,
+    counters: RunCounters,
+) -> _SlotDraft:
+    emitter_kind = resolve_emitter_for_slot(
+        config,
+        candidate_id=candidate_id,
+        candidates_evaluated=counters.candidates_evaluated,
+    )
+    target_cell = select_target_cell(
+        archive,
+        rng,
+        target_selection=config.target_selection,
+    )
+    target_bin = TargetBin.from_target_cell(target_cell)
+    output = emitter.emit(
+        emitter_kind=emitter_kind,
+        target=target_cell,
+        archive=archive,
+        rng=rng,
+        grid_size=grid_size,
+        steps=steps,
+    )
+    return _slot_draft_from_output(
+        candidate_id=candidate_id,
+        emitter_kind=emitter_kind,
+        target_cell=target_cell,
+        target_bin=target_bin,
+        output=output,
+        grid_size=grid_size,
+        steps=steps,
+    )
+
+
+def _slot_draft_from_output(
+    *,
+    candidate_id: int,
+    emitter_kind: EmitterKind,
+    target_cell: TargetCell,
+    target_bin: TargetBin,
+    output: EmitterOutput,
+    grid_size: int,
+    steps: int,
+) -> _SlotDraft:
+    spec = _prepare_world_spec(output.world_spec, grid_size=grid_size, steps=steps)
+    return _SlotDraft(
+        candidate_id=candidate_id,
+        emitter_kind=emitter_kind,
+        target_cell=target_cell,
+        target_bin=target_bin,
+        spec=spec,
+        metadata=output.metadata,
+    )
 
 
 def run_scheduler(
@@ -671,6 +897,34 @@ def run_scheduler(
         config.performance,
         batch_size=config.batch_size,
     )
+    max_llm_slots = sum(1 for kind in config.batch_emitters if kind == "llm")
+    llm_pool = parallel_llm_context(
+        config.performance,
+        max_llm_slots=max_llm_slots,
+    )
+    timing_file: TextIO | None = None
+    trace_file: TextIO | None = None
+    if config.performance.log_iteration_timing and jsonl_path is not None:
+        run_dir = Path(jsonl_path).parent
+        run_dir.mkdir(parents=True, exist_ok=True)
+        timing_path = run_dir / "iteration_timing.jsonl"
+        timing_file = timing_path.open("w", encoding="utf-8")
+        trace_path = run_dir / ARCHIVE_TRACE_FILENAME
+        trace_file = trace_path.open("w", encoding="utf-8")
+        filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
+        write_archive_trace_line(
+            trace_file,
+            {
+                "iteration": 0,
+                "evaluations": counters.candidates_evaluated,
+                "filled_cells": filled,
+                "coverage": round(coverage, 6),
+                "mean_best_fitness": (
+                    round(mean_fit, 6) if mean_fit is not None else None
+                ),
+                "qd_score": round(qd_score, 6),
+            },
+        )
     try:
         for iteration_index in range(1, config.iterations + 1):
             run_iteration(
@@ -687,7 +941,24 @@ def run_scheduler(
                 surrogate=surrogate,
                 surrogate_archive=surrogate_archive,
                 eval_pool=eval_pool,
+                llm_pool=llm_pool,
+                iteration_timing_file=timing_file,
             )
+            if trace_file is not None:
+                filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
+                write_archive_trace_line(
+                    trace_file,
+                    {
+                        "iteration": iteration_index,
+                        "evaluations": counters.candidates_evaluated,
+                        "filled_cells": filled,
+                        "coverage": round(coverage, 6),
+                        "mean_best_fitness": (
+                            round(mean_fit, 6) if mean_fit is not None else None
+                        ),
+                        "qd_score": round(qd_score, 6),
+                    },
+                )
             if surrogate_buffer is not None:
                 surrogate_buffer.flush()
             if surrogate_archive is not None:
@@ -709,11 +980,55 @@ def run_scheduler(
         if eval_pool is not None:
             eval_pool.close()
             eval_pool.join()
+        if llm_pool is not None:
+            llm_pool.shutdown()
+        if timing_file is not None:
+            timing_file.close()
+        if trace_file is not None:
+            trace_file.close()
     if surrogate_buffer is not None:
         surrogate_buffer.flush()
     if surrogate_archive is not None:
         surrogate_archive.flush()
     return counters
+
+
+def _record_llm_emit_stats(counters: RunCounters, drafts: list[_SlotDraft]) -> None:
+    for draft in drafts:
+        if draft.emitter_kind == "llm":
+            counters.record_llm_emit(
+                fallback=draft.metadata.emitter_type == "llm_fallback",
+            )
+
+
+def _write_iteration_timing(
+    timing_file: TextIO,
+    *,
+    iteration_index: int,
+    emit_seconds: float,
+    eval_seconds: float,
+    drafts: list[_SlotDraft],
+) -> None:
+    llm_slots = sum(1 for draft in drafts if draft.emitter_kind == "llm")
+    llm_fallbacks = sum(
+        1
+        for draft in drafts
+        if draft.emitter_kind == "llm" and draft.metadata.emitter_type == "llm_fallback"
+    )
+    timing_file.write(
+        json.dumps(
+            {
+                "iteration": iteration_index,
+                "emit_s": round(emit_seconds, 3),
+                "eval_s": round(eval_seconds, 3),
+                "llm_slots": llm_slots,
+                "llm_fallbacks": llm_fallbacks,
+            },
+            ensure_ascii=True,
+        )
+        + "\n"
+    )
+    timing_file.flush()
 
 
 def _acquisition_logging_active(config: SchedulerConfig) -> bool:

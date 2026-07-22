@@ -12,7 +12,11 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.utils.bootstrap import ensure_repo_on_path
-from dashboard.utils.config import existing_archive_paths, load_config
+from dashboard.utils.config import (
+    existing_archive_paths,
+    load_config,
+    resolve_repo_path,
+)
 from dashboard.utils.data_processing import (
     ArchiveType,
     elite_to_flat_row,
@@ -35,6 +39,7 @@ __all__ = [
     "get_archive_bundle",
     "load_archive_bundle",
     "load_centroids_for_bundle",
+    "resolve_centroids_path_for_archive",
     "read_archive_jsonl",
     "show_centroids_warning",
     "show_large_archive_warning",
@@ -143,10 +148,34 @@ def detect_archive_type_from_jsonl(path: Path) -> ArchiveType:
     return summary_type if summary_type is not None else "grid"
 
 
+_DEFAULT_CVT_BASELINE_CENTROIDS = (
+    "artifacts/map_elites_nightly/cvt/baseline/cvt_centroids.json"
+)
+
+
+def resolve_centroids_path_for_archive(
+    archive_path: Path,
+    cfg: dict[str, Any] | None = None,
+) -> Path | None:
+    """Return a CVT centroids JSON path for ``archive_path`` (local dir or baseline fallback)."""
+    local = centroids_path_for_output(archive_path.parent)
+    if local.is_file():
+        return local
+    if not _is_experiment_archive(archive_path):
+        return None
+    config = cfg if cfg is not None else load_config()
+    for candidate in _cvt_centroids_fallback_paths(config):
+        if candidate.is_file() and _centroids_compatible_with_archive(
+            candidate, archive_path
+        ):
+            return candidate
+    return None
+
+
 def load_centroids_for_bundle(archive_path: Path) -> np.ndarray | None:
-    """Load ``cvt_centroids.json`` next to the archive JSONL, if present."""
-    centroids_path = centroids_path_for_output(archive_path.parent)
-    if not centroids_path.is_file():
+    """Load ``cvt_centroids.json`` for a CVT archive (local or experiment baseline fallback)."""
+    centroids_path = resolve_centroids_path_for_archive(archive_path)
+    if centroids_path is None:
         return None
     try:
         centroids = load_centroids(centroids_path)
@@ -353,6 +382,123 @@ def _cvt_n_cells_hint(collapsed: pd.DataFrame) -> int:
     return max(1, cell_max + 1)
 
 
+def _is_experiment_archive(archive_path: Path) -> bool:
+    try:
+        parts = archive_path.resolve().parts
+    except OSError:
+        parts = archive_path.parts
+    return "experiments" in parts
+
+
+def _cvt_centroids_fallback_paths(cfg: dict[str, Any]) -> list[Path]:
+    paths_section = cfg.get("paths")
+    candidates: list[Path] = []
+    if isinstance(paths_section, dict):
+        raw = paths_section.get("cvt_centroids_fallback_paths")
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str) and item.strip():
+                    candidates.append(resolve_repo_path(item.strip()))
+    candidates.append(resolve_repo_path(_DEFAULT_CVT_BASELINE_CENTROIDS))
+    seen: set[str] = set()
+    ordered: list[Path] = []
+    for path in candidates:
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(path)
+    return ordered
+
+
+def _centroids_compatible_with_archive(
+    centroids_path: Path,
+    archive_path: Path,
+) -> bool:
+    n_centroids = _centroids_count_from_json(centroids_path)
+    if n_centroids is None:
+        return False
+    summary_n = _n_cells_from_nightly_summary(archive_path.parent)
+    if summary_n is not None:
+        return n_centroids == summary_n
+    config_n = _configured_cvt_n_centroids(load_config())
+    if config_n is not None:
+        return n_centroids == config_n
+    max_cell_id = _cvt_max_cell_id_from_jsonl(archive_path)
+    return max_cell_id >= 0 and n_centroids > max_cell_id
+
+
+def _centroids_count_from_json(path: Path) -> int | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw_n = payload.get("n")
+    if isinstance(raw_n, int) and raw_n >= 1:
+        return raw_n
+    centroids = payload.get("centroids")
+    if isinstance(centroids, list) and centroids:
+        return len(centroids)
+    return None
+
+
+def _configured_cvt_n_centroids(cfg: dict[str, Any]) -> int | None:
+    defaults = cfg.get("defaults")
+    if not isinstance(defaults, dict):
+        return None
+    raw = defaults.get("n_centroids")
+    if raw is None:
+        return None
+    resolved = int(raw)
+    return resolved if resolved >= 1 else None
+
+
+def _n_cells_from_nightly_summary(run_dir: Path) -> int | None:
+    summary_path = run_dir / NIGHTLY_SUMMARY_FILENAME
+    if not summary_path.is_file():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("n_cells")
+    if raw is None:
+        return None
+    resolved = int(raw)
+    return resolved if resolved >= 1 else None
+
+
+def _cvt_max_cell_id_from_jsonl(path: Path) -> int:
+    if not path.is_file():
+        return -1
+    max_cell_id = -1
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            raw = record.get("cell_id")
+            if raw is None:
+                continue
+            try:
+                cell_id = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if cell_id > max_cell_id:
+                max_cell_id = cell_id
+    return max_cell_id
+
+
 def _archive_type_from_nightly_summary(run_dir: Path) -> ArchiveType | None:
     summary_path = run_dir / NIGHTLY_SUMMARY_FILENAME
     if not summary_path.is_file():
@@ -424,9 +570,9 @@ def _read_jsonl_via_worldspace(
     line_count = _count_jsonl_lines(path)
     cfg = load_config()
     resolution = _resolution_from_config(cfg)
-    centroids_path = centroids_path_for_output(path.parent)
+    centroids_path = resolve_centroids_path_for_archive(path, cfg)
     if archive_type == "cvt":
-        if not centroids_path.is_file():
+        if centroids_path is None:
             return pd.DataFrame(), line_count
         archive = load_and_collapse_jsonl(
             path,

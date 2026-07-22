@@ -1,0 +1,88 @@
+schema_version: "1.2"
+# Hints control for shadow calibration (EXPERIMENT_PROTOCOL_Q1.md §4).
+# Must match map_elites_scheduler_nightly_llm_shadow.yaml except acquisition.mode=off
+# so MAP-Elites archives are identical; shadow arm logs policy decisions only.
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_shadow_hints.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+
+# Forkserver pool reused across iterations (numba_simulator must stay false).
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

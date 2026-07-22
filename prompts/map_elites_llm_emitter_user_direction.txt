@@ -1,0 +1,30 @@
+Target niche: stability ≈ {target_stability:.2f} (±0.03), diversity ≈ {target_diversity:.2f} (±0.03)
+
+Surrogate predicts fitness ≈ {surrogate_mean:.3f}, uncertainty = {surrogate_uncertainty:.3f}
+
+{direction_hint_block}
+
+Guidance from surrogate directions:
+- Treat direction hints as **local edit suggestions** on the parent world_spec (not global optima).
+- When uncertainty >= 0.7, apply at most 1–2 small edits from the list above.
+- Still land in the target stability/diversity niche; do not chase fitness alone.
+
+Current best elite in this cell:
+{current_elite_json}
+
+Examples of successful elites from nearby niches (with fitness):
+{few_shot_examples}
+
+Generate a new WorldSpec that:
+1. Lands in the target niche for stability and diversity.
+2. Applies surrogate direction hints where they do not conflict with the niche.
+3. Differs from existing elites.
+4. Accounts for high surrogate uncertainty.
+
+Constraints for world_spec:
+{constraints}
+
+Return JSON only:
+{{
+  "world_spec": {{ ... full WorldSpec without the seed field ... }}
+}}

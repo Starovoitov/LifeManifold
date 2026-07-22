@@ -460,6 +460,22 @@ class TestWorldSpaceMVP(unittest.TestCase):
         )
         self.assertNotEqual(sig0, sig1)
 
+    def test_qwen_production_spec_uses_turbo(self):
+        from worldspace.generators.llm_config import load_llm_config
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator_qwen.yaml"
+        )
+        cfg = load_llm_config(spec_path)
+        qwen = cfg.providers["qwen"]
+        self.assertEqual(qwen.get("model"), "qwen-turbo")
+        self.assertEqual(cfg.max_tokens, 220)
+        self.assertEqual(qwen.get("api_key_env"), "QWEN_API_KEY")
+        self.assertIn("dashscope-intl.aliyuncs.com", str(qwen.get("api_base", "")))
+
     def test_bundled_llm_spec_defines_qwen_provider(self):
         spec_path = (
             Path(__file__).resolve().parent.parent
@@ -512,6 +528,110 @@ class TestWorldSpaceMVP(unittest.TestCase):
         self.assertEqual(payload["model"], "qwen-plus")
         self.assertEqual(payload["temperature"], 0.2)
         self.assertEqual(payload["max_tokens"], 350)
+
+    def test_call_llm_messages_retries_transient_timeout(self):
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[TimeoutError("timed out"), fake_cm],
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep") as m_sleep:
+                    from worldspace.generators import call_llm_messages
+
+                    out = call_llm_messages(
+                        mode="remote",
+                        provider_name="qwen",
+                        providers=providers,
+                        messages=[{"role": "user", "content": "ping"}],
+                    )
+
+        self.assertEqual(out, "{}")
+        self.assertEqual(m_open.call_count, 2)
+        m_sleep.assert_called_once()
+
+    def test_call_llm_messages_retries_incomplete_read(self):
+        import http.client
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+        broken_cm = MagicMock()
+        broken_cm.__enter__.return_value.read.side_effect = http.client.IncompleteRead(
+            b""
+        )
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[broken_cm, fake_cm],
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep") as m_sleep:
+                    from worldspace.generators import call_llm_messages
+
+                    out = call_llm_messages(
+                        mode="remote",
+                        provider_name="qwen",
+                        providers=providers,
+                        messages=[{"role": "user", "content": "ping"}],
+                    )
+
+        self.assertEqual(out, "{}")
+        self.assertEqual(m_open.call_count, 2)
+        m_sleep.assert_called_once()
+
+    def test_call_llm_messages_incomplete_read_exhausts_to_runtime_error(self):
+        import http.client
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        broken_cm = MagicMock()
+        broken_cm.__enter__.return_value.read.side_effect = http.client.IncompleteRead(
+            b""
+        )
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[broken_cm, broken_cm, broken_cm],
+            ):
+                with patch("worldspace.generators.time.sleep"):
+                    from worldspace.generators import call_llm_messages
+
+                    with self.assertRaises(RuntimeError) as ctx:
+                        call_llm_messages(
+                            mode="remote",
+                            provider_name="qwen",
+                            providers=providers,
+                            messages=[{"role": "user", "content": "ping"}],
+                        )
+        self.assertIn("IncompleteRead", str(ctx.exception))
 
 
 if __name__ == "__main__":

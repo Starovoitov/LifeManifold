@@ -1,11 +1,18 @@
 version: 1
 
 # GitHub Actions / manual LLM runs (workflow sets QWEN_API_KEY).
+#
+# Q1 API-stack pin (floating alias — see artifacts/EXPERIMENT_PROTOCOL_Q1_v2.md §3.0.1):
+#   model: qwen-turbo  (NOT a dated snapshot e.g. qwen-turbo-2025-04-28)
+#   api_base: dashscope-intl compatible-mode
+#   observation window for Q1 matrix: 2026-07-02 → 2026-07-11
+# Future runs that need weight-level reproducibility should switch to a dated model ID.
 llm:
   mode: remote
   active_provider: qwen
   global_search: false
   temperature: 0.2
+  # top_p omitted → provider default; logged as null in nightly_run_summary.json
   max_tokens: 350
   fallback_scale: 0.02
   vision_provider: openai
@@ -20,6 +27,6 @@ llm:
       api_key_env: OPENAI_API_KEY
     qwen:
       provider: openai
-      model: qwen-plus
+      model: qwen-turbo
       api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
       api_key_env: QWEN_API_KEY

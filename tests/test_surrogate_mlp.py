@@ -236,22 +236,52 @@ class TestSurrogateMlp(unittest.TestCase):
             )
             with patch(
                 "worldspace.surrogate.mlp_model.MlpTrainConfig",
-                side_effect=lambda **kw: _fast_mlp_config(
-                    dropout_p=0.1,
-                    uncertainty_method="ensemble_mc",
-                    mc_samples=4,
-                    **kw,
-                ),
+                side_effect=lambda **kw: _fast_mlp_config(**kw),
             ):
                 model.fit(
                     x_train,
                     y_train,
                     val_features=x_hold,
                     val_targets=y_hold,
+                    mlp_dropout_p=0.1,
+                    mlp_uncertainty_method="ensemble_mc",
+                    mlp_mc_samples=4,
                 )
 
+        self.assertEqual(model._mlp_uncertainty_method, "ensemble_mc")
+        self.assertEqual(model._mlp_dropout_p, 0.1)
+        self.assertEqual(model._mlp_mc_samples, 4)
         uncertainty = model.predict_uncertainty(feature_matrix[0])
         self.assertGreater(uncertainty, 0.0)
+
+    def test_ensemble_mc_without_dropout_defaults_to_0_1(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buffer_path = Path(tmpdir) / "buffer.jsonl"
+            write_synthetic_buffer(buffer_path, n_samples=80, seed=43)
+            feature_matrix, targets = load_buffer(buffer_path)
+            model = SurrogateModel(
+                model_type="mlp",
+                random_state=42,
+                ensemble_size=2,
+            )
+            x_train, y_train, x_hold, y_hold = holdout_split(
+                feature_matrix,
+                targets,
+                random_state=42,
+            )
+            with patch(
+                "worldspace.surrogate.mlp_model.MlpTrainConfig",
+                side_effect=lambda **kw: _fast_mlp_config(**kw),
+            ):
+                model.fit(
+                    x_train,
+                    y_train,
+                    val_features=x_hold,
+                    val_targets=y_hold,
+                    mlp_uncertainty_method="ensemble_mc",
+                )
+        self.assertEqual(model._mlp_dropout_p, 0.1)
+        self.assertEqual(model._mlp_uncertainty_method, "ensemble_mc")
 
     def test_hidden_dims_from_state_dict_infers_architecture(self) -> None:
         from worldspace.surrogate.mlp_model import (

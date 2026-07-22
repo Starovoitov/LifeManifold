@@ -86,6 +86,7 @@ def get_surrogate(config: SurrogateConfig) -> SurrogateProtocol:
         uncertainty_fallback=config.stub_uncertainty,
         calibration_path=config.calibration,
         use_soft_extinction=config.use_soft_extinction,
+        extinction_gate_threshold=config.extinction_gate_threshold,
     )
 
 

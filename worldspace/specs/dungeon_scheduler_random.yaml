@@ -1,0 +1,62 @@
+schema_version: "dungeon-1.0"
+condition: random
+iterations: 650
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+llm_prompt_mode: off
+surrogate_checkpoint: null
+acquisition:
+  mode: off
+

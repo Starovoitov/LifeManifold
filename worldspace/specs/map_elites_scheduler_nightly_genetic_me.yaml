@@ -1,0 +1,84 @@
+schema_version: "1.2"
+# Q1 v3 B1b — Genetic MAP-Elites (matched nightly slot mix, no LLM).
+# Same 20 random + 20 genetic as stub/hints; 10 LLM slots → genetic (30 genetic total).
+# Protocol: artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md §3.1b
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: false
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_genetic_me.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: false
+  llm_parallel_workers: 0
+  log_iteration_timing: true

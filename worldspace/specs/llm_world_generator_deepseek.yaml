@@ -1,0 +1,33 @@
+version: 1
+
+# Q1 v3 G1 — DeepSeek V4 Pro (official API, non-thinking).
+# Protocol: artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md §3.3
+# Env: DEEPSEEK_API_KEY
+# Pin: model id deepseek-v4-pro @ api.deepseek.com (not DashScope).
+llm:
+  mode: remote
+  active_provider: deepseek
+  global_search: false
+  temperature: 0.2
+  # top_p omitted → provider default; logged as null in nightly_run_summary.json
+  max_tokens: 350
+  fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
+  providers:
+    openai:
+      provider: openai
+      model: gpt-4o-mini
+      api_base: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+    deepseek:
+      provider: openai
+      model: deepseek-v4-pro
+      api_base: https://api.deepseek.com/v1/chat/completions
+      api_key_env: DEEPSEEK_API_KEY
+      # DeepSeek V4 default is thinking-on; disable for v2-comparable emits.
+      # (enable_thinking: false is NOT sufficient — still returns reasoning_content.)
+      thinking:
+        type: disabled

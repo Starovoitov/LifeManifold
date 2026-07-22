@@ -241,6 +241,89 @@ class TestLoadScheduler(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             load_scheduler("/nonexistent/map_elites_scheduler.yaml")
 
+    def test_default_scheduler_llm_user_prompt_path_none(self) -> None:
+        config = load_scheduler(_SPECS / "map_elites_scheduler_nightly_llm.yaml")
+        self.assertIsNone(config.llm_user_prompt_path)
+
+    def test_load_scheduler_reads_llm_user_prompt_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "components_prompt.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"][
+                "user_prompt_path"
+            ] = "prompts/map_elites_llm_emitter_user_components.txt"
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertEqual(
+                config.llm_user_prompt_path,
+                "prompts/map_elites_llm_emitter_user_components.txt",
+            )
+
+    def test_load_scheduler_llm_user_prompt_path_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "null_prompt.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"]["user_prompt_path"] = None
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            config = load_scheduler(path)
+            self.assertIsNone(config.llm_user_prompt_path)
+
+    def test_load_scheduler_rejects_unknown_llm_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_llm.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["llm"]["user_prompt_path_extra"] = "prompts/foo.txt"
+            path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_scheduler(path)
+
+    def test_load_hints_rich_scheduler(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm_hints_rich.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+        self.assertTrue(config.surrogate_enabled)
+        self.assertEqual(
+            config.llm_user_prompt_path,
+            "prompts/map_elites_llm_emitter_user_components.txt",
+        )
+        self.assertIn(
+            "hints_rich",
+            config.surrogate_buffer_path,
+        )
+
+    def test_load_hints_direction_scheduler(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm_hints_direction.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+        self.assertTrue(config.surrogate_enabled)
+        self.assertEqual(
+            config.llm_user_prompt_path,
+            "prompts/map_elites_llm_emitter_user_direction.txt",
+        )
+        self.assertIn(
+            "hints_direction",
+            config.surrogate_buffer_path,
+        )
+
+    def test_load_weak_hints_scheduler(self) -> None:
+        config = load_scheduler(
+            _SPECS / "map_elites_scheduler_nightly_llm_weak_hints.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
+        self.assertTrue(config.surrogate_enabled)
+        self.assertIn(
+            "weak_hints",
+            config.surrogate_buffer_path,
+        )
+
 
 class TestSelectTargetBin(unittest.TestCase):
     def test_empty_archive_uniform_among_empty(self) -> None:
@@ -341,6 +424,30 @@ class TestSelectTargetCell(unittest.TestCase):
         target = select_target_cell(archive, np.random.default_rng(0))
         self.assertEqual(target.bin_ij, (1, 0))
         self.assertEqual(target.cell_id, 1)
+
+    def test_uniform_frontier_samples_multiple_cells(self) -> None:
+        archive = GridArchive(4)
+        for i in range(3):
+            for j in range(3):
+                fitness = 0.1 if (i, j) == (2, 2) else 0.9
+                archive.try_insert(_minimal_elite((i, j), fitness, elite_id=f"{i}-{j}"))
+        rng = np.random.default_rng(11)
+        cell_ids = {
+            select_target_cell(
+                archive,
+                rng,
+                target_selection="uniform_frontier",
+            ).cell_id
+            for _ in range(200)
+        }
+        self.assertGreater(len(cell_ids), 1)
+        self.assertIn(archive.cell_id_from_bin((2, 2)), cell_ids)
+
+    def test_load_scheduler_reads_target_selection(self) -> None:
+        config = load_scheduler(
+            "worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
+        )
+        self.assertEqual(config.target_selection, "uniform_frontier")
 
     def test_cvt_create_archive_from_mini_scheduler(self) -> None:
         config = load_scheduler(DEFAULT_MINI_CVT_SCHEDULER_PATH)

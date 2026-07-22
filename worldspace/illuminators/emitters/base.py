@@ -143,3 +143,8 @@ class MapElitesEmitter:
             grid_size=grid_size,
             steps=steps,
         )
+
+    @property
+    def llm_emitter(self) -> LlmEmitter:
+        """LLM sub-emitter (for parallel prepare/finalize in the illuminator loop)."""
+        return self._llm

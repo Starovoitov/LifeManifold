@@ -1,0 +1,92 @@
+schema_version: "1.3"
+# Prompt ablation: CVT archive + grid system prompt (hints).
+# Same as nightly_llm_cvt except llm.system_prompt_kind: grid.
+iterations: 650
+batch_size: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+archive:
+  type: cvt
+  n_centroids: 2500
+  cvt_seed: 0
+  lloyd_iterations: 50
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+  system_prompt_kind: grid
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_cvt.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

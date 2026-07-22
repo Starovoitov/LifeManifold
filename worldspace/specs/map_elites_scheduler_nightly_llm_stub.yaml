@@ -69,7 +69,7 @@ llm:
 surrogate:
   enabled: false
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_experiment_stub.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
@@ -78,3 +78,6 @@ surrogate:
 performance:
   parallel_eval: true
   parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

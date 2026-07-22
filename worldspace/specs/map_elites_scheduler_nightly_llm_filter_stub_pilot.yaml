@@ -1,0 +1,113 @@
+schema_version: "1.2"
+# PILOT SKETCH (NOT RUN) — acquisition filter + stub LLM hints.
+#
+# Goal: isolate "reject bad" vs "hint good" on the LLM stack at uniform_frontier.
+# Frozen filter arm uses REAL hints in prompt + threshold_gate (~33% skip).
+# This YAML documents the intended contrast vs:
+#   - map_elites_scheduler_nightly_llm_filter.yaml (hints + filter) — q1-full
+#   - map_elites_scheduler_nightly_llm_stub_uniform.yaml (stub, no filter)
+#
+# BLOCKER: with surrogate.enabled=true, resolve_surrogate_prediction() feeds real
+# hints to the LLM. Acquisition filter requires surrogate.enabled=true.
+# Implement one of:
+#   - llm.stub_hints_only: true  (prompt stub; facade still predicts for gate)
+#   - or separate resolve path in llm_emitter for filter_stub arms
+#
+# Until code lands, use genetic_me_filter for reject-without-LLM (protocol §3.8).
+#
+# Suggested arm label: filter_stub
+# Suggested tier: q1-filter-stub-pilot (seed 0 only)
+# Compare vs: stub_uniform, filter, hints on seed 0
+
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+  # stub_hints_only: true   # NOT IN SCHEMA YET — add in scheduler + llm_emitter
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_filter_stub.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+  acquisition:
+    mode: filter
+    policy: threshold_gate
+    min_predicted_fitness: 0.45
+    max_uncertainty_to_skip: 1.0
+    never_skip_empty_bin: true
+  retrain:
+    enabled: false
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

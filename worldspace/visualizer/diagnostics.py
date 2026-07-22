@@ -155,6 +155,72 @@ def plot_diagnostic_dashboard(
     plt.close(fig)
 
 
+def plot_elite_triptych(
+    result: SimulationResult,
+    path: str | Path,
+    *,
+    dpi: int = 120,
+) -> None:
+    """One row per elite: life+food boundary, 2×2 heterogeneity, food-neighbour panels."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    life = result.final_life
+    food = result.final_food
+    if life is None or food is None:
+        raise ValueError(
+            "Elite triptych needs ``final_life`` and ``final_food`` from ``run_world``."
+        )
+    if life.shape != food.shape:
+        raise ValueError("life and food shapes must match.")
+
+    boundary = ws_math.topology_interface_strength_map(life)
+    hetero = ws_math.topology_2x2_heterogeneity_map(life)
+    fnb = ws_math.food_neighbor_fraction_map(food)
+
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.4), dpi=dpi)
+    ax_main, ax_hetero, ax_adj = axes
+
+    base = _life_food_rgb(life, food)
+    warm = np.stack([boundary, boundary * 0.42, boundary * 0.12], axis=-1)
+    blended = np.clip(base + warm * 0.42, 0.0, 1.0)
+    ax_main.imshow(blended, origin="lower", interpolation="nearest")
+    ax_main.set_title("Life + food · boundary overlay", fontsize=9)
+    ax_main.set_xticks([])
+    ax_main.set_yticks([])
+
+    imh = ax_hetero.imshow(
+        hetero,
+        origin="lower",
+        cmap="magma",
+        vmin=0.0,
+        vmax=1.0,
+        interpolation="nearest",
+    )
+    ax_hetero.set_title("2×2 heterogeneity", fontsize=9)
+    ax_hetero.set_xticks([])
+    ax_hetero.set_yticks([])
+    plt.colorbar(imh, ax=ax_hetero, fraction=0.046, pad=0.02)
+
+    live = life > 0.5
+    t = fnb.astype(np.float32)
+    warm_adj = np.clip(
+        np.stack(
+            [0.18 + 0.75 * t, 0.32 + 0.38 * (1.0 - t), 0.48 + 0.35 * (1.0 - t)], axis=-1
+        ),
+        0.0,
+        1.0,
+    )
+    blend_adj = np.where(live[..., None], (1.0 - 0.48) * base + 0.48 * warm_adj, base)
+    ax_adj.imshow(blend_adj, origin="lower", interpolation="nearest")
+    ax_adj.set_title("Live cells: food neighbours", fontsize=9)
+    ax_adj.set_xticks([])
+    ax_adj.set_yticks([])
+
+    fig.tight_layout(w_pad=0.35)
+    fig.savefig(target, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def plot_metric_tertile_gallery(
     metric_key: str,
     path: str | Path,

@@ -16,8 +16,10 @@ from worldspace.illuminators.scheduler import (
 from worldspace.surrogate.acquisition_config import DEFAULT_SURROGATE_ARCHIVE_PATH
 
 _SPECS = Path(__file__).resolve().parents[1] / "worldspace" / "specs"
-_SHADOW_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_shadow.yaml"
 _FILTER_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_filter.yaml"
+_SHADOW_PATH = _SPECS / "map_elites_scheduler_mini_surrogate_shadow.yaml"
+_SHADOW_NIGHTLY_PATH = _SPECS / "map_elites_scheduler_nightly_llm_shadow.yaml"
+_SHADOW_HINTS_PATH = _SPECS / "map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 
 
 class TestAcquisitionSchedulerYaml(unittest.TestCase):
@@ -46,7 +48,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
         )
         self.assertEqual(
             config.surrogate_calibration,
-            "artifacts/surrogate/checkpoints/calibration.pkl",
+            "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         )
 
     def test_calibration_disabled_via_null_empty_or_false(self) -> None:
@@ -81,7 +83,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
             doc["surrogate"]["enabled"] = True
             doc["surrogate"][
                 "calibration"
-            ] = "artifacts/surrogate/checkpoints/calibration.pkl"
+            ] = "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
             doc["surrogate"]["acquisition"] = {
                 "mode": "shadow",
                 "policy": "threshold_gate",
@@ -104,7 +106,7 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
         self.assertEqual(config.retrain.every_iterations, 10)
         self.assertEqual(
             config.surrogate_calibration,
-            "artifacts/surrogate/checkpoints/calibration.pkl",
+            "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         )
 
     def test_filter_without_surrogate_forces_off(self) -> None:
@@ -123,24 +125,35 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
             any("forcing mode off" in message for message in captured.output)
         )
 
-    def test_ucb_policy_falls_back_to_threshold_gate(self) -> None:
-        with self.assertLogs(level=logging.WARNING) as captured:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                path = Path(tmpdir) / "sched.yaml"
-                doc = yaml.safe_load(
-                    DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
-                )
-                doc["surrogate"]["acquisition"] = {
-                    "mode": "off",
-                    "policy": "ucb_promote",
-                }
-                path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-                config = load_scheduler(path)
-        self.assertEqual(config.acquisition.policy, "threshold_gate")
-        self.assertTrue(
-            any("not implemented yet" in message for message in captured.output)
+    def test_ucb_policy_loads_without_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "sched.yaml"
+            doc = yaml.safe_load(
+                DEFAULT_MINI_SCHEDULER_PATH.read_text(encoding="utf-8")
+            )
+            doc["surrogate"]["acquisition"] = {
+                "mode": "off",
+                "policy": "ucb_promote",
+                "exploration_weight": 0.5,
+            }
+            path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+            config = load_scheduler(path)
+        self.assertEqual(config.acquisition.policy, "ucb_promote")
+        self.assertEqual(config.acquisition.exploration_weight, 0.5)
+
+    def test_nightly_shadow_pair_aligned_except_acquisition_mode(self) -> None:
+        hints = load_scheduler(_SHADOW_HINTS_PATH)
+        shadow = load_scheduler(_SHADOW_NIGHTLY_PATH)
+        self.assertEqual(hints.target_selection, shadow.target_selection)
+        self.assertEqual(
+            hints.surrogate_extinction_gate_threshold,
+            shadow.surrogate_extinction_gate_threshold,
         )
+        self.assertEqual(hints.surrogate_calibration, shadow.surrogate_calibration)
+        self.assertEqual(hints.iterations, shadow.iterations)
+        self.assertEqual(hints.batch_size, shadow.batch_size)
+        self.assertEqual(hints.batch_emitters, shadow.batch_emitters)
+        self.assertEqual(hints.acquisition.mode, "off")
+        self.assertEqual(shadow.acquisition.mode, "shadow")
 
-
-if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ from unittest import mock
 from worldspace.simulator_perf import (
     DEFAULT_SIMULATOR_PERFORMANCE,
     SimulatorPerformanceOptions,
+    effective_llm_parallel_workers,
     effective_numba_enabled,
     effective_parallel_workers,
     resolve_simulator_performance,
@@ -61,6 +62,38 @@ class TestSimulatorPerformanceOptions(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_simulator_performance(perf)
         self.assertIn("numba_simulator and parallel_eval", str(ctx.exception))
+
+    def test_effective_llm_parallel_workers(self) -> None:
+        perf = SimulatorPerformanceOptions(llm_parallel_emit=True)
+        self.assertEqual(
+            effective_llm_parallel_workers(perf, llm_slot_count=10),
+            10,
+        )
+        capped = SimulatorPerformanceOptions(
+            llm_parallel_emit=True,
+            llm_parallel_workers=4,
+        )
+        self.assertEqual(
+            effective_llm_parallel_workers(capped, llm_slot_count=10),
+            4,
+        )
+        self.assertEqual(
+            effective_llm_parallel_workers(capped, llm_slot_count=2),
+            2,
+        )
+
+    def test_resolve_llm_parallel_workers_from_yaml_and_env(self) -> None:
+        resolved = resolve_simulator_performance(
+            {"llm_parallel_emit": True, "llm_parallel_workers": 3}
+        )
+        self.assertEqual(resolved.llm_parallel_workers, 3)
+        with mock.patch.dict(
+            os.environ,
+            {"LIFEMANIFOLD_LLM_PARALLEL_WORKERS": "5"},
+            clear=False,
+        ):
+            env_resolved = resolve_simulator_performance({"llm_parallel_workers": 3})
+        self.assertEqual(env_resolved.llm_parallel_workers, 5)
 
     def test_env_overrides_yaml(self) -> None:
         env = {

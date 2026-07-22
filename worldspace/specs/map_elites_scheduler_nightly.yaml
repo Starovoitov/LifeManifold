@@ -70,7 +70,7 @@ llm:
 surrogate:
   enabled: false
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/latest.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_nightly.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0

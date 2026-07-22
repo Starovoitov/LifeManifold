@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import compute_fitness
 from worldspace.metrics import WorldMetrics
 from worldspace.surrogate.types import SurrogatePrediction
 
@@ -24,10 +23,13 @@ def compute_fitness_from_prediction(
     pred: SurrogatePrediction,
     *,
     use_soft_extinction: bool = False,
+    extinction_gate_threshold: float = 0.5,
 ) -> float:
     """Compute fitness via illuminator source function, not duplicated formula."""
     if use_soft_extinction:
         return compute_soft_fitness_from_prediction(pred)
+    from worldspace.illuminators.evaluation import compute_fitness
+
     components = pred.components
     metrics = WorldMetrics(
         entropy=0.0,
@@ -52,13 +54,18 @@ def compute_fitness_from_prediction(
     return compute_fitness(
         metrics,
         measures,
-        early_extinct=_is_early_extinct(components),
+        early_extinct=_is_early_extinct(
+            components,
+            threshold=extinction_gate_threshold,
+        ),
         final_density=float(components["final_density"]),
     )
 
 
 def compute_soft_fitness_from_prediction(pred: SurrogatePrediction) -> float:
     """Surrogate-only soft extinction: scale base fitness by ``(1 - p_ext)``."""
+    from worldspace.illuminators.evaluation import compute_fitness
+
     components = pred.components
     p_ext = float(np.clip(components["early_extinction_prob"], 0.0, 1.0))
     metrics = WorldMetrics(
@@ -90,8 +97,8 @@ def compute_soft_fitness_from_prediction(pred: SurrogatePrediction) -> float:
     return float(np.clip((1.0 - p_ext) * base, 0.0, 1.0))
 
 
-def _is_early_extinct(components: dict[str, float]) -> bool:
-    return float(components["early_extinction_prob"]) >= 0.5
+def _is_early_extinct(components: dict[str, float], *, threshold: float = 0.5) -> bool:
+    return float(components["early_extinction_prob"]) >= float(threshold)
 
 
 def _clip_unit_fitness(value: float) -> float:
@@ -105,6 +112,7 @@ def resolve_surrogate_fitness(
     prediction: SurrogatePrediction,
     *,
     use_soft_extinction: bool = False,
+    extinction_gate_threshold: float = 0.5,
 ) -> float:
     """Use direct fitness head when trained, otherwise compose from components."""
     direct = model.predict_fitness(features)
@@ -114,5 +122,6 @@ def resolve_surrogate_fitness(
         compute_fitness_from_prediction(
             prediction,
             use_soft_extinction=use_soft_extinction,
+            extinction_gate_threshold=extinction_gate_threshold,
         )
     )

@@ -1,11 +1,13 @@
 schema_version: "1.2"
 # Full nightly budget with LLM emitter (650 × 10 LLM = 6_500 API calls per seed).
 # Control arm for surrogate hints A/B: map_elites_scheduler_nightly_llm_stub.yaml
+# Aligned with filter arm: uniform_frontier + extinction gate + calibration.
 iterations: 650
 batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
 min_steps: 200
+target_selection: uniform_frontier
 
 batch_emitters:
   - random
@@ -70,12 +72,17 @@ llm:
 surrogate:
   enabled: true
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_experiment.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
 
 # Forkserver pool reused across iterations (numba_simulator must stay false).
 performance:
   parallel_eval: true
   parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

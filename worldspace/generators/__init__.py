@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 import base64
 from collections.abc import Iterator
 from dataclasses import replace
+import http.client
 import json
 import os
 import ssl
+import time
 from pathlib import Path
 from typing import Any, cast
 from urllib import error, request
@@ -727,6 +729,7 @@ def call_llm(
     providers: dict[str, Any],
     prompt: str,
     temperature: float = 0.2,
+    top_p: float | None = None,
     max_tokens: int = 350,
     system_content: str | None = None,
 ) -> str:
@@ -743,6 +746,7 @@ def call_llm(
             {"role": "user", "content": prompt},
         ],
         temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
     )
 
@@ -780,6 +784,59 @@ def call_llm_vision(
     )
 
 
+_LLM_HTTP_TIMEOUT_SECONDS = 45
+_LLM_HTTP_MAX_ATTEMPTS = 3
+_LLM_HTTP_RETRY_BACKOFF_SECONDS = 2.0
+
+
+def _retryable_llm_http_status(code: int) -> bool:
+    return code in (429, 500, 502, 503, 504)
+
+
+def _llm_http_retry_backoff_seconds(attempt: int) -> float:
+    """Exponential backoff before retry attempt ``attempt + 1`` (2s, 4s, …)."""
+    return _LLM_HTTP_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+
+
+def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
+    """POST once with up to three attempts on transient network/API failures."""
+    last_error: BaseException | None = None
+    for attempt in range(1, _LLM_HTTP_MAX_ATTEMPTS + 1):
+        try:
+            with request.urlopen(req, timeout=_LLM_HTTP_TIMEOUT_SECONDS) as resp:
+                return resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            if (
+                _retryable_llm_http_status(exc.code)
+                and attempt < _LLM_HTTP_MAX_ATTEMPTS
+            ):
+                last_error = exc
+                time.sleep(_llm_http_retry_backoff_seconds(attempt))
+                continue
+            raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
+        except (
+            error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.RemoteDisconnected,
+            http.client.IncompleteRead,
+            ssl.SSLError,
+        ) as exc:
+            if attempt < _LLM_HTTP_MAX_ATTEMPTS:
+                last_error = exc
+                time.sleep(_llm_http_retry_backoff_seconds(attempt))
+                continue
+            if isinstance(exc, error.URLError):
+                r = exc.reason
+                hint = _llm_url_error_hint(r, api_base)
+                raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
+            raise RuntimeError(f"LLM request failed: {exc}") from exc
+    msg = f"LLM request failed after {_LLM_HTTP_MAX_ATTEMPTS} attempts"
+    if last_error is not None:
+        raise RuntimeError(msg) from last_error
+    raise RuntimeError(msg)
+
+
 def call_llm_messages(
     *,
     mode: str,
@@ -787,6 +844,7 @@ def call_llm_messages(
     providers: dict[str, Any],
     messages: list[dict[str, Any]],
     temperature: float = 0.2,
+    top_p: float | None = None,
     max_tokens: int = 350,
 ) -> str:
     """POST chat completions with a pre-built ``messages`` list."""
@@ -798,12 +856,23 @@ def call_llm_messages(
     if not api_base or not model:
         raise ValueError(f"Provider {provider_name!r} must define api_base and model")
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    # Provider-specific OpenAI-compatible extras (e.g. DeepSeek thinking mode).
+    if "enable_thinking" in provider:
+        payload["enable_thinking"] = bool(provider["enable_thinking"])
+    if "thinking" in provider:
+        payload["thinking"] = provider["thinking"]
+    extra = provider.get("chat_extra")
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            payload[str(key)] = value
     body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = request.Request(api_base, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -823,15 +892,7 @@ def call_llm_messages(
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
 
-    try:
-        with request.urlopen(req, timeout=45) as resp:
-            raw = resp.read().decode("utf-8")
-    except error.HTTPError as exc:
-        raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
-    except error.URLError as exc:
-        r = exc.reason
-        hint = _llm_url_error_hint(r, api_base)
-        raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
+    raw = _fetch_llm_response_body(req, api_base=api_base)
 
     try:
         data = json.loads(raw)
@@ -843,6 +904,13 @@ def call_llm_messages(
     message = choices[0].get("message", {})
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
+        # Some thinking-mode responses leave content empty; surface a clear error.
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning.strip():
+            raise RuntimeError(
+                "LLM response has reasoning_content but empty message.content; "
+                "disable thinking mode (enable_thinking: false) for MAP-Elites emits"
+            )
         raise RuntimeError("LLM response missing message.content")
     return content
 

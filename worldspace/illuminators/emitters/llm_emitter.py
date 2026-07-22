@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import http.client
 import json
-from dataclasses import replace
+import logging
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -16,16 +18,22 @@ from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.emitters.archive_neighbors import neighbor_elites
 from worldspace.illuminators.emitters.base import EmitterOutput, strip_seed
 from worldspace.illuminators.emitters.llm_prompts import (
+    emitter_prompt_version,
+    load_user_prompt_template,
+    parent_prompt_fields,
     render_system_prompt_for_archive_type,
-    system_prompt_version,
+    resolve_direction_prompt_fields,
+    surrogate_prompt_fields,
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.scheduler import (
     SchedulerConfig,
     TargetCell,
-    resolve_surrogate_stub,
+    resolve_surrogate_prediction,
 )
-from worldspace.surrogate.types import SurrogateProtocol
+from worldspace.surrogate import StubSurrogate
+from worldspace.surrogate.model import SurrogateModel
+from worldspace.surrogate.types import SurrogatePrediction, SurrogateProtocol
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_spec_constraints import format_world_spec_constraints
 from worldspace.specs.world_spec_from_llm import (
@@ -40,13 +48,32 @@ _DEFAULT_LLM_SPEC = (
 )
 _EMITTER_TYPE_LLM = "llm"
 _EMITTER_TYPE_LLM_FALLBACK = "llm_fallback"
+_LLM_RESPONSE_PREVIEW_CHARS = 160
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "LlmEmitter",
+    "LlmPreparedSlot",
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
 ]
+
+
+@dataclass(frozen=True)
+class LlmPreparedSlot:
+    """Prompts and lineage for one LLM slot after prepare, before HTTP."""
+
+    target: TargetCell
+    parent_spec: WorldSpec
+    parent_id: str | None
+    system_prompt: str
+    user_prompt: str
+    prompt_version: str
+    grid_size: int
+    steps: int
+    surrogate_prediction: SurrogatePrediction | None = None
 
 
 class LlmEmitter:
@@ -65,6 +92,7 @@ class LlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         random_emitter: RandomEmitter | None = None,
     ) -> None:
+        """Configure grid/CVT resolution, surrogate hints, and LLM provider settings."""
         if scheduler is not None:
             self._grid_resolution = scheduler.grid_resolution
             self._n_centroids = scheduler.n_centroids
@@ -92,6 +120,35 @@ class LlmEmitter:
         grid_size: int,
         steps: int,
     ) -> EmitterOutput:
+        """Prepare prompts, call the LLM once, and parse or random-walk fallback."""
+        prepared = self.prepare_emit(
+            target=target,
+            archive=archive,
+            rng=rng,
+            grid_size=grid_size,
+            steps=steps,
+        )
+        try:
+            response = self.request_llm(prepared)
+        except (RuntimeError, ValueError, OSError, http.client.HTTPException) as exc:
+            return self.finalize_emit(
+                prepared,
+                response="",
+                rng=rng,
+                request_error=exc,
+            )
+        return self.finalize_emit(prepared, response=response, rng=rng)
+
+    def prepare_emit(
+        self,
+        *,
+        target: TargetCell,
+        archive: ArchiveProtocol,
+        rng: np.random.Generator,
+        grid_size: int,
+        steps: int,
+    ) -> LlmPreparedSlot:
+        """Build parent, surrogate hints, and prompts without an HTTP call."""
         parent_spec, parent_id = self._resolve_parent_one(
             target=target,
             archive=archive,
@@ -100,9 +157,7 @@ class LlmEmitter:
             steps=steps,
         )
         prepared_parent = replace(parent_spec, grid_size=grid_size, steps=steps)
-        surrogate_mean, surrogate_uncertainty = self._resolve_surrogate_values(
-            prepared_parent
-        )
+        prediction = self._resolve_surrogate_prediction(prepared_parent)
         archive_type = cast(
             Literal["grid", "cvt"],
             archive.archive_type,
@@ -110,30 +165,93 @@ class LlmEmitter:
         if archive_type not in {"grid", "cvt"}:
             msg = f"unsupported archive_type for LLM emitter: {archive.archive_type!r}"
             raise ValueError(msg)
+        prompt_kind = self._resolve_system_prompt_kind(archive_type)
         system_prompt = render_system_prompt_for_archive_type(
-            archive_type,
+            prompt_kind,
             grid_resolution=self._grid_resolution,
             n_centroids=archive.n_cells,
         )
-        prompt_version = system_prompt_version(archive_type=archive_type)
+        user_prompt_path = (
+            self._scheduler.llm_user_prompt_path
+            if self._scheduler is not None
+            else None
+        )
+        user_prompt_template = load_user_prompt_template(user_prompt_path)
+        prompt_version = emitter_prompt_version(
+            archive_type=prompt_kind,
+            user_path=user_prompt_path,
+        )
+        surrogate_model = (
+            getattr(self._surrogate, "model", None)
+            if self._surrogate is not None
+            else None
+        )
+        use_soft_extinction = (
+            self._scheduler.surrogate_use_soft_extinction
+            if self._scheduler is not None
+            else False
+        )
+        extinction_gate_threshold = (
+            self._scheduler.surrogate_extinction_gate_threshold
+            if self._scheduler is not None
+            else 0.5
+        )
         user_prompt = build_user_prompt(
             target=target,
             archive=archive,
-            surrogate_mean=surrogate_mean,
-            surrogate_uncertainty=surrogate_uncertainty,
+            prediction=prediction,
+            user_prompt_template=user_prompt_template,
             rng=rng,
+            direction_parent_spec=prepared_parent,
+            direction_surrogate_model=cast(SurrogateModel | None, surrogate_model),
+            direction_use_soft_extinction=use_soft_extinction,
+            direction_extinction_gate_threshold=extinction_gate_threshold,
         )
-        try:
-            response = self._request_llm(system_prompt, user_prompt)
-        except (RuntimeError, ValueError):
+        return LlmPreparedSlot(
+            target=target,
+            parent_spec=parent_spec,
+            parent_id=parent_id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            prompt_version=prompt_version,
+            grid_size=grid_size,
+            steps=steps,
+            surrogate_prediction=prediction,
+        )
+
+    def request_llm(self, prepared: LlmPreparedSlot) -> str:
+        """POST chat completions for a prepared slot; raise on empty content."""
+        response = self._request_llm(prepared.system_prompt, prepared.user_prompt)
+        if not response.strip():
+            msg = "empty LLM response"
+            raise RuntimeError(msg)
+        return response
+
+    def finalize_emit(
+        self,
+        prepared: LlmPreparedSlot,
+        *,
+        response: str,
+        rng: np.random.Generator,
+        request_error: BaseException | None = None,
+    ) -> EmitterOutput:
+        """Parse LLM JSON into a child ``WorldSpec`` or apply random-walk fallback."""
+        fallback_reason: str | None = None
+        if request_error is not None:
+            fallback_reason = (
+                f"request_failed:{type(request_error).__name__}:{request_error}"
+            )
             response = ""
+        elif not response.strip():
+            fallback_reason = "empty_response"
+
         parsed = extract_json_object_from_text(response)
         if parsed is not None:
             spec = world_spec_from_llm_payload(
                 parsed,
-                grid_size=grid_size,
-                steps=steps,
-                base=parent_spec,
+                grid_size=prepared.grid_size,
+                steps=prepared.steps,
+                base=prepared.parent_spec,
             )
             if spec is not None:
                 return EmitterOutput(
@@ -141,24 +259,38 @@ class LlmEmitter:
                     metadata=new_elite_metadata(
                         generated_by="llm",
                         emitter_type=_EMITTER_TYPE_LLM,
-                        parent_id=parent_id,
-                        prompt_version=prompt_version,
+                        parent_id=prepared.parent_id,
+                        prompt_version=prepared.prompt_version,
                     ),
                 )
+            fallback_reason = "invalid_world_spec"
+        elif fallback_reason is None:
+            preview = response.strip().replace("\n", " ")[:_LLM_RESPONSE_PREVIEW_CHARS]
+            fallback_reason = (
+                "no_json_in_response" if preview else "no_json_in_empty_response"
+            )
+
+        logger.warning(
+            "LLM emitter fallback cell_id=%s parent_id=%s reason=%s response_preview=%r",
+            prepared.target.cell_id,
+            prepared.parent_id,
+            fallback_reason,
+            response.strip().replace("\n", " ")[:_LLM_RESPONSE_PREVIEW_CHARS],
+        )
         fallback_spec = _random_walk_step(
-            parent_spec,
+            prepared.parent_spec,
             scale=self._fallback_scale,
             rng=rng,
-            grid_size=grid_size,
-            steps=steps,
+            grid_size=prepared.grid_size,
+            steps=prepared.steps,
         )
         return EmitterOutput(
             world_spec=fallback_spec,
             metadata=new_elite_metadata(
                 generated_by="llm",
                 emitter_type=_EMITTER_TYPE_LLM_FALLBACK,
-                parent_id=parent_id,
-                prompt_version=prompt_version,
+                parent_id=prepared.parent_id,
+                prompt_version=prepared.prompt_version,
             ),
         )
 
@@ -171,6 +303,7 @@ class LlmEmitter:
         grid_size: int,
         steps: int,
     ) -> tuple[WorldSpec, str | None]:
+        """Return the target-cell elite as parent, or one random world if empty."""
         elite = archive.get_cell(target.cell_id)
         if elite is not None and elite.world_spec is not None:
             parent_id = elite.metadata.id if elite.metadata is not None else None
@@ -187,12 +320,34 @@ class LlmEmitter:
         )
         return random_out.world_spec, None
 
-    def _resolve_surrogate_values(self, world_spec: WorldSpec) -> tuple[float, float]:
+    def _resolve_system_prompt_kind(
+        self, archive_type: Literal["grid", "cvt"]
+    ) -> Literal["grid", "cvt"]:
+        """Return which system prompt template to render (may differ from archive)."""
+        if self._scheduler is None:
+            return archive_type
+        kind = self._scheduler.llm_system_prompt_kind
+        if kind == "auto":
+            return archive_type
+        return kind
+
+    def _resolve_surrogate_prediction(
+        self, world_spec: WorldSpec
+    ) -> SurrogatePrediction:
+        """Return surrogate prediction for the user prompt."""
         if self._scheduler is not None and self._surrogate is not None:
-            return resolve_surrogate_stub(self._scheduler, self._surrogate, world_spec)
-        return (self._surrogate_mean, self._surrogate_uncertainty)
+            return resolve_surrogate_prediction(
+                self._scheduler,
+                self._surrogate,
+                world_spec,
+            )
+        return StubSurrogate(
+            self._surrogate_mean,
+            self._surrogate_uncertainty,
+        ).predict(world_spec)
 
     def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Invoke the configured text caller (live API or test mock)."""
         if self._call_llm_text is None:
             from worldspace.generators import call_llm
 
@@ -206,6 +361,7 @@ class LlmEmitter:
             providers=cfg.providers,
             prompt=user_prompt,
             temperature=cfg.temperature,
+            top_p=cfg.top_p,
             max_tokens=cfg.max_tokens,
             system_content=system_prompt,
         )
@@ -215,14 +371,27 @@ def build_user_prompt(
     *,
     target: TargetCell,
     archive: ArchiveProtocol,
-    surrogate_mean: float,
-    surrogate_uncertainty: float,
     rng: np.random.Generator,
+    prediction: SurrogatePrediction | None = None,
+    surrogate_mean: float = 0.5,
+    surrogate_uncertainty: float = 1.0,
+    user_prompt_template: str | None = None,
     max_few_shot: int = _DEFAULT_FEW_SHOT,
+    direction_parent_spec: WorldSpec | None = None,
+    direction_surrogate_model: SurrogateModel | None = None,
+    direction_use_soft_extinction: bool = False,
+    direction_extinction_gate_threshold: float = 0.5,
 ) -> str:
     """Build the LLM user prompt for one emitter slot."""
-    from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
-
+    if prediction is None:
+        prediction = StubSurrogate(surrogate_mean, surrogate_uncertainty).predict(
+            _PROMPT_STUB_WORLD_SPEC
+        )
+    template = (
+        user_prompt_template
+        if user_prompt_template is not None
+        else load_user_prompt_template()
+    )
     neighbors = neighbor_elites(
         archive,
         target.cell_id,
@@ -230,15 +399,35 @@ def build_user_prompt(
         max_count=max_few_shot,
     )
     current = archive.get_cell(target.cell_id)
-    return USER_PROMPT_TEMPLATE.format(
+    return template.format(
         target_stability=target.target_stability,
         target_diversity=target.target_diversity,
-        surrogate_mean=surrogate_mean,
-        surrogate_uncertainty=surrogate_uncertainty,
+        **surrogate_prompt_fields(prediction),
+        **parent_prompt_fields(current),
+        **resolve_direction_prompt_fields(
+            template,
+            parent_world_spec=direction_parent_spec,
+            surrogate_model=direction_surrogate_model,
+            use_soft_extinction=direction_use_soft_extinction,
+            extinction_gate_threshold=direction_extinction_gate_threshold,
+        ),
         current_elite_json=format_current_elite_json(current),
         few_shot_examples=format_few_shot_block(neighbors),
         constraints=format_world_spec_constraints(),
     )
+
+
+_PROMPT_STUB_WORLD_SPEC = WorldSpec(
+    birth=[1],
+    survival=[2, 3],
+    noise=0.0,
+    resource_regen=0.0,
+    predation=0.0,
+    cell_types=["life", "food"],
+    grid_size=8,
+    steps=200,
+    seed=0,
+)
 
 
 def format_current_elite_json(elite: ArchiveElite | None) -> str:
@@ -264,6 +453,7 @@ def _random_walk_step(
     grid_size: int,
     steps: int,
 ) -> WorldSpec:
+    """Perturb ``parent`` by one scaled random-walk step when LLM output fails."""
     walker = RandomWalkWorldGenerator(
         start_world=replace(parent, seed=0, grid_size=grid_size, steps=steps),
         scale=scale,
@@ -276,6 +466,7 @@ def _random_walk_step(
 
 
 def _elite_prompt_record(elite: ArchiveElite) -> dict:
+    """Build a JSON-serializable elite record for few-shot / current-cell blocks."""
     if elite.world_spec is None:
         msg = "elite.world_spec is required for prompt serialization"
         raise ValueError(msg)

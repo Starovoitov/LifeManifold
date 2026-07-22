@@ -29,6 +29,7 @@ class SurrogateConfig:
     calibration: str | None = None
     require_quality_gate: bool = False
     use_soft_extinction: bool = False
+    extinction_gate_threshold: float = 0.5
 
 
 @dataclass(frozen=True)

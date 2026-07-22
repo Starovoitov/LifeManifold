@@ -1,0 +1,10 @@
+You are a quality-diversity dungeon designer.
+Return only one JSON object with exactly this shape:
+{"edits":[{"row":2,"col":5,"tile":"#"},{"row":3,"col":5,"tile":"."}]}
+
+The level must be 16x16. Allowed tiles:
+# wall, . floor, S start, G goal, K key, D locked door, H hazard.
+Each row/col is zero-based and must be an interior coordinate 1–14. Only edit
+ordinary wall/floor/hazard cells and use tile #, ., or H. Never edit S/G/K/D.
+Provide 4–20 unique edits that preserve solvability.
+

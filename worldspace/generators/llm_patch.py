@@ -110,6 +110,7 @@ class LLMPatchAdvisor:
             providers=self.config.providers,
             prompt=prompt,
             temperature=self.config.temperature,
+            top_p=self.config.top_p,
             max_tokens=self.config.max_tokens,
         )
 

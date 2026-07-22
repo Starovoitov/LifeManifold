@@ -241,6 +241,31 @@ class TestSummarizeRun(unittest.TestCase):
         self.assertEqual(summary["n_cells"], 100)
         self.assertAlmostEqual(summary["filled_cells_pct"], 1.0)
 
+    def test_summarize_run_uses_nightly_summary_evaluations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "nightly_run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "archive_type": "grid",
+                        "grid_resolution": 50,
+                        "n_cells": 2500,
+                        "evaluations": 32500,
+                        "filled_cells": 980,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "map_elites_archive.jsonl").write_text(
+                json.dumps({"fitness": 0.5}) + "\n",
+                encoding="utf-8",
+            )
+            summary = _summarize_run(root, grid_resolution=50)
+        self.assertTrue(summary["run_complete"])
+        self.assertEqual(summary["evaluations"], 32500.0)
+        self.assertEqual(summary["filled_cells"], 980.0)
+        self.assertAlmostEqual(summary["filled_cells_pct"], 39.2)
+
 
 if __name__ == "__main__":
     unittest.main()

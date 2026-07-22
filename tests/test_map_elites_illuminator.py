@@ -57,11 +57,10 @@ def _occupied_fitness(
 ) -> dict[tuple[int, int], float]:
     archive = load_and_collapse_jsonl(archive_path, resolution=resolution)
     snapshot: dict[tuple[int, int], float] = {}
-    for i in range(resolution):
-        for j in range(resolution):
-            elite = archive.get(i, j)
-            if elite is not None:
-                snapshot[(i, j)] = elite.fitness
+    for cell_id in range(archive.n_cells):
+        elite = archive.get_cell(cell_id)
+        if elite is not None:
+            snapshot[archive.bin_from_cell_id(cell_id)] = elite.fitness
     return snapshot
 
 
@@ -116,6 +115,83 @@ class TestMapElitesIlluminator(unittest.TestCase):
                 load_archive_path=archive_path,
             )
             self.assertEqual(result.counters.candidates_evaluated, 104)
+
+    def test_external_baseline_clears_stale_output_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "run"
+            out.mkdir()
+            baseline_path = root / "baseline.jsonl"
+            eval_result = evaluate_candidate(
+                _BASE, resolution=10, enforce_min_steps=True
+            )
+            elite = elite_from_eval(
+                eval_result,
+                new_elite_metadata(
+                    generated_by="random",
+                    emitter_type="random",
+                ),
+            )
+            append_archive_line(baseline_path, elite_to_archive_record(elite))
+            stale_archive = archive_jsonl_path(out)
+            stale_archive.write_text('{"stale": true}\n', encoding="utf-8")
+            (out / "surrogate_archive.jsonl").write_text("stale\n", encoding="utf-8")
+            (out / "iteration_timing.jsonl").write_text("stale\n", encoding="utf-8")
+            (out / "archive_trace.jsonl").write_text("stale\n", encoding="utf-8")
+
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_SCHEDULER_PATH,
+                output_dir=out,
+                seed=3,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+                load_archive_path=baseline_path,
+            )
+
+            self.assertTrue(stale_archive.is_file())
+            text = stale_archive.read_text(encoding="utf-8")
+            self.assertNotIn("stale", text)
+            record = json.loads(text.strip().splitlines()[0])
+            self.assertEqual(record["schema_version"], "1.2")
+            self.assertFalse((out / "iteration_timing.jsonl").exists())
+            self.assertFalse((out / "archive_trace.jsonl").exists())
+
+    def test_external_cvt_baseline_copies_centroids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline_dir = root / "baseline"
+            baseline_dir.mkdir()
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_CVT_SCHEDULER_PATH,
+                output_dir=baseline_dir,
+                seed=3,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+            )
+            baseline_archive = archive_jsonl_path(baseline_dir)
+            baseline_centroids = centroids_path_for_output(baseline_dir)
+            self.assertTrue(baseline_centroids.is_file())
+
+            run_dir = root / "run"
+            run_dir.mkdir()
+            MapElitesIlluminator().run(
+                scheduler_path=DEFAULT_MINI_CVT_SCHEDULER_PATH,
+                output_dir=run_dir,
+                seed=4,
+                grid_size=8,
+                steps=200,
+                iterations=1,
+                load_archive_path=baseline_archive,
+            )
+
+            copied = centroids_path_for_output(run_dir)
+            self.assertTrue(copied.is_file())
+            self.assertEqual(
+                copied.read_bytes(),
+                baseline_centroids.read_bytes(),
+            )
 
     def test_same_seed_reproducible_via_illuminator(self) -> None:
         def snap(seed: int) -> dict[tuple[int, int], float]:

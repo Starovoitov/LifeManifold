@@ -21,13 +21,29 @@ from worldspace.illuminators.emitters.llm_emitter import (
     format_few_shot_block,
 )
 from worldspace.illuminators.emitters.llm_prompts import (
+    COMPONENTS_USER_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH,
     DEFAULT_SYSTEM_PROMPT_PATH_CVT,
+    DEFAULT_USER_PROMPT_PATH,
+    PARENT_USER_PROMPT_PATH,
+    PARENT_USER_PROMPT_FIELD_NAMES,
+    PARENT_HINT_EMPTY,
+    SURROGATE_USER_PROMPT_FIELD_NAMES,
+    USER_PROMPT_TEMPLATE,
+    components_user_prompt_path,
+    emitter_prompt_version,
     load_system_prompt_template,
+    load_user_prompt_template,
+    parent_prompt_fields,
+    parent_user_prompt_path,
     render_cvt_system_prompt,
     render_system_prompt,
+    render_user_prompt,
+    surrogate_prompt_fields,
     system_prompt_version,
+    user_prompt_version,
 )
+from worldspace.metrics import WorldMetrics
 from worldspace.illuminators.scheduler import TargetCell
 from worldspace.specs.spec import WorldSpec
 from worldspace.specs.world_param_bounds import NOISE_MAX, NOISE_MIN
@@ -35,6 +51,7 @@ from worldspace.specs.world_spec_constraints import (
     WORLD_SPEC_CONSTRAINTS,
     format_world_spec_constraints,
 )
+from worldspace.surrogate.types import SurrogatePrediction
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _BASE_SPEC = WorldSpec(
@@ -109,10 +126,20 @@ class TestSystemPrompt(unittest.TestCase):
 
 class TestUserPrompt(unittest.TestCase):
     def test_user_prompt_template_keeps_surrogate_placeholders(self) -> None:
-        from worldspace.illuminators.emitters.llm_prompts import USER_PROMPT_TEMPLATE
-
         self.assertIn("{surrogate_mean:", USER_PROMPT_TEMPLATE)
         self.assertIn("{surrogate_uncertainty:", USER_PROMPT_TEMPLATE)
+
+    def test_user_prompt_requests_world_spec_only(self) -> None:
+        self.assertIn("world_spec", USER_PROMPT_TEMPLATE)
+        self.assertNotIn('"reasoning"', USER_PROMPT_TEMPLATE)
+
+    def test_user_prompt_version_is_sha256_prefix(self) -> None:
+        expected = hashlib.sha256(DEFAULT_USER_PROMPT_PATH.read_bytes()).hexdigest()[:8]
+        self.assertEqual(user_prompt_version(), expected)
+
+    def test_emitter_prompt_version_composite(self) -> None:
+        expected = f"{system_prompt_version()}:{user_prompt_version()}"
+        self.assertEqual(emitter_prompt_version(), expected)
 
     def test_build_user_prompt_includes_targets_and_surrogate(self) -> None:
         archive = GridArchive(5)
@@ -185,6 +212,192 @@ class TestUserPrompt(unittest.TestCase):
         self.assertIn(str(NOISE_MIN), text)
         self.assertIn(str(NOISE_MAX), text)
         self.assertEqual(WORLD_SPEC_CONSTRAINTS["noise"], f"[{NOISE_MIN},{NOISE_MAX}]")
+
+
+_COMPONENT_PREDICTION = SurrogatePrediction(
+    components={
+        "stability": 0.41,
+        "diversity": 0.55,
+        "oscillation_score": 0.12,
+        "topology_interface_index": 0.33,
+        "topology_window_heterogeneity": 0.28,
+        "final_density": 0.62,
+        "early_extinction_prob": 0.38,
+    },
+    measures={"stability": 0.41, "diversity": 0.55},
+    fitness=0.487,
+    uncertainty=0.71,
+)
+
+
+def _component_prompt_kwargs() -> dict[str, object]:
+    return {
+        "target_stability": 0.42,
+        "target_diversity": 0.57,
+        **surrogate_prompt_fields(_COMPONENT_PREDICTION),
+        "current_elite_json": "null",
+        "few_shot_examples": "no occupied neighboring elites",
+        "constraints": format_world_spec_constraints(),
+    }
+
+
+class TestComponentUserPrompt(unittest.TestCase):
+    def test_components_template_has_all_placeholders(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        for field_name in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}:", template)
+        self.assertIn("{target_stability:", template)
+        self.assertIn("{current_elite_json}", template)
+
+    def test_surrogate_prompt_fields_from_prediction(self) -> None:
+        fields = surrogate_prompt_fields(_COMPONENT_PREDICTION)
+        self.assertEqual(set(fields), set(SURROGATE_USER_PROMPT_FIELD_NAMES))
+        self.assertAlmostEqual(fields["surrogate_stability"], 0.41)
+        self.assertAlmostEqual(fields["surrogate_mean"], 0.487)
+        self.assertAlmostEqual(fields["surrogate_uncertainty"], 0.71)
+
+    def test_surrogate_prompt_fields_stub_pattern(self) -> None:
+        stub_mean = 0.5
+        prediction = SurrogatePrediction(
+            components={
+                "stability": stub_mean,
+                "diversity": stub_mean,
+                "oscillation_score": stub_mean,
+                "topology_interface_index": stub_mean,
+                "topology_window_heterogeneity": stub_mean,
+                "final_density": stub_mean,
+                "early_extinction_prob": stub_mean,
+            },
+            measures={"stability": stub_mean, "diversity": stub_mean},
+            fitness=stub_mean,
+            uncertainty=1.0,
+        )
+        fields = surrogate_prompt_fields(prediction)
+        for key in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            if key == "surrogate_uncertainty":
+                self.assertAlmostEqual(fields[key], 1.0)
+            else:
+                self.assertAlmostEqual(fields[key], stub_mean)
+
+    def test_render_components_template_no_key_error(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        rendered = render_user_prompt(template, **_component_prompt_kwargs())
+        self.assertNotIn("{surrogate_", rendered)
+        self.assertIn("world_spec", rendered)
+
+    def test_components_prompt_version_differs_from_default(self) -> None:
+        self.assertNotEqual(
+            user_prompt_version(components_user_prompt_path()),
+            user_prompt_version(),
+        )
+        self.assertEqual(
+            components_user_prompt_path(),
+            COMPONENTS_USER_PROMPT_PATH,
+        )
+
+    def test_render_components_includes_extinction_and_uncertainty(self) -> None:
+        template = load_user_prompt_template(components_user_prompt_path())
+        rendered = render_user_prompt(template, **_component_prompt_kwargs())
+        self.assertIn("0.380", rendered)
+        self.assertIn("0.620", rendered)
+        self.assertIn("0.710", rendered)
+        self.assertIn("early_extinction_prob", rendered)
+
+
+def _sample_metrics() -> WorldMetrics:
+    return WorldMetrics(
+        entropy=0.5,
+        stability=0.642,
+        average_lifespan=0.4,
+        density_mean=0.62,
+        oscillation_score=0.12,
+        diversity=0.875,
+        mo_eoc_indicator=0.1,
+        topology_interface_index=0.33,
+        topology_window_heterogeneity=0.28,
+        compressibility_score=0.2,
+        ecology_state_entropy_norm=0.3,
+        ecology_resource_adjacency=0.4,
+    )
+
+
+def _parent_prompt_kwargs() -> dict[str, object]:
+    return {
+        **_component_prompt_kwargs(),
+        **parent_prompt_fields(_elite_with_metrics()),
+    }
+
+
+def _elite_with_metrics() -> ArchiveElite:
+    return ArchiveElite(
+        bin=(1, 1),
+        fitness=0.782,
+        world_spec=replace(_BASE_SPEC, seed=1),
+        measures={"stability": 0.642, "diversity": 0.875},
+        metrics=_sample_metrics(),
+        metadata=new_elite_metadata(
+            generated_by="random",
+            emitter_type="random",
+            elite_id="parent-1",
+            timestamp="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+
+class TestParentUserPrompt(unittest.TestCase):
+    def test_parent_template_has_required_placeholders(self) -> None:
+        template = load_user_prompt_template(parent_user_prompt_path())
+        for field_name in SURROGATE_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}:", template)
+        for field_name in PARENT_USER_PROMPT_FIELD_NAMES:
+            self.assertIn(f"{{{field_name}}}", template)
+        self.assertIn("parent observed fitness", template)
+
+    def test_parent_prompt_fields_occupied_elite(self) -> None:
+        fields = parent_prompt_fields(_elite_with_metrics())
+        block = fields["parent_hint_block"]
+        self.assertIn("Parent cell (observed from simulation)", block)
+        self.assertIn("fitness: 0.782", block)
+        self.assertIn("stability: 0.642", block)
+        self.assertIn("oscillation_score: 0.120", block)
+        self.assertIn("early_extinction_prob: 0.380", block)
+
+    def test_parent_prompt_fields_empty_cell(self) -> None:
+        fields = parent_prompt_fields(None)
+        self.assertEqual(fields["parent_hint_block"], PARENT_HINT_EMPTY)
+
+    def test_parent_prompt_fields_missing_metrics_uses_na(self) -> None:
+        elite = ArchiveElite(
+            bin=(1, 1),
+            fitness=0.5,
+            world_spec=replace(_BASE_SPEC, seed=1),
+            measures={"stability": 0.5, "diversity": 0.6},
+            metrics=None,
+            metadata=new_elite_metadata(
+                generated_by="random",
+                emitter_type="random",
+                elite_id="no-metrics",
+                timestamp="2026-01-01T00:00:00+00:00",
+            ),
+        )
+        block = parent_prompt_fields(elite)["parent_hint_block"]
+        self.assertIn("fitness: 0.500", block)
+        self.assertIn("final_density: n/a", block)
+
+    def test_render_parent_template_no_key_error(self) -> None:
+        template = load_user_prompt_template(parent_user_prompt_path())
+        rendered = render_user_prompt(template, **_parent_prompt_kwargs())
+        self.assertNotIn("{parent_hint_block}", rendered)
+        self.assertIn("Parent cell (observed from simulation)", rendered)
+        self.assertIn("composed fitness: 0.487", rendered)
+
+    def test_parent_prompt_version_differs_from_default_and_components(self) -> None:
+        parent_hash = user_prompt_version(parent_user_prompt_path())
+        self.assertNotEqual(parent_hash, user_prompt_version())
+        self.assertNotEqual(
+            parent_hash, user_prompt_version(components_user_prompt_path())
+        )
+        self.assertEqual(parent_user_prompt_path(), PARENT_USER_PROMPT_PATH)
 
 
 if __name__ == "__main__":

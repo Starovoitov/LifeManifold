@@ -34,12 +34,18 @@ from worldspace.surrogate.acquisition_config import (
     DEFAULT_SURROGATE_ARCHIVE_PATH,
     RetrainConfig,
 )
-from worldspace.surrogate.types import SurrogateConfig, SurrogateProtocol
+from worldspace.surrogate.types import (
+    SurrogateConfig,
+    SurrogatePrediction,
+    SurrogateProtocol,
+)
 
 logger = logging.getLogger(__name__)
 
 EmitterKind = Literal["random", "genetic", "llm"]
 ArchiveType = Literal["grid", "cvt"]
+TargetSelectionStrategy = Literal["min_fitness_frontier", "uniform_frontier"]
+DEFAULT_TARGET_SELECTION: TargetSelectionStrategy = "min_fitness_frontier"
 _SCHEDULER_SCHEMA_VERSION = "1.2"
 _SCHEDULER_SCHEMA_VERSIONS = ("1.2", "1.3")
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
@@ -84,11 +90,14 @@ __all__ = [
     "RetrainConfig",
     "RunCounters",
     "SchedulerConfig",
+    "DEFAULT_TARGET_SELECTION",
     "TargetBin",
     "TargetCell",
+    "TargetSelectionStrategy",
     "load_scheduler",
     "resolve_emitter_for_slot",
     "resolve_emitter_kind",
+    "resolve_surrogate_prediction",
     "resolve_surrogate_stub",
     "select_target_bin",
     "select_target_cell",
@@ -124,6 +133,7 @@ class SchedulerConfig:
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
     surrogate_calibration: str | None = None
     surrogate_use_soft_extinction: bool = False
+    surrogate_extinction_gate_threshold: float = 0.5
     archive_type: ArchiveType = "grid"
     n_centroids: int = DEFAULT_GRID_RESOLUTION * DEFAULT_GRID_RESOLUTION
     cvt_seed: int = 0
@@ -131,6 +141,9 @@ class SchedulerConfig:
     performance: SimulatorPerformanceOptions = field(
         default_factory=lambda: DEFAULT_SIMULATOR_PERFORMANCE
     )
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
+    llm_system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
+    llm_user_prompt_path: str | None = None
 
     @property
     def n_cells(self) -> int:
@@ -173,10 +186,20 @@ class RunCounters:
     """Global illuminator counters persisted across iterations."""
 
     candidates_evaluated: int = 0
+    llm_emit_attempts: int = 0
+    llm_emit_fallbacks: int = 0
+    emit_llm_seconds: float = 0.0
+    eval_seconds: float = 0.0
 
     def record_evaluation(self) -> None:
         """Increment after each completed real simulation (skipped slots excluded)."""
         self.candidates_evaluated += 1
+
+    def record_llm_emit(self, *, fallback: bool) -> None:
+        """Increment after each LLM emit slot (including parse/API fallbacks)."""
+        self.llm_emit_attempts += 1
+        if fallback:
+            self.llm_emit_fallbacks += 1
 
 
 @dataclass(frozen=True)
@@ -236,9 +259,12 @@ def load_scheduler(
         grid_resolution=archive_settings.resolution,
         early_extinction_step=doc.early_extinction_step,
         min_steps=doc.min_steps,
+        target_selection=doc.target_selection,
         batch_emitters=tuple(doc.batch_emitters),
         initial_random_candidates=doc.initial_random_candidates,
         llm_enabled=doc.llm.enabled,
+        llm_system_prompt_kind=doc.llm.system_prompt_kind,
+        llm_user_prompt_path=doc.llm.user_prompt_path,
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_model_type=doc.surrogate.model_type,
         surrogate_checkpoint=doc.surrogate.checkpoint,
@@ -246,6 +272,7 @@ def load_scheduler(
         surrogate_stub_mean=doc.surrogate.stub_mean,
         surrogate_stub_uncertainty=doc.surrogate.stub_uncertainty,
         surrogate_use_soft_extinction=doc.surrogate.use_soft_extinction,
+        surrogate_extinction_gate_threshold=doc.surrogate.extinction_gate_threshold,
         genetic_mutation_scale=doc.genetic.mutation_scale,
         acquisition=acquisition,
         surrogate_archive_path=archive_path,
@@ -263,6 +290,8 @@ def load_scheduler(
 def select_target_cell(
     archive: ArchiveProtocol,
     rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION,
 ) -> TargetCell:
     """Choose a target archive niche and BC center for the next candidate."""
     if archive.filled_count() == 0:
@@ -270,7 +299,12 @@ def select_target_cell(
     else:
         frontier = _frontier_cell_ids(archive)
         if frontier:
-            cell_id = _min_fitness_cell(frontier, archive)
+            cell_id = _select_frontier_cell(
+                frontier,
+                archive,
+                rng,
+                target_selection=target_selection,
+            )
         else:
             cell_id = int(rng.integers(0, archive.n_cells))
     stability, diversity = archive.cell_center(cell_id)
@@ -286,9 +320,15 @@ def select_target_cell(
 def select_target_bin(
     archive: GridArchive,
     rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION,
 ) -> TargetBin:
     """Choose a target archive cell and BC niche center for the next candidate."""
-    target = select_target_cell(archive, rng)
+    target = select_target_cell(
+        archive,
+        rng,
+        target_selection=target_selection,
+    )
     i, j = target.bin_ij
     return TargetBin(
         bin=(i, j),
@@ -344,7 +384,24 @@ def surrogate_config_from_scheduler(
         calibration=config.surrogate_calibration,
         require_quality_gate=require_quality_gate,
         use_soft_extinction=config.surrogate_use_soft_extinction,
+        extinction_gate_threshold=config.surrogate_extinction_gate_threshold,
     )
+
+
+def resolve_surrogate_prediction(
+    config: SchedulerConfig,
+    surrogate: SurrogateProtocol,
+    world_spec: WorldSpec,
+) -> SurrogatePrediction:
+    """Return full surrogate prediction for LLM user prompts."""
+    if not config.surrogate_enabled:
+        from worldspace.surrogate.surrogate import StubSurrogate
+
+        return StubSurrogate(
+            config.surrogate_stub_mean,
+            config.surrogate_stub_uncertainty,
+        ).predict(world_spec)
+    return surrogate.predict(world_spec)
 
 
 def resolve_surrogate_stub(
@@ -353,9 +410,7 @@ def resolve_surrogate_stub(
     world_spec: WorldSpec,
 ) -> tuple[float, float]:
     """Return surrogate fitness and uncertainty for LLM user prompts."""
-    if not config.surrogate_enabled:
-        return (config.surrogate_stub_mean, config.surrogate_stub_uncertainty)
-    prediction = surrogate.predict(world_spec)
+    prediction = resolve_surrogate_prediction(config, surrogate, world_spec)
     return (float(prediction.fitness), float(prediction.uncertainty))
 
 
@@ -378,6 +433,9 @@ class _LlmSchedulerBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    # auto = match archive.type; grid/cvt force that system prompt (prompt ablation).
+    system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
+    user_prompt_path: str | None = None
 
 
 class _AcquisitionYamlBlock(BaseModel):
@@ -404,11 +462,14 @@ class _SurrogateSchedulerBlock(BaseModel):
 
     enabled: bool
     model_type: str = Field(default="mlp")
-    checkpoint: str | None = Field(default="artifacts/surrogate/checkpoints/latest.pkl")
+    checkpoint: str | None = Field(
+        default="artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
+    )
     buffer_path: str = Field(default="artifacts/surrogate/buffer.jsonl")
     stub_mean: float = Field(..., ge=0.0, le=1.0)
     stub_uncertainty: float = Field(..., ge=0.0)
     use_soft_extinction: bool = False
+    extinction_gate_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     calibration: str | None = None
     acquisition: _AcquisitionYamlBlock | None = None
     retrain: _RetrainYamlBlock | None = None
@@ -444,6 +505,13 @@ class _PerformanceYamlBlock(BaseModel):
         description="0 = os.cpu_count() (auto), capped by batch_size when parallel_eval is on",
     )
     verify_against_reference: bool = False
+    llm_parallel_emit: bool = False
+    llm_parallel_workers: int = Field(
+        default=0,
+        ge=0,
+        description="Cap parallel LLM HTTP threads; 0 = one worker per LLM slot in batch",
+    )
+    log_iteration_timing: bool = False
 
 
 class _GridArchiveYamlBlock(BaseModel):
@@ -478,6 +546,7 @@ class _MapElitesSchedulerYaml(BaseModel):
     archive: _ArchiveYamlBlock | None = None
     early_extinction_step: int = Field(..., ge=1)
     min_steps: int = Field(..., ge=200)
+    target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
     batch_emitters: list[EmitterKind]
     initial_random_candidates: int = Field(..., ge=0)
     llm: _LlmSchedulerBlock
@@ -593,13 +662,6 @@ def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
     policy: AcquisitionPolicyName = acquisition.policy
     mode = acquisition.mode
 
-    if policy == "ucb_promote":
-        logger.warning(
-            "acquisition policy %r is not implemented yet; using threshold_gate",
-            policy,
-        )
-        policy = "threshold_gate"
-
     if mode == "filter" and not config.surrogate_enabled:
         logger.warning(
             "acquisition.mode filter requires surrogate.enabled; forcing mode off",
@@ -612,6 +674,21 @@ def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
         config,
         acquisition=replace(acquisition, policy=policy, mode=mode),
     )
+
+
+def _select_frontier_cell(
+    frontier: list[int],
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    *,
+    target_selection: TargetSelectionStrategy,
+) -> int:
+    if not frontier:
+        msg = "frontier must be non-empty"
+        raise ValueError(msg)
+    if target_selection == "uniform_frontier":
+        return int(frontier[int(rng.integers(0, len(frontier)))])
+    return _min_fitness_cell(frontier, archive)
 
 
 def _frontier_cell_ids(archive: ArchiveProtocol) -> list[int]:

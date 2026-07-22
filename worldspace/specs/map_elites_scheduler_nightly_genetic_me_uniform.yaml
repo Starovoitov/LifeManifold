@@ -1,0 +1,86 @@
+schema_version: "1.2"
+# Q1 v3 matched target-selection control for the factorial acquisition ablation.
+# Same 20R+30G mix as genetic_me; only target_selection changes to uniform_frontier.
+# Compare against genetic_me_filter to isolate the threshold_gate contribution.
+# Protocol: artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md §3.8
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: false
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_genetic_me_uniform.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: false
+  llm_parallel_workers: 0
+  log_iteration_timing: true

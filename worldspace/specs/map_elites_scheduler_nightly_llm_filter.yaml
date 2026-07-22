@@ -5,6 +5,8 @@ batch_size: 50
 grid_resolution: 50
 early_extinction_step: 200
 min_steps: 200
+# Uniform frontier avoids all batch slots targeting the same weakest niche each iteration.
+target_selection: uniform_frontier
 
 batch_emitters:
   - random
@@ -69,17 +71,23 @@ llm:
 surrogate:
   enabled: true
   model_type: mlp
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
   buffer_path: artifacts/surrogate/buffer_experiment_filter.jsonl
   stub_mean: 0.5
   stub_uncertainty: 1.0
-  calibration: artifacts/surrogate/checkpoints/calibration.pkl
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
   surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment.jsonl
   acquisition:
     mode: filter
     policy: threshold_gate
-    min_predicted_fitness: 0.15
-    max_uncertainty_to_skip: 0.40
+    # Tuned offline on buffer hold-out (35k rows, Jun 2026, nightly_v3_mc_d005):
+    # - MC-dropout uncertainty spread (calibrated ~0.0007–0.20); max_u=1.0 passes gate
+    # - ~97% offline skip is upper bound (never_skip_empty_bin=false in replay)
+    # - live never_skip_empty_bin + baseline coverage -> target shadow skip 25-45%
+    # - raised from 0.10 after shadow seed_0 (Jun 2026): 0.10 -> ~12% skip; 0.45 -> ~34%
+    min_predicted_fitness: 0.45
+    max_uncertainty_to_skip: 1.0
     never_skip_empty_bin: true
   retrain:
     enabled: false
@@ -88,3 +96,6 @@ surrogate:
 performance:
   parallel_eval: true
   parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true

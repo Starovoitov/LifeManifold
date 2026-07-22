@@ -208,7 +208,9 @@ def main(argv: list[str] | None = None) -> None:
         "--llm-provider",
         type=str,
         default="qwen",
-        help="LLM provider key (default: qwen → llm_world_generator_qwen.yaml).",
+        help="LLM provider key (default: qwen → llm_world_generator_qwen.yaml; "
+        "deepseek → llm_world_generator_deepseek.yaml; "
+        "weak → llm_world_generator_weak.yaml).",
     )
     parser.add_argument(
         "--output-dir",
@@ -217,6 +219,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Run output directory.",
     )
     parser.add_argument("--seed", type=int, default=_DEFAULT_SEED)
+    parser.add_argument(
+        "--replicate",
+        type=int,
+        default=None,
+        help="Optional within-seed replicate index (q1-repeat variance floor runs).",
+    )
     parser.add_argument(
         "--grid-resolution",
         type=int,
@@ -335,7 +343,9 @@ def main(argv: list[str] | None = None) -> None:
         scheduler_path=sched_path,
         seed=args.seed,
         elapsed_seconds=elapsed,
+        replicate=args.replicate,
         resume_archive_path=load_archive,
+        llm_spec_path=llm_spec,
     )
     summary_path = out_dir / "nightly_run_summary.json"
     write_nightly_summary(summary_path, report)
