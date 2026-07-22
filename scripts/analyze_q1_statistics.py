@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Confirmatory + sensitivity statistics for Q1 grid/CVT (Wilcoxon, bootstrap CI, Holm, TOST, A₁₂)."""
+"""Confirmatory + sensitivity statistics for Q1 grid/CVT (Wilcoxon, bootstrap CI, Holm, TOST, paired PS)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,9 @@ COMPOSE_GATE_LIVE_MINFIT010_JSON = (
 OUT_JSON = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.json"
 OUT_MD = ROOT / "artifacts/Q1_GRID_CVT_ANALYSIS.md"
 COMBINED_CSV = ROOT / "artifacts/Q1_COMBINED_SUMMARY.csv"
-STATS_MD_SECTION = "## 7. Confirmatory statistics (Wilcoxon, bootstrap CI, Holm, TOST, Vargha–Delaney A₁₂)"
+STATS_MD_SECTION = (
+    "## 7. Confirmatory statistics (Wilcoxon, bootstrap CI, Holm, TOST, paired PS)"
+)
 
 PYRIBS_CSV = ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"
 FRQ4_JSON = ROOT / "artifacts/experiments/q1-v3-pyribs/frq4_statistics.json"
@@ -199,11 +201,14 @@ def vargha_delaney_a12_paired(
     *,
     direction: Literal["greater", "less"] = "greater",
 ) -> float:
-    """Paired Vargha–Delaney A (probability of superiority on matched seeds).
+    """Paired probability of superiority (PS) on matched seeds.
+
+    Same formula as paired Vargha–Delaney A; manuscript tables label the
+    column ``PS``. JSON keys remain ``a12*`` for frozen-artifact compatibility.
 
     ``delta`` = treatment − control per seed. For ``direction='greater'``,
-    A = P(Δ > 0) + 0.5·P(Δ = 0). For ``direction='less'``, wins when Δ < 0.
-    A = 0.5 is null; ~0.56 small, ~0.64 medium, ~0.71 large (Vargha & Delaney).
+    PS = P(Δ > 0) + 0.5·P(Δ = 0). For ``direction='less'``, wins when Δ < 0.
+    PS = 0.5 is null; ~0.56 small, ~0.64 medium, ~0.71 large (Vargha & Delaney).
     """
     n = len(delta)
     if n == 0:
@@ -823,7 +828,7 @@ def append_stats_section(stats: dict[str, Any]) -> None:
         row(
             "RQ1",
             f"conjunctive max-p; p_cov={r1['p_cov']:.4g}, p_fit={r1['p_fit']:.4g}; "
-            f"A₁₂ cov={r1['a12_cov']:.2f}, fit={r1['a12_fit']:.2f}; "
+            f"PS cov={r1['a12_cov']:.2f}, fit={r1['a12_fit']:.2f}; "
             f"dz_cov={r1['dz_cov']:.2f}, dz_fit={r1['dz_fit']:.2f}; "
             f"CI95 cov {fmt_ci(r1['ci_cov_95'])}, fit {fmt_ci(r1['ci_fit_95'])}",
         )
@@ -832,7 +837,7 @@ def append_stats_section(stats: dict[str, Any]) -> None:
     lines.append(
         row(
             "RQ3_eval",
-            f"median rel={r3e['median_rel_change']:.3f}; A₁₂={r3e['a12']:.2f}; "
+            f"median rel={r3e['median_rel_change']:.3f}; PS={r3e['a12']:.2f}; "
             f"CI95 {fmt_ci(r3e['ci_95'])}",
         )
     )
@@ -902,9 +907,9 @@ def append_stats_section(stats: dict[str, Any]) -> None:
             "### B.7 CVT descriptive (not in confirmatory Holm family)",
             "",
             f"- Wilcoxon Δcoverage hints−stub (greater): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_delta_cov_greater']:.4g}; "
-            f"A₁₂={stats['sensitivity']['cvt_descriptive']['a12_cov']:.2f}",
+            f"PS={stats['sensitivity']['cvt_descriptive']['a12_cov']:.2f}",
             f"- Wilcoxon Δeval rel filter−hints (less): p={stats['sensitivity']['cvt_descriptive']['wilcoxon_eval_rel_less']:.4g}; "
-            f"A₁₂={stats['sensitivity']['cvt_descriptive']['a12_eval']:.2f}",
+            f"PS={stats['sensitivity']['cvt_descriptive']['a12_eval']:.2f}",
             f"- Bootstrap 95% CI Δcoverage median: {fmt_ci(tuple(stats['sensitivity']['cvt_descriptive']['bootstrap_ci_cov_median_95']))}",
             "",
         ]
@@ -1027,7 +1032,7 @@ def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
         "Pre-registered (§4.1): paired Δ = **hints − arm**; Wilcoxon one-sided **greater** "
         "on coverage and mean best fitness; Holm family **m=4**; "
         "`local_ok` = dz≥0.5 on both metrics per arm (same bar as RQ1). "
-        "Descriptive effect size: paired **Vargha–Delaney A₁₂** (§4.5).",
+        "Descriptive effect size: paired **PS** (probability of superiority; Eq. in manuscript §protocol).",
         "",
         f"**Verdict: F-RQ4 {stats['verdict']}** "
         f"(family_pass={stats['family_pass']}; all Holm reject={all(holm.values())}; "
@@ -1037,10 +1042,10 @@ def format_frq4_markdown(stats: dict[str, Any]) -> list[str]:
         "",
         "### Per-arm Δ (hints − arm)",
         "",
-        "| Arm | Δcov mean ± SD (pp) | median | sign | Wilcoxon p | A₁₂ | dz | "
-        "Δfit mean ± SD | median | sign | Wilcoxon p | A₁₂ | dz | local_ok |",
-        "|-----|---------------------|--------|------|------------|-----|----|"
-        "----------------|--------|------|------------|-----|----|----------|",
+        "| Arm | Δcov mean ± SD (pp) | median | sign | Wilcoxon p | PS | dz | "
+        "Δfit mean ± SD | median | sign | Wilcoxon p | PS | dz | local_ok |",
+        "|-----|---------------------|--------|------|------------|----|----|"
+        "----------------|--------|------|------------|----|----|----------|",
     ]
     for arm in ("cma_me", "cma_mae"):
         a = arms[arm]
@@ -1412,6 +1417,96 @@ def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
     }
 
 
+def run_v4_dungeon_cpu_supplementary(root: Path) -> dict[str, Any]:
+    """Supplementary Role-2 CPU pair at full proposal budget (genetic vs genetic_filter)."""
+    conditions = ("genetic", "genetic_filter")
+    seeds_by_condition: dict[str, set[int]] = {}
+    summaries: dict[tuple[str, int], dict[str, Any]] = {}
+    for condition in conditions:
+        seeds: set[int] = set()
+        for path in sorted((root / condition).glob("seed_*/nightly_run_summary.json")):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            seed = int(payload["seed"])
+            seeds.add(seed)
+            summaries[(condition, seed)] = payload
+        seeds_by_condition[condition] = seeds
+    matched = set.intersection(*(seeds_by_condition[item] for item in conditions))
+    if len(matched) < 5:
+        raise SystemExit(
+            "v4 dungeon CPU supplementary requires at least 5 matched seeds, "
+            f"got {sorted(matched)}"
+        )
+    matched_seeds = sorted(matched)
+    common_budget = min(
+        int(summaries[(condition, seed)]["evaluations"])
+        for condition in conditions
+        for seed in matched_seeds
+    )
+    aucs: dict[str, dict[str, np.ndarray]] = {}
+    for condition in conditions:
+        aucs[condition] = {}
+        for metric in ("coverage", "qd_score"):
+            aucs[condition][metric] = np.asarray(
+                [
+                    _dungeon_trace_auc(
+                        root / condition / f"seed_{seed}" / "archive_trace.jsonl",
+                        metric,
+                        common_budget,
+                    )
+                    for seed in matched_seeds
+                ]
+            )
+    tests: dict[str, dict[str, Any]] = {}
+    for metric in ("coverage", "qd_score"):
+        delta = aucs["genetic_filter"][metric] - aucs["genetic"][metric]
+        tests[f"genetic_filter_minus_genetic_{metric}_auc"] = _metric_block(
+            delta,
+            "greater",
+        )
+    holm = holm_step_down({name: block["p"] for name, block in tests.items()})
+    terminal: dict[str, dict[str, Any]] = {}
+    for condition in conditions:
+        coverage_vals: list[float] = []
+        skip_vals: list[float] = []
+        evaluation_vals: list[int] = []
+        for seed in matched_seeds:
+            payload = summaries[(condition, seed)]
+            if "coverage_pct" in payload:
+                coverage_vals.append(float(payload["coverage_pct"]))
+            else:
+                coverage_vals.append(float(payload["coverage"]) * 100.0)
+            if payload.get("skip_rate_pct") is not None:
+                skip_vals.append(float(payload["skip_rate_pct"]))
+            elif payload.get("skip_rate") is not None:
+                skip_vals.append(float(payload["skip_rate"]) * 100.0)
+            else:
+                skip_vals.append(0.0)
+            evaluation_vals.append(int(payload["evaluations"]))
+        coverage = np.asarray(coverage_vals)
+        skip_rate = np.asarray(skip_vals)
+        evaluations = np.asarray(evaluation_vals)
+        terminal[condition] = {
+            "coverage_pct_mean": float(coverage.mean()),
+            "coverage_pct_sd": float(coverage.std(ddof=1)),
+            "skip_rate_pct_mean": float(skip_rate.mean()),
+            "evaluations_mean": float(evaluations.mean()),
+        }
+    return {
+        "family": "F-B4-dungeon-cpu-full",
+        "role": "supplementary",
+        "m": len(tests),
+        "alpha": 0.05,
+        "n_seeds": len(matched_seeds),
+        "seeds": matched_seeds,
+        "common_evaluation_budget": common_budget,
+        "tests": tests,
+        "holm_reject": holm,
+        "family_pass": all(holm.values()),
+        "terminal_at_full_proposals": terminal,
+        "sources": str(root),
+    }
+
+
 def main() -> None:
     import argparse
 
@@ -1420,9 +1515,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--family",
-        choices=("v2", "frq4", "frq1g", "v4-dungeon", "all"),
+        choices=("v2", "frq4", "frq1g", "v4-dungeon", "v4-dungeon-cpu-full", "all"),
         default="v2",
-        help="v2 = grid/CVT (default); frq4 = B2; frq1g = G1 multi-LLM; all = all families",
+        help=(
+            "v2 = grid/CVT (default); frq4 = B2; frq1g = G1 multi-LLM; "
+            "v4-dungeon = 5-arm confirmatory; v4-dungeon-cpu-full = supplementary "
+            "genetic vs genetic_filter @ full proposals; all = all families"
+        ),
     )
     parser.add_argument(
         "--dungeon-root",
@@ -1531,6 +1630,16 @@ def main() -> None:
             encoding="utf-8",
         )
         print(json.dumps(dungeon, indent=2))
+
+    if args.family in ("v4-dungeon-cpu-full", "all"):
+        cpu_root = args.dungeon_root.resolve()
+        cpu_stats = run_v4_dungeon_cpu_supplementary(cpu_root)
+        cpu_output = cpu_root / "v4_dungeon_cpu_full_statistics.json"
+        cpu_output.write_text(
+            json.dumps(cpu_stats, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(cpu_stats, indent=2))
 
 
 if __name__ == "__main__":
