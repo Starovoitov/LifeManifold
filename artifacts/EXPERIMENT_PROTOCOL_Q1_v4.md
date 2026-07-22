@@ -263,8 +263,11 @@ Extend B4 evidence for the **journal revision** (post--arXiv v1). This extension
 | **C1 — LLM full budget** | `llm_stub`, `llm_hints`, `llm_hints_filter` | 0–9 | 32{,}500 | `q1-v4-dungeon-full-llm/` | ~175 h serial LLM |
 | **C2 — random baseline** | `random` | 0–9 | 32{,}500 | same tree or `q1-v4-dungeon-full-llm/` | ~30 min CPU |
 | **C3 — threshold ablation** | `genetic_filter` @ $\tau{=}0.70$ vs locked $\tau{=}0.78$ | 0–9 each | 32{,}500 | `q1-v4-dungeon-filter-tau-ablation/` | ~1 h CPU |
+| **C4 — discrete CMA ceiling (CA grid)** | Bernoulli/categorical CMA-ME vs frozen continuous `cma_me` + matched `hints` / `genetic_me_uniform` | 0–4 gate, then 0–9 | 32{,}500 | `q1-v3-pyribs-discrete-cma/` | ~CPU hours (no LLM) |
 
-**Already complete (arXiv v1 supplementary, not part of §11):** `genetic` + `genetic_filter` @ 32.5k in `q1-v4-dungeon-full-cpu/`.
+**C4 intent:** retire the continuous-relaxation apples-to-oranges caveat on the coverage ceiling. Implement via pyribs custom emitter **or** Gaussian proposal + per-bit Bernoulli decode that stores discrete rule bits in the evaluated genotype (same warm-start JSONL, same 21-D interface scalars). Primary read: does discrete CMA still lead the mid-band, and by how many pp vs continuous CMA-ME? **Not** a new confirmatory family replacing F-RQ-ceiling unless amended; default = supplementary / descriptive paired contrasts, with optional Holm only if §10 freezes a family ID before runs.
+
+**Already complete (arXiv v1 supplementary, not part of §11):** `genetic` + `genetic_filter` @ 32.5k in `q1-v4-dungeon-full-cpu/`; continuous CMA encode ablation `q1-cma-encoding-ablation/` (seeds 0–4).
 
 **Not in scope:** full 5×10 @ 32.5k in one confirmatory family; CMA on dungeon; multi-provider dungeon.
 
@@ -275,6 +278,7 @@ Extend B4 evidence for the **journal revision** (post--arXiv v1). This extension
 | **F-B4-dungeon-llm-full** | Same four contrasts as §7 @ **matched real-eval budget** on 32.5k matrix | Yes, $m{=}8$ | Coverage AUC, QD-score AUC |
 | **F-B4-dungeon-random** | `genetic − random` terminal coverage @ 32.5k | Descriptive only | Terminal coverage, QD-score |
 | **F-B4-dungeon-tau** | `filter@0.78 − filter@0.70` skip rate + AUC | Exploratory Wilcoxon | Skip rate, coverage AUC |
+| **F-RQ-ceiling-discrete** (optional) | `hints − cma_me_bernoulli` and/or `cma_me − cma_me_bernoulli` @ 32.5k CA | Only if frozen in §10 before runs; else descriptive | Terminal coverage, mean fitness |
 
 Confirmatory **F-B4-dungeon @ 5k remains primary** for journal abstract unless editors require relabelling; journal text must state “extended supplementary evidence.”
 
@@ -285,14 +289,15 @@ Re-check before C1: LLM fallback ≤5%, filter skip 25–45%, surrogate replay d
 ### 11.5 Execution order
 
 1. Freeze §11 → §10 amendment row with date.  
-2. C2 `random` (cheap sanity).  
-3. C3 threshold ablation (CPU).  
-4. C1 LLM marathon (`llm_stub` → `llm_hints` → `llm_hints_filter`, seeds 0–9).  
-5. Stats script extensions + manuscript v2 + arXiv v2 same day as journal submit.
+2. C4 discrete CMA (CPU; retire ceiling encoding caveat early).  
+3. C2 `random` (cheap sanity).  
+4. C3 threshold ablation (CPU).  
+5. C1 LLM marathon (`llm_stub` → `llm_hints` → `llm_hints_filter`, seeds 0–9).  
+6. Stats script extensions + manuscript v2 + arXiv v2 same day as journal submit.
 
 ### 11.6 Manuscript / cover letter (journal v2)
 
-> Extends arXiv:XXXX.XXXXX with full-budget LLM dungeon factorial (32.5k proposals, $n{=}10$), `random` baseline, and filter threshold ablation. Confirmatory CA and F-B4 @ 5k unchanged; new results are supplementary families F-B4-dungeon-llm-full / tau / random.
+> Extends arXiv:XXXX.XXXXX with (i) discrete Bernoulli/categorical CMA-ME on the CA grid (matched duel vs continuous relaxation ceiling), (ii) full-budget LLM dungeon factorial (32.5k proposals, $n{=}10$), (iii) `random` baseline, and (iv) filter threshold ablation. Confirmatory CA F-RQ-ceiling (continuous) and F-B4 @ 5k unchanged as primary; new results are supplementary families unless §10 freezes F-RQ-ceiling-discrete.
 
 ---
 
@@ -305,4 +310,5 @@ Re-check before C1: LLM fallback ≤5%, filter skip 25–45%, surrogate replay d
 | 2026-07-22 | **Tier 0 DONE:** disclosure synced to `SWARM_EC_DRAFT_OUTLINE.md` §6.11, §7.4, rebuttal block, cover letter. |
 | 2026-07-22 | **Tier 2 DONE:** `q1-v4-dungeon-full-cpu/` (20 runs @ 32.5k); stats family `v4-dungeon-cpu-full`; supplementary Holm PASS; manuscript Table `tab:b4-fullcpu`; arXiv v1 scope in Limitations. |
 | 2026-07-22 | **§11 DRAFT:** journal extension package C (LLM @ 32.5k + random + τ ablation) — **not frozen**; amend §10 before first C-run. |
+| 2026-07-22 | **§11 C4 DRAFT:** discrete Bernoulli/categorical CMA-ME on CA grid (retire continuous-relaxation caveat) — **not frozen**. |
 

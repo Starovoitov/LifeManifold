@@ -62,7 +62,9 @@ Payload: [`v4_dungeon_statistics.json`](v4_dungeon_statistics.json)
 | hints − stub (cov AUC) | 0.032 | False | +0.008 | 8/10 |
 | hints − stub (QD AUC) | 0.019 | False | +5.3 | 8/10 |
 | llm_hints_filter − llm_hints (cov AUC) | 0.50 | False | ≈0 | 6/10 |
+| llm_hints_filter − llm_hints (QD AUC) | 0.69 | False | −0.77 | 4/10 |
 | acquisition interaction (cov AUC) | 1.0 | False | −0.048 | 0/10 |
+| acquisition interaction (QD AUC) | 1.0 | False | −30.7 | 0/10 |
 
 **Verdict: family PASS = False** — only the **no-LLM acquisition filter** contrast survives Holm. Hint content (hints vs stub) shows a consistent but small AUC edge that does not survive correction. LLM+filter interaction is **negative** (filter helps genetic, not LLM).
 
