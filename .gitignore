@@ -47,14 +47,42 @@ Thumbs.db
 *.swo
 *~
 
-# Local run outputs (worldspace CLI, experiments)
+# Local run outputs — ignore everything under artifacts/, whitelist only what must be public.
 output/
 results/
-artifacts/*
-!artifacts/map_elites_smoke/README.md
-!artifacts/map_elites_nightly/README.md
+artifacts/**
+# Parent dirs must be re-included before files (git ignore rules).
+!artifacts/surrogate/
+!artifacts/manuscript/
+!artifacts/manuscript/figures/
+!artifacts/experiments/
+!artifacts/experiments/q1-v4-dungeon-full-cpu/
+!artifacts/experiments/q1-v4-dungeon-rerun/
+# Whitelisted files
 !artifacts/surrogate/README.md
-!artifacts/surrogate/feature_extractor_v2_eval.template.json
+!artifacts/EXPERIMENT_PROTOCOL_Q1_v2.md
+!artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md
+!artifacts/EXPERIMENT_PROTOCOL_Q1_v4.md
+!artifacts/manuscript/draft_v0.tex
+!artifacts/manuscript/references.bib
+!artifacts/manuscript/figures/fig01_pipeline.pdf
+!artifacts/manuscript/figures/fig02_elite_worlds.png
+!artifacts/manuscript/figures/fig03_surrogate_flow.pdf
+!artifacts/manuscript/figures/fig04_rq1_rq0.pdf
+!artifacts/manuscript/figures/fig05_ladder.pdf
+!artifacts/manuscript/figures/fig06_acquisition_anytime.pdf
+!artifacts/manuscript/figures/fig07_archive_heatmaps_panel_seeds1_4_6.pdf
+!artifacts/manuscript/figures/fig07_archive_heatmaps_seed4.pdf
+!artifacts/manuscript/figures/fig08_anytime_ladder.pdf
+!artifacts/manuscript/figures/fig_b4_anytime_coverage.png
+!artifacts/manuscript/figures/fig_b4_anytime_qd_score.png
+!artifacts/experiments/q1-v4-dungeon-full-cpu/ANALYSIS.md
+!artifacts/experiments/q1-v4-dungeon-full-cpu/run_tier2_nohup.sh
+!artifacts/experiments/q1-v4-dungeon-full-cpu/summary.csv
+!artifacts/experiments/q1-v4-dungeon-full-cpu/v4_dungeon_cpu_full_statistics.json
+!artifacts/experiments/q1-v4-dungeon-rerun/ANALYSIS.md
+!artifacts/experiments/q1-v4-dungeon-rerun/summary.csv
+!artifacts/experiments/q1-v4-dungeon-rerun/v4_dungeon_statistics.json
 
 # Environment / secrets (never commit)
 .env

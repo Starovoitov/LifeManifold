@@ -1,0 +1,96 @@
+{
+  "family": "F-B4-dungeon-cpu-full",
+  "role": "supplementary",
+  "m": 2,
+  "alpha": 0.05,
+  "n_seeds": 10,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "common_evaluation_budget": 22155,
+  "tests": {
+    "genetic_filter_minus_genetic_coverage_auc": {
+      "p": 0.0068359375,
+      "alternative": "greater",
+      "mean": 0.03605415722842194,
+      "sd": 0.031248957281488358,
+      "median": 0.03920112831458861,
+      "sign_positive": 9,
+      "n": 10,
+      "dz": 1.1537715291953163,
+      "a12": 0.9,
+      "ci_median_95": [
+        0.02283984575203285,
+        0.055943951764211075
+      ],
+      "delta": [
+        -0.03716441686711647,
+        0.07764664480596684,
+        0.04085912952812465,
+        0.03249484960228388,
+        0.037543127101052565,
+        0.012553605498040632,
+        0.03312608600602507,
+        0.059913484134040296,
+        0.04762511071159081,
+        0.055943951764211075
+      ]
+    },
+    "genetic_filter_minus_genetic_qd_score_auc": {
+      "p": 0.0048828125,
+      "alternative": "greater",
+      "mean": 33.87262481816549,
+      "sd": 30.419028152112293,
+      "median": 32.01410508346666,
+      "sign_positive": 8,
+      "n": 10,
+      "dz": 1.1135340895436654,
+      "a12": 0.8,
+      "ci_median_95": [
+        7.374169220539699,
+        55.499869460623415
+      ],
+      "delta": [
+        -3.5030427804438204,
+        90.50456026151863,
+        16.4897880867469,
+        44.226965349883244,
+        -6.768209433308641,
+        18.251381221523218,
+        39.38895264133782,
+        66.77277357136359,
+        48.72382173743847,
+        24.639257525595497
+      ]
+    }
+  },
+  "holm_reject": {
+    "genetic_filter_minus_genetic_qd_score_auc": true,
+    "genetic_filter_minus_genetic_coverage_auc": true
+  },
+  "family_pass": true,
+  "terminal_at_full_proposals": {
+    "genetic": {
+      "coverage_pct_mean": 89.42222222222222,
+      "coverage_pct_sd": 0.7712245976189845,
+      "skip_rate_pct_mean": 0.0,
+      "evaluations_mean": 32500.0
+    },
+    "genetic_filter": {
+      "coverage_pct_mean": 88.78888888888888,
+      "coverage_pct_sd": 1.7509158880962616,
+      "skip_rate_pct_mean": 30.82953846153846,
+      "evaluations_mean": 22480.4
+    }
+  },
+  "sources": "/home/astarovo/LifeManifold/artifacts/experiments/q1-v4-dungeon-full-cpu"
+}
