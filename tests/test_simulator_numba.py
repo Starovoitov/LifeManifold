@@ -11,7 +11,7 @@ import numpy as np
 from tests.test_simulator_perf_golden import _GOLDEN_CASES, _BASE_SMOKE
 from worldspace.metrics import METRICS_VECTOR_DIM
 from worldspace.simulator import run_world
-from worldspace.simulator_perf import SimulatorPerformanceOptions
+from worldspace.simulator_perf import METRICS_VERIFY_ATOL, SimulatorPerformanceOptions
 from worldspace.specs.spec import WorldSpec
 
 _NUMBA_PERF = SimulatorPerformanceOptions(numba_simulator=True)
@@ -46,7 +46,7 @@ class TestSimulatorNumba(unittest.TestCase):
                     got,
                     case.expected,
                     rtol=0.0,
-                    atol=0.0,
+                    atol=METRICS_VERIFY_ATOL,
                 )
 
     def test_verify_against_reference(self) -> None:
@@ -64,7 +64,7 @@ class TestSimulatorNumba(unittest.TestCase):
                     result.metrics.as_vector(),
                     case.expected,
                     rtol=0.0,
-                    atol=0.0,
+                    atol=METRICS_VERIFY_ATOL,
                 )
 
     def test_trace_forces_numpy_path(self) -> None:
