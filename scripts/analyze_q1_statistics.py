@@ -33,6 +33,22 @@ FRQ4_JSON = ROOT / "artifacts/experiments/q1-v3-pyribs/frq4_statistics.json"
 FRQ4_ANALYSIS_MD = ROOT / "artifacts/experiments/q1-v3-pyribs/ANALYSIS.md"
 FRQ4_MD_SECTION = "## F-RQ4 (confirmatory)"
 
+G1_LLM_ROOT = ROOT / "artifacts/experiments/q1-v3-llm"
+FRQ1G_COMBINED_JSON = G1_LLM_ROOT / "frq1g_statistics.json"
+G1_PROVIDERS: tuple[tuple[str, str, Path], ...] = (
+    (
+        "gpt-4o-mini",
+        "q1-v3-llm-gpt-4o-mini",
+        G1_LLM_ROOT / "gpt-4o-mini/summary.csv",
+    ),
+    (
+        "deepseek-v4-pro",
+        "q1-v3-llm-deepseek-v4-pro",
+        G1_LLM_ROOT / "deepseek-v4-pro/summary.csv",
+    ),
+)
+FRQ1G_MD_SECTION = "## F-RQ1g (confirmatory, per provider)"
+
 BOOTSTRAP_B = 10_000
 RNG = random.Random(42)
 
@@ -1115,6 +1131,177 @@ def write_frq4_outputs(stats: dict[str, Any]) -> None:
         FRQ4_ANALYSIS_MD.write_text(md, encoding="utf-8")
 
 
+def _validate_g1_matrix(rows: list[dict[str, str]], *, provider: str, path: Path) -> None:
+    for cond in ("stub", "hints"):
+        seeds = {int(r["seed"]) for r in rows if r["condition"] == cond}
+        if seeds != set(range(10)):
+            raise SystemExit(
+                f"{provider}: expected stub/hints seeds 0–9 in {path}, "
+                f"got {cond}={sorted(seeds)}"
+            )
+
+
+def run_frq1g_provider(
+    summary_csv: Path,
+    *,
+    provider: str,
+    tier: str,
+) -> dict[str, Any]:
+    """F-RQ1g for one G1 LLM: hints − stub; Δcov+Δfit one-sided greater; Holm m=2."""
+    rows = load_csv(summary_csv)
+    if not rows:
+        raise SystemExit(f"missing or empty summary: {summary_csv}")
+    _validate_g1_matrix(rows, provider=provider, path=summary_csv)
+
+    d_cov = paired_delta(rows, "hints", "stub", "coverage_pct")
+    d_fit = paired_delta(rows, "hints", "stub", "mean_best_fitness")
+    cov = _metric_block(d_cov, "greater")
+    fit = _metric_block(d_fit, "greater")
+    holm = holm_step_down({"cov": cov["p"], "fit": fit["p"]})
+    local_ok = cov["dz"] >= 0.5 and fit["dz"] >= 0.5
+    family_pass = bool(holm["cov"] and holm["fit"] and local_ok)
+
+    return {
+        "family": "F-RQ1g",
+        "provider": provider,
+        "tier": tier,
+        "n_seeds": int(cov["n"]),
+        "conjunctive": True,
+        "holm_m": 2,
+        "mean_delta_cov_pp": round(float(cov["mean"]), 3),
+        "mean_delta_fit": round(float(fit["mean"]), 5),
+        "sign_cov": f"{cov['sign_positive']}/{cov['n']}",
+        "sign_fit": f"{fit['sign_positive']}/{fit['n']}",
+        "wilcoxon_p_cov": cov["p"],
+        "wilcoxon_p_fit": fit["p"],
+        "holm_reject_cov": holm["cov"],
+        "holm_reject_fit": holm["fit"],
+        "a12_cov": cov["a12"],
+        "a12_fit": fit["a12"],
+        "dz_cov": round(float(cov["dz"]), 3),
+        "dz_fit": round(float(fit["dz"]), 3),
+        "local_ok": local_ok,
+        "family_pass": family_pass,
+        "verdict": "PASS" if family_pass else "FAIL",
+        "note": "Per-provider only; do not pool with qwen-turbo or other G1 LLMs.",
+        "contrast": "hints - stub (one-sided greater)",
+        "metrics": ["coverage_pct", "mean_best_fitness"],
+        "source": str(summary_csv),
+        "confirmatory_family": {"cov": cov, "fit": fit},
+        "holm_reject": holm,
+        "ci_cov_95": cov["ci_median_95"],
+        "ci_fit_95": fit["ci_median_95"],
+    }
+
+
+def run_frq1g_statistics(
+    providers: tuple[tuple[str, str, Path], ...] = G1_PROVIDERS,
+) -> dict[str, Any]:
+    """Run F-RQ1g independently for each additional LLM (never pooled)."""
+    by_provider: dict[str, dict[str, Any]] = {}
+    for name, tier, csv_path in providers:
+        by_provider[name] = run_frq1g_provider(csv_path, provider=name, tier=tier)
+    all_pass = all(item["family_pass"] for item in by_provider.values())
+    return {
+        "family": "F-RQ1g",
+        "m_per_provider": 2,
+        "alpha": 0.05,
+        "providers": by_provider,
+        "all_providers_pass": all_pass,
+        "note": "Holm within each provider only; never pool seeds across LLMs.",
+    }
+
+
+def format_frq1g_markdown(stats: dict[str, Any]) -> list[str]:
+    lines = [
+        FRQ1G_MD_SECTION,
+        "",
+        "Pre-registered (§4.1): per additional LLM, paired Δ = **hints − stub**; "
+        "Wilcoxon one-sided **greater** on coverage and mean best fitness; "
+        "Holm **m=2** within each provider; `local_ok` = dz≥0.5 on both metrics. "
+        "**Never pool** providers.",
+        "",
+        f"**All providers PASS:** {stats['all_providers_pass']}",
+        "",
+        "| Provider | Δcov mean (pp) | sign cov | p_cov | Holm cov | Δfit mean | "
+        "sign fit | p_fit | Holm fit | local_ok | **Verdict** |",
+        "|----------|----------------|----------|-------|----------|-----------|"
+        "----------|-------|----------|----------|-------------|",
+    ]
+    for name, item in stats["providers"].items():
+        holm = item["holm_reject"]
+        lines.append(
+            f"| **{name}** | {item['mean_delta_cov_pp']:+.2f} | {item['sign_cov']} | "
+            f"{item['wilcoxon_p_cov']:.4g} | **{item['holm_reject_cov']}** | "
+            f"{item['mean_delta_fit']:+.3f} | {item['sign_fit']} | "
+            f"{item['wilcoxon_p_fit']:.4g} | **{item['holm_reject_fit']}** | "
+            f"{item['local_ok']} | **{item['verdict']}** |"
+        )
+    lines.append("")
+    return lines
+
+
+def write_frq1g_outputs(stats: dict[str, Any]) -> None:
+    G1_LLM_ROOT.mkdir(parents=True, exist_ok=True)
+    combined_payload = {
+        "family": stats["family"],
+        "m_per_provider": stats["m_per_provider"],
+        "alpha": stats["alpha"],
+        "all_providers_pass": stats["all_providers_pass"],
+        "note": stats["note"],
+        "providers": {
+            name: {
+                key: item[key]
+                for key in item
+                if key not in ("confirmatory_family", "holm_reject", "ci_cov_95", "ci_fit_95")
+            }
+            for name, item in stats["providers"].items()
+        },
+    }
+    FRQ1G_COMBINED_JSON.write_text(
+        json.dumps(combined_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    section = "\n".join(format_frq1g_markdown(stats))
+    for name, item in stats["providers"].items():
+        provider_root = Path(item["source"]).parent
+        provider_json = provider_root / "frq1g_statistics.json"
+        provider_payload = {
+            key: item[key]
+            for key in item
+            if key
+            not in ("confirmatory_family", "holm_reject", "ci_cov_95", "ci_fit_95", "source")
+        }
+        provider_json.write_text(
+            json.dumps(provider_payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        analysis_md = provider_root / "ANALYSIS.md"
+        if not analysis_md.is_file():
+            continue
+        md = analysis_md.read_text(encoding="utf-8")
+        if FRQ1G_MD_SECTION in md:
+            before = md.split(FRQ1G_MD_SECTION)[0].rstrip() + "\n\n"
+            tail = ""
+            for marker in ("## ", "### "):
+                remainder = md.split(FRQ1G_MD_SECTION, 1)[-1]
+                for line in remainder.splitlines():
+                    if line.startswith(marker) and not line.startswith(
+                        FRQ1G_MD_SECTION
+                    ):
+                        tail = "\n" + remainder[remainder.index(line) :].lstrip()
+                        break
+                if tail:
+                    break
+            analysis_md.write_text(before + section + tail, encoding="utf-8")
+        elif "## F-RQ1g" in md:
+            # Keep hand-written section; only refresh JSON.
+            pass
+        else:
+            analysis_md.write_text(md.rstrip() + "\n\n" + section + "\n", encoding="utf-8")
+
+
 def _dungeon_trace_auc(path: Path, metric: str, budget: int) -> float:
     rows = [
         json.loads(line)
@@ -1219,13 +1406,13 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Q1 confirmatory statistics (v2 grid/CVT and/or v3 F-RQ4).",
+        description="Q1 confirmatory statistics (v2 grid/CVT, F-RQ4, F-RQ1g, v4 dungeon).",
     )
     parser.add_argument(
         "--family",
-        choices=("v2", "frq4", "v4-dungeon", "all"),
+        choices=("v2", "frq4", "frq1g", "v4-dungeon", "all"),
         default="v2",
-        help="v2 = grid/CVT (default); frq4 = B2 F-RQ4 only; all = both",
+        help="v2 = grid/CVT (default); frq4 = B2; frq1g = G1 multi-LLM; all = all families",
     )
     parser.add_argument(
         "--dungeon-root",
@@ -1264,6 +1451,30 @@ def main() -> None:
                         "fit_accepted": stats["noninferiority"]["fitness"]["accepted"],
                         "fit_ci": stats["noninferiority"]["fitness"]["ci"],
                         "fit_p": stats["noninferiority"]["fitness"]["p"],
+                    },
+                },
+                indent=2,
+            )
+        )
+
+    if args.family in ("frq1g", "all"):
+        frq1g = run_frq1g_statistics()
+        write_frq1g_outputs(frq1g)
+        print(
+            json.dumps(
+                {
+                    "family": "F-RQ1g",
+                    "all_providers_pass": frq1g["all_providers_pass"],
+                    "providers": {
+                        name: {
+                            "verdict": item["verdict"],
+                            "mean_delta_cov_pp": item["mean_delta_cov_pp"],
+                            "mean_delta_fit": item["mean_delta_fit"],
+                            "holm_reject_cov": item["holm_reject_cov"],
+                            "holm_reject_fit": item["holm_reject_fit"],
+                            "local_ok": item["local_ok"],
+                        }
+                        for name, item in frq1g["providers"].items()
                     },
                 },
                 indent=2,
