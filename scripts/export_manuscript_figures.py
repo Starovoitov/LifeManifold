@@ -7,18 +7,29 @@ import argparse
 import csv
 import json
 import subprocess
+import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.image import AxesImage
 
+if TYPE_CHECKING:
+    from worldspace.illuminators.archive import ArchiveElite
+
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 MS_DIR = ROOT / "artifacts/manuscript"
 FIG_DIR = MS_DIR / "figures"
 SURROGATE_FLOW_MMD = FIG_DIR / "surrogate_flow.mmd"
 PIPELINE_MMD = FIG_DIR / "pipeline.mmd"
 PUPPETEER_CONFIG = FIG_DIR / "puppeteer-config.json"
+
+# Locked after G1: same seed as Fig. 7 main panel and LLM mutation examples in text.
+FIG02_DEFAULT_SEED = 4
+FIG02_DEFAULT_CONDITION = "hints"
 
 
 def _export_mermaid(mmd: Path, out: Path, *, width: int, height: int) -> None:
@@ -64,25 +75,87 @@ def fig03_surrogate_flow(out: Path) -> None:
     _export_mermaid(SURROGATE_FLOW_MMD, out, width=1400, height=2400)
 
 
-def fig02_elite_worlds(out: Path) -> None:
+def _fig02_archive_path(*, seed: int, condition: str) -> Path:
+    return (
+        ROOT
+        / f"artifacts/experiments/q1-full/{condition}/seed_{seed}/map_elites_archive.jsonl"
+    )
+
+
+def _fig02_pick_elites(
+    archive_path: Path,
+) -> tuple[
+    tuple[str, ArchiveElite],
+    tuple[str, ArchiveElite],
+    tuple[str, ArchiveElite],
+]:
+    from worldspace.illuminators.archive import load_and_collapse_jsonl
+
+    archive = load_and_collapse_jsonl(archive_path)
+    elites: list[ArchiveElite] = [
+        elite
+        for cell_id in range(archive.n_cells)
+        if (elite := archive.get_cell(cell_id)) is not None
+    ]
+    if len(elites) < 3:
+        msg = f"need >=3 filled elites for Fig. 2, got {len(elites)}: {archive_path}"
+        raise ValueError(msg)
+    elites.sort(key=lambda elite: elite.fitness)
+    low_idx = max(1, len(elites) // 10)
+    picks = (
+        ("high", elites[-1]),
+        ("median", elites[len(elites) // 2]),
+        ("low", elites[low_idx]),
+    )
+    for _label, elite in picks:
+        if elite.world_spec is None:
+            msg = f"elite missing world_spec in {archive_path}"
+            raise ValueError(msg)
+    return picks
+
+
+def _fig02_render_triptych(elite: ArchiveElite, tmp_path: Path) -> np.ndarray:
     from PIL import Image
 
-    panels = [
-        ("High fitness (0.81)", MS_DIR / "top_fitness_cropped.png"),
-        ("Median fitness (0.58)", MS_DIR / "median_fitness_cropped.png"),
-        ("Low fitness (0.24)", MS_DIR / "low_fitness_cropped.png"),
-    ]
-    arrays = [np.array(Image.open(path)) for _, path in panels]
-    max_h = max(arr.shape[0] for arr in arrays)
-    padded: list[np.ndarray] = []
-    for arr in arrays:
+    from worldspace.simulator import run_world
+    from worldspace.visualizer.diagnostics import plot_elite_triptych
+
+    if elite.world_spec is None:
+        msg = "elite missing world_spec"
+        raise ValueError(msg)
+    result = run_world(elite.world_spec)
+    plot_elite_triptych(result, tmp_path, dpi=120)
+    return np.array(Image.open(tmp_path))
+
+
+def fig02_elite_worlds(
+    out: Path,
+    *,
+    seed: int = FIG02_DEFAULT_SEED,
+    condition: str = FIG02_DEFAULT_CONDITION,
+) -> None:
+    archive_path = _fig02_archive_path(seed=seed, condition=condition)
+    picks = _fig02_pick_elites(archive_path)
+    tmp_dir = FIG_DIR / "_fig02_cache"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    panel_rows: list[tuple[str, np.ndarray]] = []
+    for label, elite in picks:
+        fit = float(elite.fitness)
+        tmp_path = tmp_dir / f"seed{seed}_{label}.png"
+        arr = _fig02_render_triptych(elite, tmp_path)
+        panel_rows.append((f"{label.capitalize()} fitness ({fit:.2f})", arr))
+
+    max_h = max(arr.shape[0] for _, arr in panel_rows)
+    padded: list[tuple[str, np.ndarray]] = []
+    for title, arr in panel_rows:
         if arr.shape[0] < max_h:
             pad = max_h - arr.shape[0]
             arr = np.pad(arr, ((0, pad), (0, 0), (0, 0)), mode="constant")
-        padded.append(arr)
+        padded.append((title, arr))
 
     fig, axes = plt.subplots(3, 1, figsize=(10, 7.2))
-    for ax, (title, arr) in zip(axes, zip((t for t, _ in panels), padded), strict=True):
+    for ax, (title, arr) in zip(axes, padded, strict=True):
         ax.imshow(arr)
         ax.set_title(title, loc="left", fontsize=11, pad=6)
         ax.axis("off")
@@ -91,7 +164,19 @@ def fig02_elite_worlds(out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
+    meta = {
+        "seed": seed,
+        "condition": condition,
+        "archive": str(archive_path.relative_to(ROOT)),
+        "panels": [
+            {"tier": label, "fitness": float(elite.fitness), "bin": elite.bin}
+            for label, elite in picks
+        ],
+    }
+    meta_path = out.with_suffix(".json")
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {out}")
+    print(f"Wrote {meta_path}")
 
 
 def _load_summary(path: Path, condition: str) -> dict[int, dict[str, float]]:
@@ -487,6 +572,12 @@ def main() -> None:
         action="store_true",
         help="Also write multi-seed panel PDF/PNG for all requested Fig. 7 seeds",
     )
+    parser.add_argument(
+        "--fig2-seed",
+        type=int,
+        default=FIG02_DEFAULT_SEED,
+        help=f"Seed for Fig. 2 elite triptychs (default: {FIG02_DEFAULT_SEED})",
+    )
     args = parser.parse_args()
     figs = args.figs or ([1, 2, 3, 4, 5, 6, 7, 8] if args.all else [])
     if not figs:
@@ -532,7 +623,10 @@ def main() -> None:
                     panel_out, seeds=seeds, left=left, right=right
                 )
         else:
-            fn(path)
+            if number == 2:
+                fig02_elite_worlds(path, seed=args.fig2_seed)
+            else:
+                fn(path)
 
 
 if __name__ == "__main__":
