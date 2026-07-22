@@ -1427,7 +1427,7 @@ def main() -> None:
     parser.add_argument(
         "--dungeon-root",
         type=Path,
-        default=ROOT / "artifacts/experiments/q1-v4-dungeon",
+        default=ROOT / "artifacts/experiments/q1-v4-dungeon-rerun",
     )
     args = parser.parse_args()
 
