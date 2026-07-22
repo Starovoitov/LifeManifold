@@ -1131,7 +1131,9 @@ def write_frq4_outputs(stats: dict[str, Any]) -> None:
         FRQ4_ANALYSIS_MD.write_text(md, encoding="utf-8")
 
 
-def _validate_g1_matrix(rows: list[dict[str, str]], *, provider: str, path: Path) -> None:
+def _validate_g1_matrix(
+    rows: list[dict[str, str]], *, provider: str, path: Path
+) -> None:
     for cond in ("stub", "hints"):
         seeds = {int(r["seed"]) for r in rows if r["condition"] == cond}
         if seeds != set(range(10)):
@@ -1229,7 +1231,6 @@ def format_frq1g_markdown(stats: dict[str, Any]) -> list[str]:
         "----------|-------|----------|----------|-------------|",
     ]
     for name, item in stats["providers"].items():
-        holm = item["holm_reject"]
         lines.append(
             f"| **{name}** | {item['mean_delta_cov_pp']:+.2f} | {item['sign_cov']} | "
             f"{item['wilcoxon_p_cov']:.4g} | **{item['holm_reject_cov']}** | "
@@ -1253,7 +1254,8 @@ def write_frq1g_outputs(stats: dict[str, Any]) -> None:
             name: {
                 key: item[key]
                 for key in item
-                if key not in ("confirmatory_family", "holm_reject", "ci_cov_95", "ci_fit_95")
+                if key
+                not in ("confirmatory_family", "holm_reject", "ci_cov_95", "ci_fit_95")
             }
             for name, item in stats["providers"].items()
         },
@@ -1271,7 +1273,13 @@ def write_frq1g_outputs(stats: dict[str, Any]) -> None:
             key: item[key]
             for key in item
             if key
-            not in ("confirmatory_family", "holm_reject", "ci_cov_95", "ci_fit_95", "source")
+            not in (
+                "confirmatory_family",
+                "holm_reject",
+                "ci_cov_95",
+                "ci_fit_95",
+                "source",
+            )
         }
         provider_json.write_text(
             json.dumps(provider_payload, indent=2) + "\n",
@@ -1299,7 +1307,9 @@ def write_frq1g_outputs(stats: dict[str, Any]) -> None:
             # Keep hand-written section; only refresh JSON.
             pass
         else:
-            analysis_md.write_text(md.rstrip() + "\n\n" + section + "\n", encoding="utf-8")
+            analysis_md.write_text(
+                md.rstrip() + "\n\n" + section + "\n", encoding="utf-8"
+            )
 
 
 def _dungeon_trace_auc(path: Path, metric: str, budget: int) -> float:

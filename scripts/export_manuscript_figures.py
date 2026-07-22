@@ -11,6 +11,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.image import AxesImage
 
 ROOT = Path(__file__).resolve().parents[1]
 MS_DIR = ROOT / "artifacts/manuscript"
@@ -303,37 +304,60 @@ def _load_fitness_pivot(archive_path: Path) -> np.ndarray:
     return bundle.pivots["fitness"]
 
 
-def fig07_archive_heatmaps(out: Path, *, seed: int = 4) -> None:
-    hints_archive = (
-        ROOT
-        / f"artifacts/experiments/q1-full/hints/seed_{seed}/map_elites_archive.jsonl"
-    )
-    cma_archive = (
-        ROOT
-        / f"artifacts/experiments/q1-v3-pyribs/cma_me/seed_{seed}/map_elites_archive.jsonl"
-    )
-    for path in (hints_archive, cma_archive):
+# §3.11 picks: smallest gap (1), largest gap (4), mid-large (6).
+HEATMAP_PROTOCOL_SEEDS = (1, 4, 6)
+
+
+def _archive_pair_paths(
+    seed: int, *, left: str = "hints", right: str = "cma_me"
+) -> tuple[Path, Path, Path, Path, str, str]:
+    """Return (left_archive, right_archive, left_summary, right_summary, left_cond, right_cond)."""
+    roots = {
+        "hints": (
+            ROOT
+            / f"artifacts/experiments/q1-full/hints/seed_{seed}/map_elites_archive.jsonl",
+            ROOT / "artifacts/experiments/q1-full/summary.csv",
+            "hints",
+        ),
+        "filter": (
+            ROOT
+            / f"artifacts/experiments/q1-full/filter/seed_{seed}/map_elites_archive.jsonl",
+            ROOT / "artifacts/experiments/q1-full/summary.csv",
+            "filter",
+        ),
+        "cma_me": (
+            ROOT
+            / f"artifacts/experiments/q1-v3-pyribs/cma_me/seed_{seed}/map_elites_archive.jsonl",
+            ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv",
+            "cma_me",
+        ),
+    }
+    if left not in roots or right not in roots:
+        msg = f"unknown arm in pair ({left}, {right}); expected one of {sorted(roots)}"
+        raise KeyError(msg)
+    la, ls, lc = roots[left]
+    ra, rs, rc = roots[right]
+    return la, ra, ls, rs, lc, rc
+
+
+def _draw_heatmap_row(
+    axes: np.ndarray,
+    *,
+    seed: int,
+    left: str,
+    right: str,
+    cmap,
+) -> AxesImage:
+    la, ra, ls, rs, lc, rc = _archive_pair_paths(seed, left=left, right=right)
+    for path in (la, ra):
         if not path.is_file():
             raise FileNotFoundError(path)
-
-    hints_cov = _coverage_pct(
-        ROOT / "artifacts/experiments/q1-full/summary.csv", "hints", seed
-    )
-    cma_cov = _coverage_pct(
-        ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv", "cma_me", seed
-    )
-
     panels = [
-        ("hints", hints_archive, hints_cov),
-        ("cma_me", cma_archive, cma_cov),
+        (lc, la, _coverage_pct(ls, lc, seed)),
+        (rc, ra, _coverage_pct(rs, rc, seed)),
     ]
     grids = [_load_fitness_pivot(path) for _, path, _ in panels]
-
-    cmap = plt.get_cmap("viridis").copy()
-    cmap.set_bad("#dddddd")
-
-    fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.8), layout="constrained")
-    im = None
+    im: AxesImage | None = None
     for ax, (label, _, cov), grid in zip(axes, panels, grids, strict=True):
         masked = np.ma.masked_invalid(grid)
         im = ax.imshow(
@@ -345,14 +369,29 @@ def fig07_archive_heatmaps(out: Path, *, seed: int = 4) -> None:
             vmax=1.0,
             interpolation="nearest",
         )
-        ax.set_title(f"{label} (seed {seed}, coverage {cov:.1f}%)", fontsize=11)
+        ax.set_title(f"{label} (seed {seed}, coverage {cov:.1f}%)", fontsize=10)
         ax.set_xlabel("Diversity bin")
         ax.set_ylabel("Stability bin")
         ax.set_xlim(-0.5, grid.shape[1] - 0.5)
         ax.set_ylim(-0.5, grid.shape[0] - 0.5)
+    if im is None:
+        raise RuntimeError(f"no heatmap panels drawn for seed {seed}")
+    return im
 
-    if im is not None:
-        fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85, label="Fitness")
+
+def fig07_archive_heatmaps(
+    out: Path,
+    *,
+    seed: int = 4,
+    left: str = "hints",
+    right: str = "cma_me",
+) -> None:
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("#dddddd")
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.8), layout="constrained")
+    im = _draw_heatmap_row(axes, seed=seed, left=left, right=right, cmap=cmap)
+    fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85, label="Fitness")
     fig.suptitle(
         "Archive fitness in behaviour space (collapsed warm-start archives)",
         fontsize=12,
@@ -367,7 +406,47 @@ def fig07_archive_heatmaps(out: Path, *, seed: int = 4) -> None:
 
     alias_dir = FIG_DIR / "archive_heatmaps"
     alias_dir.mkdir(parents=True, exist_ok=True)
-    alias = alias_dir / f"seed{seed}_hints_vs_cma_me.png"
+    alias = alias_dir / f"seed{seed}_{left}_vs_{right}.png"
+    alias.write_bytes(png_out.read_bytes())
+    print(f"Wrote {alias}")
+
+
+def fig07_archive_heatmaps_panel(
+    out: Path,
+    *,
+    seeds: tuple[int, ...] = HEATMAP_PROTOCOL_SEEDS,
+    left: str = "hints",
+    right: str = "cma_me",
+) -> None:
+    """Multi-seed side-by-side panel for protocol §3.11 (small / large / mid Δcov)."""
+    if not seeds:
+        raise ValueError("seeds must be non-empty")
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("#dddddd")
+    n = len(seeds)
+    fig, axes = plt.subplots(n, 2, figsize=(9.8, 3.9 * n), layout="constrained")
+    if n == 1:
+        axes = np.asarray([axes])
+    im: AxesImage | None = None
+    for row, seed in enumerate(seeds):
+        im = _draw_heatmap_row(axes[row], seed=seed, left=left, right=right, cmap=cmap)
+    assert im is not None
+    fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.55, label="Fitness")
+    fig.suptitle(
+        "Archive fitness across paired seeds (collapsed warm-start; gray = empty)",
+        fontsize=12,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=220, bbox_inches="tight", facecolor="white")
+    png_out = out.with_suffix(".png")
+    fig.savefig(png_out, dpi=220, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Wrote {out}")
+    print(f"Wrote {png_out}")
+    alias_dir = FIG_DIR / "archive_heatmaps"
+    alias_dir.mkdir(parents=True, exist_ok=True)
+    seed_tag = "_".join(str(s) for s in seeds)
+    alias = alias_dir / f"panel_seeds{seed_tag}_{left}_vs_{right}.png"
     alias.write_bytes(png_out.read_bytes())
     print(f"Wrote {alias}")
 
@@ -390,8 +469,23 @@ def main() -> None:
     parser.add_argument(
         "--seed",
         type=int,
-        default=4,
-        help="Paired seed for Fig. 7 archive heatmaps (default: 4, largest hints−cma_me Δ)",
+        action="append",
+        dest="seeds",
+        help=(
+            "Paired seed(s) for Fig. 7 (repeatable). "
+            f"Default protocol set: {','.join(map(str, HEATMAP_PROTOCOL_SEEDS))}"
+        ),
+    )
+    parser.add_argument(
+        "--pair",
+        type=str,
+        default="hints,cma_me",
+        help="Comma pair of arms for Fig. 7 (default: hints,cma_me; also filter,cma_me)",
+    )
+    parser.add_argument(
+        "--panel",
+        action="store_true",
+        help="Also write multi-seed panel PDF/PNG for all requested Fig. 7 seeds",
     )
     args = parser.parse_args()
     figs = args.figs or ([1, 2, 3, 4, 5, 6, 7, 8] if args.all else [])
@@ -409,11 +503,34 @@ def main() -> None:
         7: (fig07_archive_heatmaps, FIG_DIR / "fig07_archive_heatmaps_seed4.pdf"),
         8: (fig08_anytime_ladder, FIG_DIR / "fig08_anytime_ladder.pdf"),
     }
+    left, right = (p.strip() for p in args.pair.split(",", 1))
+    seeds: tuple[int, ...] = (
+        tuple(int(s) for s in args.seeds) if args.seeds else HEATMAP_PROTOCOL_SEEDS
+    )
     for number in figs:
         fn, path = exporters[number]
         if number == 7:
-            out_path = FIG_DIR / f"fig07_archive_heatmaps_seed{args.seed}.pdf"
-            fn(out_path, seed=args.seed)
+            for seed in seeds:
+                if (left, right) == ("hints", "cma_me"):
+                    out_path = FIG_DIR / f"fig07_archive_heatmaps_seed{seed}.pdf"
+                else:
+                    out_path = (
+                        FIG_DIR
+                        / f"fig07_archive_heatmaps_seed{seed}_{left}_vs_{right}.pdf"
+                    )
+                fn(out_path, seed=seed, left=left, right=right)
+            if args.panel or (len(seeds) > 1 and (left, right) == ("hints", "cma_me")):
+                tag = "_".join(str(s) for s in seeds)
+                if (left, right) == ("hints", "cma_me"):
+                    panel_out = FIG_DIR / f"fig07_archive_heatmaps_panel_seeds{tag}.pdf"
+                else:
+                    panel_out = (
+                        FIG_DIR
+                        / f"fig07_archive_heatmaps_panel_seeds{tag}_{left}_vs_{right}.pdf"
+                    )
+                fig07_archive_heatmaps_panel(
+                    panel_out, seeds=seeds, left=left, right=right
+                )
         else:
             fn(path)
 

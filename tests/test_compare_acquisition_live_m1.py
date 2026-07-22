@@ -130,7 +130,9 @@ class TestCompareAcquisitionLiveM1(unittest.TestCase):
             (root / "seed_1").mkdir()
             a0 = root / "seed_0" / "surrogate_archive.jsonl"
             a1 = root / "seed_1" / "surrogate_archive.jsonl"
-            rec = _record(fitness=0.2, decision="skip", reason="below_fitness_threshold")
+            rec = _record(
+                fitness=0.2, decision="skip", reason="below_fitness_threshold"
+            )
             a0.write_text(json.dumps(rec) + "\n", encoding="utf-8")
             a1.write_text(json.dumps(rec) + "\n", encoding="utf-8")
             found = discover_seed_archives(root)

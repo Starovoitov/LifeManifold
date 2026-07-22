@@ -222,9 +222,7 @@ def aggregate_seeds(seed_stats: list[dict[str, Any]]) -> dict[str, Any]:
     pooled_rows: list[dict[str, Any]] = []
     for i in range(n_policies):
         skip = sum(s["policies"][i]["skip_count"] for s in seed_stats)
-        agree = sum(
-            s["policies"][i]["agree_logged_rate"] * s["n"] for s in seed_stats
-        )
+        agree = sum(s["policies"][i]["agree_logged_rate"] * s["n"] for s in seed_stats)
         e2s = sum(s["policies"][i]["flip_eval_to_skip"] for s in seed_stats)
         s2e = sum(s["policies"][i]["flip_skip_to_eval"] for s in seed_stats)
         false = sum(
