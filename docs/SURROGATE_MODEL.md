@@ -518,4 +518,4 @@ Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/READ
 - `scripts/report_surrogate_acquisition.py` — metrics only from buffer + checkpoint.
 - `scripts/compare_acquisition_runs.py` — A/B eval reduction, filled cells, mean best fitness.
 
-Still planned: optional `ucb_promote` policy.
+Still planned: none for acquisition policies — ``ucb_promote`` is implemented (M1 Phase 2 offline).

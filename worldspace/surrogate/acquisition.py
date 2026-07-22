@@ -19,6 +19,7 @@ AcquisitionAction = Literal["eval", "skip"]
 
 REASON_ACCEPTED_FOR_EVAL = "accepted_for_eval"
 REASON_BELOW_FITNESS_THRESHOLD = "below_fitness_threshold"
+REASON_BELOW_UCB_THRESHOLD = "below_ucb_threshold"
 REASON_HIGH_UNCERTAINTY_FORCE_EVAL = "high_uncertainty_force_eval"
 REASON_EMPTY_BIN_EXPLORE = "empty_bin_explore"
 REASON_POLICY_UNSUPPORTED = "policy_unsupported"
@@ -34,6 +35,7 @@ __all__ = [
     "REASON_ACCEPTED_FOR_EVAL",
     "REASON_ACQUISITION_DISABLED",
     "REASON_BELOW_FITNESS_THRESHOLD",
+    "REASON_BELOW_UCB_THRESHOLD",
     "REASON_EMPTY_BIN_EXPLORE",
     "REASON_HIGH_UNCERTAINTY_FORCE_EVAL",
     "REASON_POLICY_UNSUPPORTED",
@@ -119,8 +121,32 @@ def _decide_threshold_gate(
     return _eval_decision(REASON_ACCEPTED_FOR_EVAL, THRESHOLD_GATE_POLICY_VERSION)
 
 
+def _decide_ucb_promote(
+    config: AcquisitionConfig,
+    prediction: SurrogatePrediction,
+    target: TargetBin,
+    archive: ArchiveProtocol,
+) -> AcquisitionDecision:
+    """Skip when UCB = μ + β·σ is below the fitness gate (SAIL-style filter).
+
+    ``exploration_weight`` is β. High uncertainty raises UCB and tends to force
+    eval — the opposite of ``threshold_gate``'s ``max_uncertainty_to_skip`` latch.
+    """
+    cell_id = archive.cell_id_from_bin(target.bin)
+    if config.never_skip_empty_bin and archive.is_empty_cell(cell_id):
+        return _eval_decision(REASON_EMPTY_BIN_EXPLORE, UCB_PROMOTE_POLICY_VERSION)
+
+    ucb = float(prediction.fitness) + float(config.exploration_weight) * float(
+        prediction.uncertainty
+    )
+    if ucb < float(config.min_predicted_fitness):
+        return _skip_decision(REASON_BELOW_UCB_THRESHOLD, UCB_PROMOTE_POLICY_VERSION)
+    return _eval_decision(REASON_ACCEPTED_FOR_EVAL, UCB_PROMOTE_POLICY_VERSION)
+
+
 _POLICY_REGISTRY: dict[AcquisitionPolicyName, PolicyFn] = {
     "threshold_gate": _decide_threshold_gate,
+    "ucb_promote": _decide_ucb_promote,
 }
 
 

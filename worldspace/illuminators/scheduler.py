@@ -34,7 +34,6 @@ from worldspace.surrogate.acquisition_config import (
     DEFAULT_SURROGATE_ARCHIVE_PATH,
     RetrainConfig,
 )
-from worldspace.surrogate import StubSurrogate
 from worldspace.surrogate.types import (
     SurrogateConfig,
     SurrogatePrediction,
@@ -396,6 +395,8 @@ def resolve_surrogate_prediction(
 ) -> SurrogatePrediction:
     """Return full surrogate prediction for LLM user prompts."""
     if not config.surrogate_enabled:
+        from worldspace.surrogate.surrogate import StubSurrogate
+
         return StubSurrogate(
             config.surrogate_stub_mean,
             config.surrogate_stub_uncertainty,
@@ -660,13 +661,6 @@ def _normalize_acquisition_config(config: SchedulerConfig) -> SchedulerConfig:
     acquisition = config.acquisition
     policy: AcquisitionPolicyName = acquisition.policy
     mode = acquisition.mode
-
-    if policy == "ucb_promote":
-        logger.warning(
-            "acquisition policy %r is not implemented yet; using threshold_gate",
-            policy,
-        )
-        policy = "threshold_gate"
 
     if mode == "filter" and not config.surrogate_enabled:
         logger.warning(

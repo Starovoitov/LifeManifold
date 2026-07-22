@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from worldspace.illuminators.evaluation import compute_fitness
 from worldspace.metrics import WorldMetrics
 from worldspace.surrogate.types import SurrogatePrediction
 
@@ -29,6 +28,8 @@ def compute_fitness_from_prediction(
     """Compute fitness via illuminator source function, not duplicated formula."""
     if use_soft_extinction:
         return compute_soft_fitness_from_prediction(pred)
+    from worldspace.illuminators.evaluation import compute_fitness
+
     components = pred.components
     metrics = WorldMetrics(
         entropy=0.0,
@@ -63,6 +64,8 @@ def compute_fitness_from_prediction(
 
 def compute_soft_fitness_from_prediction(pred: SurrogatePrediction) -> float:
     """Surrogate-only soft extinction: scale base fitness by ``(1 - p_ext)``."""
+    from worldspace.illuminators.evaluation import compute_fitness
+
     components = pred.components
     p_ext = float(np.clip(components["early_extinction_prob"], 0.0, 1.0))
     metrics = WorldMetrics(

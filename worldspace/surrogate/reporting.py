@@ -35,6 +35,7 @@ __all__ = [
     "AcquisitionReplayMetrics",
     "consistency_mae",
     "evaluate_acquisition_replay",
+    "evaluate_acquisition_replay_from_scores",
     "estimate_false_skip_rate",
     "merge_acquisition_into_summary",
     "recommended_skip_rate_at_policy",
@@ -144,6 +145,84 @@ def evaluate_acquisition_replay(
         false_skip_count=false_skips,
         false_skip_rate_estimate=false_rate,
         consistency_mae=float(np.mean(abs_errors)) if abs_errors else float("nan"),
+        calibration_ece=float(ece),
+    )
+
+
+def evaluate_acquisition_replay_from_scores(
+    predicted_fitness: np.ndarray,
+    predicted_uncertainty: np.ndarray,
+    actual_fitness: np.ndarray,
+    policy: AcquisitionConfig,
+    *,
+    grid_resolution: int = 10,
+    n_cells: int | None = None,
+    archive_type: Literal["grid", "cvt"] = "grid",
+    cvt_seed: int = 0,
+    lloyd_iterations: int = 50,
+    never_skip_empty_bin: bool | None = None,
+) -> AcquisitionReplayMetrics:
+    """Replay precomputed (μ, σ, y) through an acquisition policy (offline)."""
+    from dataclasses import replace
+
+    pred_fit = np.asarray(predicted_fitness, dtype=float).reshape(-1)
+    pred_u = np.asarray(predicted_uncertainty, dtype=float).reshape(-1)
+    actual = np.asarray(actual_fitness, dtype=float).reshape(-1)
+    if not (pred_fit.shape == pred_u.shape == actual.shape):
+        msg = (
+            "predicted_fitness, predicted_uncertainty, and actual_fitness "
+            f"must match; got {pred_fit.shape}, {pred_u.shape}, {actual.shape}"
+        )
+        raise ValueError(msg)
+
+    effective_policy = policy
+    if never_skip_empty_bin is not None:
+        effective_policy = replace(policy, never_skip_empty_bin=never_skip_empty_bin)
+
+    effective_n_cells = (
+        grid_resolution * grid_resolution if n_cells is None else int(n_cells)
+    )
+    archive = _replay_archive(
+        archive_type=archive_type,
+        grid_resolution=grid_resolution,
+        n_cells=effective_n_cells,
+        cvt_seed=cvt_seed,
+        lloyd_iterations=lloyd_iterations,
+    )
+    n_rows = int(pred_fit.shape[0])
+    policy_skips = 0
+    false_skips = 0
+    abs_errors = np.abs(pred_fit - actual)
+    for row_index in range(n_rows):
+        prediction = SurrogatePrediction(
+            components={},
+            measures={},
+            fitness=float(pred_fit[row_index]),
+            uncertainty=float(pred_u[row_index]),
+        )
+        cell_id = row_index % effective_n_cells
+        target = TargetBin(
+            bin=archive.bin_from_cell_id(cell_id),
+            target_stability=0.5,
+            target_diversity=0.5,
+        )
+        decision = decide(effective_policy, prediction, target, archive)
+        if decision.action == "skip":
+            policy_skips += 1
+            if _is_false_skip_proxy(
+                prediction, float(actual[row_index]), effective_policy
+            ):
+                false_skips += 1
+    skip_rate = float(policy_skips) / float(n_rows) if n_rows else 0.0
+    false_rate = float(false_skips) / float(policy_skips) if policy_skips > 0 else 0.0
+    ece = expected_calibration_error(pred_u, abs_errors)
+    return AcquisitionReplayMetrics(
+        row_count=n_rows,
+        policy_skip_count=policy_skips,
+        recommended_skip_rate=skip_rate,
+        false_skip_count=false_skips,
+        false_skip_rate_estimate=false_rate,
+        consistency_mae=float(np.mean(abs_errors)) if n_rows else float("nan"),
         calibration_ece=float(ece),
     )
 
