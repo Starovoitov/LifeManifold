@@ -25,6 +25,7 @@ from worldspace.illuminators.archive_trace import (
 )
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS, bin_index
 from worldspace.illuminators.discrete_cma_emitter import DiscreteCMAEmitter, discrete_x0
+from worldspace.illuminators.pbcma_emitter import PBCMAEmitter, pbcma_x0
 from worldspace.illuminators.emitters.genetics import DecodeMode
 from worldspace.illuminators.pyribs_adapter import (
     ARCHIVE_DIMS,
@@ -51,7 +52,7 @@ from worldspace.specs.world_param_bounds import (
 logger = logging.getLogger(__name__)
 
 AlgoName = Literal["cma_me", "cma_mae"]
-EmitterKind = Literal["continuous_es", "discrete_cma"]
+EmitterKind = Literal["continuous_es", "discrete_cma", "pbcma"]
 
 DEFAULT_NUM_EMITTERS = 5
 DEFAULT_EMITTER_BATCH_SIZE = 50
@@ -219,19 +220,27 @@ def build_scheduler(
         msg = f"unknown algo {config.algo!r}"
         raise ValueError(msg)
 
-    x0 = discrete_x0() if config.emitter_kind == "discrete_cma" else mid_bounds_x0()
-    if config.emitter_kind == "discrete_cma" and config.algo != "cma_me":
-        msg = "discrete_cma emitter is supported for cma_me only"
+    if config.emitter_kind == "discrete_cma":
+        x0 = discrete_x0()
+    elif config.emitter_kind == "pbcma":
+        x0 = pbcma_x0()
+    else:
+        x0 = mid_bounds_x0()
+    if config.emitter_kind in ("discrete_cma", "pbcma") and config.algo != "cma_me":
+        msg = f"{config.emitter_kind} emitter is supported for cma_me only"
         raise ValueError(msg)
 
-    if config.emitter_kind == "discrete_cma":
+    if config.emitter_kind in ("discrete_cma", "pbcma"):
         lower_bounds = np.zeros(GENOME_SIZE, dtype=np.float64)
         upper_bounds = np.ones(GENOME_SIZE, dtype=np.float64)
         for index, (lo, hi) in enumerate(FLOAT_PARAM_BOUNDS, start=18):
             lower_bounds[index] = lo
             upper_bounds[index] = hi
+        emitter_cls = (
+            PBCMAEmitter if config.emitter_kind == "pbcma" else DiscreteCMAEmitter
+        )
         emitters = [
-            DiscreteCMAEmitter(
+            emitter_cls(
                 archive,
                 x0=x0,
                 sigma0=config.sigma0,
@@ -432,7 +441,9 @@ def run_pyribs_baseline(
             parallel_workers=config.parallel_workers,
         ),
         decode_mode=(
-            "threshold" if config.emitter_kind == "discrete_cma" else config.decode_mode
+            "threshold"
+            if config.emitter_kind in ("discrete_cma", "pbcma")
+            else config.decode_mode
         ),
         eval_seed=config.seed,
     )
@@ -511,7 +522,9 @@ def run_pyribs_baseline(
         report_archive,
         archive_jsonl,
         decode_mode=(
-            "threshold" if config.emitter_kind == "discrete_cma" else config.decode_mode
+            "threshold"
+            if config.emitter_kind in ("discrete_cma", "pbcma")
+            else config.decode_mode
         ),
     )
 
@@ -528,16 +541,18 @@ def run_pyribs_baseline(
         warm_start_elites=warm_start,
         report_archive=report_archive,
     )
+    if config.emitter_kind == "discrete_cma":
+        scheduler_label = f"pyribs:{config.algo}:discrete_cma"
+    elif config.emitter_kind == "pbcma":
+        scheduler_label = f"pyribs:{config.algo}:pbcma"
+    else:
+        scheduler_label = f"pyribs:{config.algo}"
     write_run_summary(
         output_dir / "nightly_run_summary.json",
         result=result,
         config=config,
         archive_jsonl=archive_jsonl,
-        scheduler_label=(
-            f"pyribs:{config.algo}:discrete_cma"
-            if config.emitter_kind == "discrete_cma"
-            else f"pyribs:{config.algo}"
-        ),
+        scheduler_label=scheduler_label,
     )
     archive_arrays = {
         str(key): np.asarray(val) for key, val in report_archive.data().items()

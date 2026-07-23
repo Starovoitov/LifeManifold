@@ -13,10 +13,12 @@
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
+# H1 matched:  q1-h1-matched-gpt-4o-mini (stub_uniform @ openai; reuse G1 hints; seeds 0–2)
 # Anytime:     q1-anytime-ladder (vanilla + hints + cma_me; archive_trace; new root)
 # Encoding:    q1-cma-encoding-ablation (CMA-ME decode/warm-start sanity; new root)
 # C4 discrete: q1-v3-pyribs-discrete-cma (Bernoulli-decode CMA-ME; package C4)
 # Native discrete: q1-v3-pyribs-native-discrete-cma (bit-flip DiscreteCMAEmitter)
+# pbCMA:       q1-v3-pyribs-pbcma (latent-Gaussian CMA + bit threshold + margin)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
 # RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
@@ -106,6 +108,7 @@ RUN_ANYTIME_LADDER=false
 RUN_CMA_ENCODING_ABLATION=false
 RUN_CMA_DISCRETE=false
 RUN_CMA_NATIVE_DISCRETE=false
+RUN_CMA_PBCMA=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -293,6 +296,17 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_STUB_UNIFORM_ONLY=true
     ;;
+  q1-h1-matched-gpt-4o-mini)
+    # Matched H1 confirmatory pilot: stub_uniform @ OpenAI gpt-4o-mini (reuse G1 hints).
+    # Default seeds 0–2; compare to existing q1-v3-llm/gpt-4o-mini/hints/.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-llm/gpt-4o-mini"
+    SCHEDULER_STUB_UNIFORM="$SCHEDULER_STUB_UNIFORM_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_STUB_UNIFORM_ONLY=true
+    LLM_PROVIDER=openai
+    ;;
   q1-anytime-ladder)
     # Selective re-runs for archive_trace curves (vanilla + hints + cma_me); does not touch q1-full.
     ITERATIONS=650
@@ -331,6 +345,15 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=false
     RUN_CMA_NATIVE_DISCRETE=true
+    ;;
+  q1-v3-pyribs-pbcma)
+    # pbCMA: latent-Gaussian CMA + bit threshold + margin (discrete archive genotype).
+    EXP_DIR="$EXP_ROOT/q1-v3-pyribs-pbcma"
+    ARCHIVE_TYPE=grid
+    BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_CMA_PBCMA=true
     ;;
   q1-hints-rich-pilot)
     # RQ1b: component-rich surrogate hints; 1-seed pilot default (seed 0).
@@ -372,7 +395,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac
@@ -437,6 +460,11 @@ if [[ "$REQUESTED_TIER" == "q1-stub-uniform-sensitivity" && $# -lt 2 ]]; then
   SEED_END=2
   echo "NOTE: q1-stub-uniform-sensitivity default seeds 0–2 (post-arXiv pilot); full: $0 q1-stub-uniform-sensitivity 0 9" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-h1-matched-gpt-4o-mini" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=2
+  echo "NOTE: q1-h1-matched-gpt-4o-mini default seeds 0–2 (matched H1 pilot vs existing gpt-4o-mini hints)" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-anytime-ladder" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=4
@@ -456,6 +484,11 @@ if [[ "$REQUESTED_TIER" == "q1-v3-pyribs-native-discrete-cma" && $# -lt 2 ]]; th
   SEED_START=0
   SEED_END=9
   echo "NOTE: q1-v3-pyribs-native-discrete-cma default seeds 0–9 (native bit-flip CMA-ME)" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-v3-pyribs-pbcma" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-v3-pyribs-pbcma default seeds 0–9 (pbCMA latent-Gaussian CMA-ME)" >&2
 fi
 if [[ "$REQUESTED_TIER" == "q1-hints-rich-pilot" && $# -lt 2 ]]; then
   SEED_START=0
@@ -727,6 +760,39 @@ run_cma_native_discrete_one() {
   ) 9>"$lock_file"
 }
 
+run_cma_pbcma_one() {
+  local seed="$1"
+  local out="$EXP_DIR/cma_me_pbcma/seed_${seed}"
+  if [[ -f "$out/nightly_run_summary.json" ]]; then
+    echo "Skip existing: $out"
+    return 0
+  fi
+  remove_incomplete_run_dir "$out"
+  mkdir -p "$out"
+  local extra=(
+    --algo cma_me
+    --emitter-kind pbcma
+    --decode-mode threshold
+    --condition-label cma_me_pbcma
+  )
+  if [[ -n "${PYRIBS_EVALUATIONS:-}" ]]; then
+    extra+=(--evaluations "$PYRIBS_EVALUATIONS")
+  fi
+  extra+=(--load-archive "$BASELINE_ARCHIVE")
+  echo "=== tier=$TIER condition=cma_me_pbcma emitter=pbcma warmstart=on seed=$seed evaluations=${PYRIBS_EVALUATIONS:-32500} ==="
+  local lock_file="$out/.run.lock"
+  (
+    flock -n 9 || {
+      echo "Another process holds $lock_file; refusing to start duplicate run." >&2
+      exit 1
+    }
+    uv run python "$PYRIBS_SCRIPT" \
+      --seed "$seed" \
+      --output-dir "$out" \
+      "${extra[@]}"
+  ) 9>"$lock_file"
+}
+
 run_pyribs_standard_one() {
   local algo="$1"
   local seed="$2"
@@ -835,6 +901,10 @@ elif [[ "$RUN_CMA_DISCRETE" == true ]]; then
 elif [[ "$RUN_CMA_NATIVE_DISCRETE" == true ]]; then
   for seed in $(seq "$SEED_START" "$SEED_END"); do
     run_cma_native_discrete_one "$seed"
+  done
+elif [[ "$RUN_CMA_PBCMA" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    run_cma_pbcma_one "$seed"
   done
 else
   for seed in $(seq "$SEED_START" "$SEED_END"); do

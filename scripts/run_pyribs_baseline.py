@@ -86,9 +86,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--emitter-kind",
-        choices=("continuous_es", "discrete_cma"),
+        choices=("continuous_es", "discrete_cma", "pbcma"),
         default="continuous_es",
-        help="continuous_es = pyribs EvolutionStrategyEmitter; discrete_cma = native bit-flip.",
+        help=(
+            "continuous_es = pyribs EvolutionStrategyEmitter; "
+            "discrete_cma = native bit-flip; "
+            "pbcma = latent-Gaussian CMA + bit threshold + margin."
+        ),
     )
     parser.add_argument(
         "--condition-label",

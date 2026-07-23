@@ -158,6 +158,7 @@ def _infer_condition(run_dir: Path) -> str:
         "cma_me_threshold",
         "cma_me_bernoulli",
         "cma_me_discrete",
+        "cma_me_pbcma",
         "cma_me_cold",
         "me_random",
         "random",
