@@ -45,6 +45,7 @@ FILTER_ONLY=false
 RUN_PYRIBS=false
 RUN_PYRIBS_STANDARD=false
 RUN_DUNGEON=false
+RUN_MAZE=false
 case "$TIER" in
   q1-full-filter)
     TIER=q1-full
@@ -67,6 +68,7 @@ RUN_SCRIPT="$ROOT/scripts/run_github_llm_map_elites.py"
 PYRIBS_SCRIPT="$ROOT/scripts/run_pyribs_baseline.py"
 PYRIBS_STANDARD_SCRIPT="$ROOT/scripts/run_pyribs_standard.py"
 DUNGEON_SCRIPT="$ROOT/scripts/run_dungeon_qd.py"
+MAZE_SCRIPT="$ROOT/scripts/run_maze_qd.py"
 AGG_SCRIPT="$ROOT/scripts/aggregate_experiment_runs.py"
 
 SCHEDULER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub.yaml"
@@ -233,6 +235,22 @@ case "$TIER" in
     dungeon_condition="${TIER#q1-v4-dungeon-}"
     dungeon_condition="${dungeon_condition//-/_}"
     DUNGEON_CONDITIONS=("$dungeon_condition")
+    ;;
+  q1-v4-maze)
+    EXP_DIR="$EXP_ROOT/${MAZE_EXPERIMENT_ROOT:-q1-v4-maze}"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_MAZE=true
+    MAZE_CONDITIONS=(genetic)
+    ;;
+  q1-v4-maze-genetic|q1-v4-maze-random)
+    EXP_DIR="$EXP_ROOT/${MAZE_EXPERIMENT_ROOT:-q1-v4-maze}"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_MAZE=true
+    maze_condition="${TIER#q1-v4-maze-}"
+    maze_condition="${maze_condition//-/_}"
+    MAZE_CONDITIONS=("$maze_condition")
     ;;
   q1-v3-vanilla)
     # B1 / RQ0: vanilla MAP-Elites (random emitter only).
@@ -409,7 +427,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v4-maze-{genetic,random}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac
@@ -468,6 +486,11 @@ if [[ "$REQUESTED_TIER" == q1-v4-dungeon* && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=4
   echo "NOTE: $REQUESTED_TIER default seeds 0–4 (B4 exploratory gate)" >&2
+fi
+if [[ "$REQUESTED_TIER" == q1-v4-maze* && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=2
+  echo "NOTE: $REQUESTED_TIER default seeds 0–2 (maze symmetry smoke)" >&2
 fi
 if [[ "$REQUESTED_TIER" == "q1-stub-uniform-sensitivity" && $# -lt 2 ]]; then
   SEED_START=0
@@ -575,7 +598,7 @@ if [[ "$FILTER_ONLY" == true && -z "${LIFEMANIFOLD_LLM_PARALLEL_WORKERS:-}" ]]; 
   export LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2
 fi
 
-if [[ "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" != true && ! -f "$BASELINE_ARCHIVE" ]]; then
+if [[ "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" != true && "$RUN_MAZE" != true && ! -f "$BASELINE_ARCHIVE" ]]; then
   echo "Missing baseline archive: $BASELINE_ARCHIVE" >&2
   if [[ "$ARCHIVE_TYPE" == "cvt" ]]; then
     echo "Run: ./scripts/run_cvt_baseline.sh" >&2
@@ -585,7 +608,7 @@ if [[ "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" != true && ! -f "$BASELIN
   exit 1
 fi
 
-if [[ "$RUN_PYRIBS" != true && "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" != true ]]; then
+if [[ "$RUN_PYRIBS" != true && "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" != true && "$RUN_MAZE" != true ]]; then
   CHECKPOINT="$ROOT/artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl"
   if [[ ! -f "$CHECKPOINT" ]]; then
     echo "Training surrogate checkpoint..."
@@ -904,7 +927,43 @@ run_dungeon_one() {
   ) 9>"$lock_file"
 }
 
-if [[ "$RUN_DUNGEON" == true ]]; then
+run_maze_one() {
+  local condition="$1"
+  local seed="$2"
+  local scheduler="$ROOT/worldspace/specs/maze_scheduler_${condition}.yaml"
+  local out="$EXP_DIR/${condition}/seed_${seed}"
+  if [[ -f "$out/nightly_run_summary.json" ]]; then
+    echo "Skip existing: $out"
+    return 0
+  fi
+  remove_incomplete_run_dir "$out"
+  mkdir -p "$out"
+  local extra=()
+  if [[ -n "${MAZE_PROPOSALS:-}" ]]; then
+    extra+=(--proposals "$MAZE_PROPOSALS")
+  fi
+  echo "=== tier=$TIER domain=maze condition=$condition seed=$seed proposals=${MAZE_PROPOSALS:-32500} ==="
+  local lock_file="$out/.run.lock"
+  (
+    flock -n 9 || {
+      echo "Another process holds $lock_file; refusing to start duplicate run." >&2
+      exit 1
+    }
+    uv run python "$MAZE_SCRIPT" \
+      --scheduler "$scheduler" \
+      --seed "$seed" \
+      --output-dir "$out" \
+      "${extra[@]}"
+  ) 9>"$lock_file"
+}
+
+if [[ "$RUN_MAZE" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    for condition in "${MAZE_CONDITIONS[@]}"; do
+      run_maze_one "$condition" "$seed"
+    done
+  done
+elif [[ "$RUN_DUNGEON" == true ]]; then
   for seed in $(seq "$SEED_START" "$SEED_END"); do
     for condition in "${DUNGEON_CONDITIONS[@]}"; do
       run_dungeon_one "$condition" "$seed"
