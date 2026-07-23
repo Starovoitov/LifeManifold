@@ -84,6 +84,7 @@ def _collapsed_archive_for_summary(
     if (
         not bool(payload.get("standard_benchmark", False))
         and not bool(payload.get("dungeon_benchmark", False))
+        and not bool(payload.get("maze_benchmark", False))
         and archive_type == "grid"
         and expected_filled > run_archive.filled_count()
         and GRID_BASELINE_ARCHIVE.is_file()
@@ -203,6 +204,7 @@ def main() -> None:
                 "benchmark": payload.get("benchmark"),
                 "standard_benchmark": payload.get("standard_benchmark", False),
                 "dungeon_benchmark": payload.get("dungeon_benchmark", False),
+                "maze_benchmark": payload.get("maze_benchmark", False),
                 "seed": payload.get("seed"),
                 "replicate": payload.get("replicate", _infer_replicate(run_dir)),
                 "iterations": payload.get("iterations"),
@@ -222,7 +224,7 @@ def main() -> None:
                         (_as_float(payload.get("skip_rate", 0.0)) or 0.0) * 100.0,
                         4,
                     )
-                    if payload.get("dungeon_benchmark")
+                    if payload.get("dungeon_benchmark") or payload.get("maze_benchmark")
                     else _skip_rate(surrogate_archive)
                 ),
                 "llm_enabled": payload.get("llm_enabled"),

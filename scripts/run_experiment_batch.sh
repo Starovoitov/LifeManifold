@@ -236,19 +236,20 @@ case "$TIER" in
     dungeon_condition="${dungeon_condition//-/_}"
     DUNGEON_CONDITIONS=("$dungeon_condition")
     ;;
-  q1-v4-maze)
+  q1-v4-maze|q1-v5-maze)
     EXP_DIR="$EXP_ROOT/${MAZE_EXPERIMENT_ROOT:-q1-v4-maze}"
     RUN_FILTER=false
     RUN_SHADOW=false
     RUN_MAZE=true
     MAZE_CONDITIONS=(genetic genetic_filter llm_stub llm_hints llm_hints_filter)
     ;;
-  q1-v4-maze-genetic|q1-v4-maze-random|q1-v4-maze-genetic-filter|q1-v4-maze-llm-stub|q1-v4-maze-llm-hints|q1-v4-maze-llm-hints-filter)
+  q1-v4-maze-genetic|q1-v4-maze-random|q1-v4-maze-genetic-filter|q1-v4-maze-llm-stub|q1-v4-maze-llm-hints|q1-v4-maze-llm-hints-filter|q1-v5-maze-genetic|q1-v5-maze-genetic-filter|q1-v5-maze-llm-stub|q1-v5-maze-llm-hints|q1-v5-maze-llm-hints-filter)
     EXP_DIR="$EXP_ROOT/${MAZE_EXPERIMENT_ROOT:-q1-v4-maze}"
     RUN_FILTER=false
     RUN_SHADOW=false
     RUN_MAZE=true
     maze_condition="${TIER#q1-v4-maze-}"
+    maze_condition="${maze_condition#q1-v5-maze-}"
     maze_condition="${maze_condition//-/_}"
     MAZE_CONDITIONS=("$maze_condition")
     ;;
@@ -427,7 +428,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac
@@ -487,7 +488,7 @@ if [[ "$REQUESTED_TIER" == q1-v4-dungeon* && $# -lt 2 ]]; then
   SEED_END=4
   echo "NOTE: $REQUESTED_TIER default seeds 0–4 (B4 exploratory gate)" >&2
 fi
-if [[ "$REQUESTED_TIER" == q1-v4-maze* && $# -lt 2 ]]; then
+if [[ ("$REQUESTED_TIER" == q1-v4-maze* || "$REQUESTED_TIER" == q1-v5-maze*) && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=2
   echo "NOTE: $REQUESTED_TIER default seeds 0–2 (maze symmetry smoke)" >&2
@@ -941,6 +942,9 @@ run_maze_one() {
   local extra=()
   if [[ -n "${MAZE_PROPOSALS:-}" ]]; then
     extra+=(--proposals "$MAZE_PROPOSALS")
+  fi
+  if [[ -n "${MAZE_MOCK_LLM:-}" ]]; then
+    extra+=(--mock-llm)
   fi
   echo "=== tier=$TIER domain=maze condition=$condition seed=$seed proposals=${MAZE_PROPOSALS:-32500} ==="
   local lock_file="$out/.run.lock"

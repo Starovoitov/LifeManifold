@@ -151,6 +151,56 @@ class TestMazeRunner(unittest.TestCase):
             self.assertGreater(len(skipped_rows), 0)
             self.assertGreater(len(empty_eval_rows), 0)
 
+    def test_five_arm_smoke_contracts_at_250_proposals(self) -> None:
+        from dataclasses import replace
+
+        from worldspace.mazes.mock_llm_emitter import MockMazeLlmEmitter
+        from worldspace.mazes.surrogate import MazeSurrogate
+
+        root = Path(__file__).resolve().parents[1]
+        specs = root / "worldspace/specs"
+        predictor = MazeSurrogate.load(
+            root / "artifacts/surrogate/checkpoints/maze_v1.pkl"
+        )
+        conditions = (
+            "genetic",
+            "genetic_filter",
+            "llm_stub",
+            "llm_hints",
+            "llm_hints_filter",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            for index, condition in enumerate(conditions):
+                config = load_maze_scheduler(specs / f"maze_scheduler_{condition}.yaml")
+                config = replace(config, iterations=5)
+                out = base / condition
+                llm_emitter = MockMazeLlmEmitter() if "llm" in config.emitters else None
+                use_predictor = (
+                    predictor
+                    if config.surrogate_checkpoint or config.acquisition.mode != "off"
+                    else None
+                )
+                result = run_maze_qd(
+                    config,
+                    seed=100 + index,
+                    output_dir=out,
+                    predictor=use_predictor,
+                    llm_emitter=llm_emitter,
+                )
+                self.assertEqual(result.proposals, 250)
+                summary = json.loads(
+                    (out / "nightly_run_summary.json").read_text(encoding="utf-8")
+                )
+                self.assertTrue(summary["maze_benchmark"])
+                self.assertEqual(summary["condition"], condition)
+                self.assertTrue((out / "maze_archive.jsonl").is_file())
+                if config.acquisition.mode != "off":
+                    self.assertGreater(summary["skipped"], 0)
+                if llm_emitter is not None:
+                    self.assertTrue(summary["llm_enabled"])
+                    self.assertIn("llm_audit", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

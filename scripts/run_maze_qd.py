@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from worldspace.mazes.llm_emitter import MazeLlmEmitter
+from worldspace.mazes.mock_llm_emitter import MockMazeLlmEmitter
 from worldspace.mazes.runner import load_maze_scheduler, run_maze_qd
 from worldspace.mazes.surrogate import MazeSurrogate
 
@@ -33,6 +34,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--llm-spec",
         type=Path,
         default=Path("worldspace/specs/llm_world_generator_qwen.yaml"),
+    )
+    parser.add_argument(
+        "--mock-llm",
+        action="store_true",
+        help="Use deterministic local mutations instead of a remote LLM.",
     )
     return parser.parse_args(argv)
 
@@ -55,14 +61,15 @@ def main(argv: list[str] | None = None) -> None:
         if config.surrogate_checkpoint
         else None
     )
-    llm_emitter = (
-        MazeLlmEmitter(
-            prompt_mode=config.llm_prompt_mode,
-            llm_spec_path=args.llm_spec,
-        )
-        if "llm" in config.emitters
-        else None
-    )
+    llm_emitter = None
+    if "llm" in config.emitters:
+        if args.mock_llm:
+            llm_emitter = MockMazeLlmEmitter()
+        else:
+            llm_emitter = MazeLlmEmitter(
+                prompt_mode=config.llm_prompt_mode,
+                llm_spec_path=args.llm_spec,
+            )
     result = run_maze_qd(
         config,
         seed=args.seed,
