@@ -71,7 +71,7 @@ def fig01_pipeline(out: Path) -> None:
 
 
 def fig03_surrogate_flow(out: Path) -> None:
-    """Fig. 3: detailed surrogate feature → Role 1 / Role 2 flow."""
+    """Fig. 3: detailed surrogate feature → before-/after-generation flow."""
     _export_mermaid(SURROGATE_FLOW_MMD, out, width=1400, height=2400)
 
 
@@ -350,7 +350,9 @@ def fig06_acquisition(out: Path) -> None:
         ax.fill_between(grid, q25, q75, color=colors[label], alpha=0.2)
     ax.set_xlabel("Simulator evaluations")
     ax.set_ylabel("Coverage (%)")
-    ax.set_title("Role 2: genetic_me_uniform vs genetic_me_filter (n=10, IQR)")
+    ax.set_title(
+        "H2 (after-generation): genetic_me_uniform vs genetic_me_filter (n=10, IQR)"
+    )
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
