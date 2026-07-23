@@ -1,0 +1,95 @@
+schema_version: "1.2"
+# H2 threshold sensitivity: genetic ME + filter @ min_predicted_fitness=0.55.
+# Same slot mix / checkpoint as genetic_me_filter (τ=0.45 reference arm).
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_genetic_me_filter_tau055.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment_genetic_me_filter_tau055.jsonl
+  acquisition:
+    mode: filter
+    policy: threshold_gate
+    min_predicted_fitness: 0.55
+    max_uncertainty_to_skip: 1.0
+    never_skip_empty_bin: true
+  retrain:
+    enabled: false
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: false
+  llm_parallel_workers: 0
+  log_iteration_timing: true

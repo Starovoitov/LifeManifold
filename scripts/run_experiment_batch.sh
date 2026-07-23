@@ -18,7 +18,7 @@
 # Encoding:    q1-cma-encoding-ablation (CMA-ME decode/warm-start sanity; new root)
 # C4 discrete: q1-v3-pyribs-discrete-cma (Bernoulli-decode CMA-ME; package C4)
 # Native discrete: q1-v3-pyribs-native-discrete-cma (bit-flip DiscreteCMAEmitter)
-# pbCMA:       q1-v3-pyribs-pbcma (latent-Gaussian CMA + bit threshold + margin)
+# H2 threshold: q1-h2-threshold-sensitivity (genetic_me_filter @ τ∈{0.35,0.45,0.55}; seeds 0–2 default)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
 # RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
@@ -83,6 +83,8 @@ SCHEDULER_VANILLA_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_v
 SCHEDULER_GENETIC_ME_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me.yaml"
 SCHEDULER_GENETIC_ME_UNIFORM_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_uniform.yaml"
 SCHEDULER_GENETIC_ME_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter.yaml"
+SCHEDULER_GENETIC_ME_FILTER_TAU035="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau035.yaml"
+SCHEDULER_GENETIC_ME_FILTER_TAU055="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau055.yaml"
 
 SCHEDULER_STUB_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_cvt.yaml"
 SCHEDULER_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt.yaml"
@@ -109,6 +111,7 @@ RUN_CMA_ENCODING_ABLATION=false
 RUN_CMA_DISCRETE=false
 RUN_CMA_NATIVE_DISCRETE=false
 RUN_CMA_PBCMA=false
+RUN_H2_THRESHOLD_SWEEP=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -355,6 +358,17 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_CMA_PBCMA=true
     ;;
+  q1-h2-threshold-sensitivity)
+    # H2 robustness: genetic_me_filter @ τ∈{0.35,0.45,0.55} vs existing genetic_me_uniform.
+    # τ=0.45 reuses q1-v3-genetic-me-filter runs when present (no duplicate sim).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-h2-threshold-sensitivity"
+    ARCHIVE_TYPE=grid
+    BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_H2_THRESHOLD_SWEEP=true
+    ;;
   q1-hints-rich-pilot)
     # RQ1b: component-rich surrogate hints; 1-seed pilot default (seed 0).
     ITERATIONS=650
@@ -395,7 +409,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac
@@ -485,6 +499,11 @@ if [[ "$REQUESTED_TIER" == "q1-v3-pyribs-native-discrete-cma" && $# -lt 2 ]]; th
   SEED_END=9
   echo "NOTE: q1-v3-pyribs-native-discrete-cma default seeds 0–9 (native bit-flip CMA-ME)" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-h2-threshold-sensitivity" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=2
+  echo "NOTE: q1-h2-threshold-sensitivity default seeds 0–2 (H2 τ pilot); full: $0 q1-h2-threshold-sensitivity 0 9" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-v3-pyribs-pbcma" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=9
@@ -543,7 +562,7 @@ case "$TIER" in
   q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot)
     apply_long_run_llm_defaults
     ;;
-  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter)
+  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity)
     apply_vanilla_run_defaults
     ;;
   q1-anytime-ladder)
@@ -581,7 +600,7 @@ if [[ "$RUN_PYRIBS" != true && "$RUN_PYRIBS_STANDARD" != true && "$RUN_DUNGEON" 
   fi
 
   CALIBRATION="$ROOT/artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl"
-  if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true || "$RUN_GENETIC_ME_FILTER" == true) && ! -f "$CALIBRATION" ]]; then
+  if [[ ("$RUN_FILTER" == true || "$RUN_SHADOW" == true || "$RUN_GENETIC_ME_FILTER" == true || "$RUN_H2_THRESHOLD_SWEEP" == true) && ! -f "$CALIBRATION" ]]; then
     echo "Training uncertainty calibration (required for filter/shadow arms)..."
     uv run python "$TRAIN_SCRIPT" \
       --buffer-path "$ROOT/artifacts/surrogate/buffer_nightly.jsonl" \
@@ -793,6 +812,38 @@ run_cma_pbcma_one() {
   ) 9>"$lock_file"
 }
 
+link_h2_tau045_from_legacy() {
+  local seed="$1"
+  local out="$EXP_DIR/genetic_me_filter_tau045/seed_${seed}"
+  local legacy="$EXP_ROOT/q1-v3-genetic-me-filter/genetic_me_filter/seed_${seed}"
+  if [[ -f "$out/nightly_run_summary.json" ]]; then
+    echo "Skip existing: $out"
+    return 0
+  fi
+  if [[ ! -f "$legacy/nightly_run_summary.json" ]]; then
+    return 1
+  fi
+  remove_incomplete_run_dir "$out"
+  mkdir -p "$(dirname "$out")"
+  ln -sfn "$(realpath "$legacy")" "$out"
+  echo "Linked τ=0.45 seed $seed from $legacy (reuse q1-v3-genetic-me-filter)"
+  return 0
+}
+
+run_h2_threshold_one() {
+  local tau_tag="$1"
+  local scheduler="$2"
+  local condition="$3"
+  local seed="$4"
+  if [[ "$tau_tag" == "045" ]]; then
+    if link_h2_tau045_from_legacy "$seed"; then
+      return 0
+    fi
+    echo "NOTE: no legacy τ=0.45 run for seed $seed; running fresh" >&2
+  fi
+  run_one "$condition" "$scheduler" "$seed"
+}
+
 run_pyribs_standard_one() {
   local algo="$1"
   local seed="$2"
@@ -905,6 +956,18 @@ elif [[ "$RUN_CMA_NATIVE_DISCRETE" == true ]]; then
 elif [[ "$RUN_CMA_PBCMA" == true ]]; then
   for seed in $(seq "$SEED_START" "$SEED_END"); do
     run_cma_pbcma_one "$seed"
+  done
+elif [[ "$RUN_H2_THRESHOLD_SWEEP" == true ]]; then
+  H2_THRESHOLD_ARMS=(
+    "035:$SCHEDULER_GENETIC_ME_FILTER_TAU035:genetic_me_filter_tau035"
+    "045:$SCHEDULER_GENETIC_ME_FILTER_NIGHTLY:genetic_me_filter_tau045"
+    "055:$SCHEDULER_GENETIC_ME_FILTER_TAU055:genetic_me_filter_tau055"
+  )
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    for arm_spec in "${H2_THRESHOLD_ARMS[@]}"; do
+      IFS=":" read -r tau_tag scheduler condition <<< "$arm_spec"
+      run_h2_threshold_one "$tau_tag" "$scheduler" "$condition" "$seed"
+    done
   done
 else
   for seed in $(seq "$SEED_START" "$SEED_END"); do
