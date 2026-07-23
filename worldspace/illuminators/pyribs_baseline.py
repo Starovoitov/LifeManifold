@@ -24,6 +24,7 @@ from worldspace.illuminators.archive_trace import (
     write_archive_trace_line,
 )
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS, bin_index
+from worldspace.illuminators.discrete_cma_emitter import DiscreteCMAEmitter, discrete_x0
 from worldspace.illuminators.emitters.genetics import DecodeMode
 from worldspace.illuminators.pyribs_adapter import (
     ARCHIVE_DIMS,
@@ -50,6 +51,7 @@ from worldspace.specs.world_param_bounds import (
 logger = logging.getLogger(__name__)
 
 AlgoName = Literal["cma_me", "cma_mae"]
+EmitterKind = Literal["continuous_es", "discrete_cma"]
 
 DEFAULT_NUM_EMITTERS = 5
 DEFAULT_EMITTER_BATCH_SIZE = 50
@@ -96,6 +98,7 @@ class PyribsBaselineConfig:
     parallel_eval: bool = True
     parallel_workers: int = 0
     decode_mode: DecodeMode = "rint"
+    emitter_kind: EmitterKind = "continuous_es"
     condition_label: str | None = None
 
 
@@ -150,6 +153,7 @@ def pyribs_hyperparams(config: PyribsBaselineConfig) -> dict[str, Any]:
             "No ES hard box bounds; clip/decode at eval (continuous relaxation)"
         ),
         "decode_mode": config.decode_mode,
+        "emitter_kind": config.emitter_kind,
         "warm_start_enabled": config.load_archive is not None,
         "warm_start_archive": (
             str(config.load_archive.resolve())
@@ -215,22 +219,48 @@ def build_scheduler(
         msg = f"unknown algo {config.algo!r}"
         raise ValueError(msg)
 
-    x0 = mid_bounds_x0()
-    # Hard box bounds + sigma0=0.2 on [0,1] causes CMA-ES resample storms.
-    # Clip / rint happens in ``solution_to_world_spec`` (T0 continuous relaxation).
-    emitters = [
-        EvolutionStrategyEmitter(
-            archive,
-            x0=x0,
-            sigma0=config.sigma0,
-            ranker=ranker,
-            selection_rule=selection_rule,
-            restart_rule=restart_rule,
-            batch_size=config.emitter_batch_size,
-            seed=config.seed + 1000 + index,
-        )
-        for index in range(config.num_emitters)
-    ]
+    x0 = discrete_x0() if config.emitter_kind == "discrete_cma" else mid_bounds_x0()
+    if config.emitter_kind == "discrete_cma" and config.algo != "cma_me":
+        msg = "discrete_cma emitter is supported for cma_me only"
+        raise ValueError(msg)
+
+    if config.emitter_kind == "discrete_cma":
+        lower_bounds = np.zeros(GENOME_SIZE, dtype=np.float64)
+        upper_bounds = np.ones(GENOME_SIZE, dtype=np.float64)
+        for index, (lo, hi) in enumerate(FLOAT_PARAM_BOUNDS, start=18):
+            lower_bounds[index] = lo
+            upper_bounds[index] = hi
+        emitters = [
+            DiscreteCMAEmitter(
+                archive,
+                x0=x0,
+                sigma0=config.sigma0,
+                ranker=ranker,
+                selection_rule=selection_rule,
+                restart_rule=restart_rule,
+                batch_size=config.emitter_batch_size,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+                seed=config.seed + 1000 + index,
+            )
+            for index in range(config.num_emitters)
+        ]
+    else:
+        # Hard box bounds + sigma0=0.2 on [0,1] causes CMA-ES resample storms.
+        # Clip / rint happens in ``solution_to_world_spec`` (T0 continuous relaxation).
+        emitters = [
+            EvolutionStrategyEmitter(
+                archive,
+                x0=x0,
+                sigma0=config.sigma0,
+                ranker=ranker,
+                selection_rule=selection_rule,
+                restart_rule=restart_rule,
+                batch_size=config.emitter_batch_size,
+                seed=config.seed + 1000 + index,
+            )
+            for index in range(config.num_emitters)
+        ]
     scheduler = Scheduler(archive, emitters, result_archive=result_archive)
     return scheduler, archive, result_archive
 
@@ -401,7 +431,9 @@ def run_pyribs_baseline(
             parallel_eval=config.parallel_eval,
             parallel_workers=config.parallel_workers,
         ),
-        decode_mode=config.decode_mode,
+        decode_mode=(
+            "threshold" if config.emitter_kind == "discrete_cma" else config.decode_mode
+        ),
         eval_seed=config.seed,
     )
 
@@ -478,7 +510,9 @@ def run_pyribs_baseline(
     export_archive_jsonl(
         report_archive,
         archive_jsonl,
-        decode_mode=config.decode_mode,
+        decode_mode=(
+            "threshold" if config.emitter_kind == "discrete_cma" else config.decode_mode
+        ),
     )
 
     result = PyribsBaselineResult(
@@ -499,7 +533,11 @@ def run_pyribs_baseline(
         result=result,
         config=config,
         archive_jsonl=archive_jsonl,
-        scheduler_label=f"pyribs:{config.algo}",
+        scheduler_label=(
+            f"pyribs:{config.algo}:discrete_cma"
+            if config.emitter_kind == "discrete_cma"
+            else f"pyribs:{config.algo}"
+        ),
     )
     archive_arrays = {
         str(key): np.asarray(val) for key, val in report_archive.data().items()

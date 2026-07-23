@@ -85,6 +85,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Rule-bit decode for CMA continuous genome (default: rint = frozen B2).",
     )
     parser.add_argument(
+        "--emitter-kind",
+        choices=("continuous_es", "discrete_cma"),
+        default="continuous_es",
+        help="continuous_es = pyribs EvolutionStrategyEmitter; discrete_cma = native bit-flip.",
+    )
+    parser.add_argument(
         "--condition-label",
         default=None,
         help="Summary/aggregate condition name (default: --algo value).",
@@ -109,6 +115,7 @@ def main(argv: list[str] | None = None) -> None:
         parallel_eval=not args.no_parallel_eval,
         parallel_workers=args.parallel_workers,
         decode_mode=args.decode_mode,
+        emitter_kind=args.emitter_kind,
         condition_label=args.condition_label,
     )
     result = run_pyribs_baseline(config, output_dir=Path(args.output_dir))
