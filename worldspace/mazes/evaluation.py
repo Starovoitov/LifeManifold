@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -41,7 +42,13 @@ def shortest_path_length(spec: MazeSpec) -> int | None:
     return None
 
 
-def evaluate_maze(spec: MazeSpec) -> MazeEvaluation:
+def apply_sim_cost(sim_cost_ms: float) -> None:
+    """Sleep after deterministic eval to emulate expensive simulator wall time."""
+    if sim_cost_ms > 0.0:
+        time.sleep(sim_cost_ms / 1000.0)
+
+
+def evaluate_maze(spec: MazeSpec, *, sim_cost_ms: float = 0.0) -> MazeEvaluation:
     """Return deterministic fitness and two normalized behavior descriptors."""
     path = shortest_path_length(spec)
     reachable, branching = _reachable_structure(spec)
@@ -51,7 +58,7 @@ def evaluate_maze(spec: MazeSpec) -> MazeEvaluation:
     path_measure = float(np.clip((float(path or 0) - 8.0) / 36.0, 0.0, 1.0))
     branching_measure = float(np.clip((branching_density - 0.15) / 0.55, 0.0, 1.0))
     if path is None:
-        return MazeEvaluation(
+        result = MazeEvaluation(
             fitness=0.0,
             measures=(0.0, branching_measure),
             solvable=False,
@@ -59,6 +66,8 @@ def evaluate_maze(spec: MazeSpec) -> MazeEvaluation:
             reachable_ratio=reachable_ratio,
             branching_density=branching_density,
         )
+        apply_sim_cost(sim_cost_ms)
+        return result
     # Prefer longer interesting paths with moderate branching (illumination).
     length_score = float(np.clip((float(path) - 8.0) / 28.0, 0.0, 1.0))
     fitness = float(
@@ -68,7 +77,7 @@ def evaluate_maze(spec: MazeSpec) -> MazeEvaluation:
             1.0,
         )
     )
-    return MazeEvaluation(
+    result = MazeEvaluation(
         fitness=fitness,
         measures=(path_measure, branching_measure),
         solvable=True,
@@ -76,6 +85,8 @@ def evaluate_maze(spec: MazeSpec) -> MazeEvaluation:
         reachable_ratio=reachable_ratio,
         branching_density=branching_density,
     )
+    apply_sim_cost(sim_cost_ms)
+    return result
 
 
 def _neighbors(position: Position) -> tuple[Position, ...]:

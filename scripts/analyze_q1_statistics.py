@@ -1318,6 +1318,10 @@ def write_frq1g_outputs(stats: dict[str, Any]) -> None:
 
 
 def _dungeon_trace_auc(path: Path, metric: str, budget: int) -> float:
+    return _trace_auc(path, metric, budget)
+
+
+def _trace_auc(path: Path, metric: str, budget: int) -> float:
     rows = [
         json.loads(line)
         for line in path.read_text(encoding="utf-8").splitlines()
@@ -1337,8 +1341,13 @@ def _dungeon_trace_auc(path: Path, metric: str, budget: int) -> float:
     return float(np.trapezoid(interpolated, grid) / float(budget))
 
 
-def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
-    """Run the frozen v4 dungeon Holm family on matched anytime AUCs."""
+def _five_arm_matched_auc_family(
+    root: Path,
+    *,
+    family: str,
+    min_seeds: int = 5,
+) -> dict[str, Any]:
+    """Shared Holm-m=8 AUC family used by B4 dungeon and B5 maze."""
     conditions = (
         "genetic",
         "genetic_filter",
@@ -1357,9 +1366,9 @@ def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
             summaries[(condition, seed)] = payload
         seeds_by_condition[condition] = seeds
     matched = set.intersection(*(seeds_by_condition[item] for item in conditions))
-    if len(matched) < 5:
+    if len(matched) < min_seeds:
         raise SystemExit(
-            f"v4 dungeon family requires at least 5 matched seeds, got {sorted(matched)}"
+            f"{family} requires at least {min_seeds} matched seeds, got {sorted(matched)}"
         )
     matched_seeds = sorted(matched)
     common_budget = min(
@@ -1373,7 +1382,7 @@ def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
         for metric in ("coverage", "qd_score"):
             aucs[condition][metric] = np.asarray(
                 [
-                    _dungeon_trace_auc(
+                    _trace_auc(
                         root / condition / f"seed_{seed}" / "archive_trace.jsonl",
                         metric,
                         common_budget,
@@ -1404,7 +1413,7 @@ def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
         )
     holm = holm_step_down({name: block["p"] for name, block in tests.items()})
     return {
-        "family": "F-B4-dungeon",
+        "family": family,
         "m": len(tests),
         "alpha": 0.05,
         "n_seeds": len(matched_seeds),
@@ -1413,6 +1422,106 @@ def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
         "tests": tests,
         "holm_reject": holm,
         "family_pass": all(holm.values()),
+        "sources": str(root),
+    }
+
+
+def run_v4_dungeon_statistics(root: Path) -> dict[str, Any]:
+    """Run the frozen v4 dungeon Holm family on matched anytime AUCs."""
+    return _five_arm_matched_auc_family(root, family="F-B4-dungeon")
+
+
+def run_v5_maze_statistics(root: Path) -> dict[str, Any]:
+    """Run the draft v5 maze Holm family on matched anytime AUCs (same contrasts as B4)."""
+    return _five_arm_matched_auc_family(root, family="F-B5-maze")
+
+
+def run_v5_maze_cpu_supplementary(root: Path) -> dict[str, Any]:
+    """Supplementary after-generation CPU pair at full proposal budget (maze)."""
+    conditions = ("genetic", "genetic_filter")
+    seeds_by_condition: dict[str, set[int]] = {}
+    summaries: dict[tuple[str, int], dict[str, Any]] = {}
+    for condition in conditions:
+        seeds: set[int] = set()
+        for path in sorted((root / condition).glob("seed_*/nightly_run_summary.json")):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            seed = int(payload["seed"])
+            seeds.add(seed)
+            summaries[(condition, seed)] = payload
+        seeds_by_condition[condition] = seeds
+    matched = set.intersection(*(seeds_by_condition[item] for item in conditions))
+    if len(matched) < 5:
+        raise SystemExit(
+            "v5 maze CPU supplementary requires at least 5 matched seeds, "
+            f"got {sorted(matched)}"
+        )
+    matched_seeds = sorted(matched)
+    common_budget = min(
+        int(summaries[(condition, seed)]["evaluations"])
+        for condition in conditions
+        for seed in matched_seeds
+    )
+    aucs: dict[str, dict[str, np.ndarray]] = {}
+    for condition in conditions:
+        aucs[condition] = {}
+        for metric in ("coverage", "qd_score"):
+            aucs[condition][metric] = np.asarray(
+                [
+                    _trace_auc(
+                        root / condition / f"seed_{seed}" / "archive_trace.jsonl",
+                        metric,
+                        common_budget,
+                    )
+                    for seed in matched_seeds
+                ]
+            )
+    tests: dict[str, dict[str, Any]] = {}
+    for metric in ("coverage", "qd_score"):
+        delta = aucs["genetic_filter"][metric] - aucs["genetic"][metric]
+        tests[f"genetic_filter_minus_genetic_{metric}_auc"] = _metric_block(
+            delta,
+            "greater",
+        )
+    holm = holm_step_down({name: block["p"] for name, block in tests.items()})
+    terminal: dict[str, dict[str, Any]] = {}
+    for condition in conditions:
+        coverage_vals: list[float] = []
+        skip_vals: list[float] = []
+        evaluation_vals: list[int] = []
+        for seed in matched_seeds:
+            payload = summaries[(condition, seed)]
+            if "coverage_pct" in payload:
+                coverage_vals.append(float(payload["coverage_pct"]))
+            else:
+                coverage_vals.append(float(payload["coverage"]) * 100.0)
+            if payload.get("skip_rate_pct") is not None:
+                skip_vals.append(float(payload["skip_rate_pct"]))
+            elif payload.get("skip_rate") is not None:
+                skip_vals.append(float(payload["skip_rate"]) * 100.0)
+            else:
+                skip_vals.append(0.0)
+            evaluation_vals.append(int(payload["evaluations"]))
+        coverage = np.asarray(coverage_vals)
+        skip_rate = np.asarray(skip_vals)
+        evaluations = np.asarray(evaluation_vals)
+        terminal[condition] = {
+            "coverage_pct_mean": float(coverage.mean()),
+            "coverage_pct_sd": float(coverage.std(ddof=1)),
+            "skip_rate_pct_mean": float(skip_rate.mean()),
+            "evaluations_mean": float(evaluations.mean()),
+        }
+    return {
+        "family": "F-B5-maze-cpu-full",
+        "role": "supplementary",
+        "m": len(tests),
+        "alpha": 0.05,
+        "n_seeds": len(matched_seeds),
+        "seeds": matched_seeds,
+        "common_evaluation_budget": common_budget,
+        "tests": tests,
+        "holm_reject": holm,
+        "family_pass": all(holm.values()),
+        "terminal_at_full_proposals": terminal,
         "sources": str(root),
     }
 
@@ -1448,7 +1557,7 @@ def run_v4_dungeon_cpu_supplementary(root: Path) -> dict[str, Any]:
         for metric in ("coverage", "qd_score"):
             aucs[condition][metric] = np.asarray(
                 [
-                    _dungeon_trace_auc(
+                    _trace_auc(
                         root / condition / f"seed_{seed}" / "archive_trace.jsonl",
                         metric,
                         common_budget,
@@ -1511,22 +1620,40 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Q1 confirmatory statistics (v2 grid/CVT, F-RQ4, F-RQ1g, v4 dungeon).",
+        description=(
+            "Q1 confirmatory statistics (v2 grid/CVT, F-RQ4, F-RQ1g, "
+            "v4 dungeon, v5 maze)."
+        ),
     )
     parser.add_argument(
         "--family",
-        choices=("v2", "frq4", "frq1g", "v4-dungeon", "v4-dungeon-cpu-full", "all"),
+        choices=(
+            "v2",
+            "frq4",
+            "frq1g",
+            "v4-dungeon",
+            "v4-dungeon-cpu-full",
+            "v5-maze",
+            "v5-maze-cpu-full",
+            "all",
+        ),
         default="v2",
         help=(
             "v2 = grid/CVT (default); frq4 = B2; frq1g = G1 multi-LLM; "
             "v4-dungeon = 5-arm confirmatory; v4-dungeon-cpu-full = supplementary "
-            "genetic vs genetic_filter @ full proposals; all = all families"
+            "genetic vs genetic_filter @ full proposals; v5-maze = B5 maze draft "
+            "family; v5-maze-cpu-full = maze CPU supplementary; all = all families"
         ),
     )
     parser.add_argument(
         "--dungeon-root",
         type=Path,
         default=ROOT / "artifacts/experiments/q1-v4-dungeon-rerun",
+    )
+    parser.add_argument(
+        "--maze-root",
+        type=Path,
+        default=ROOT / "artifacts/experiments/q1-v5-maze-rerun",
     )
     args = parser.parse_args()
 
@@ -1640,6 +1767,26 @@ def main() -> None:
             encoding="utf-8",
         )
         print(json.dumps(cpu_stats, indent=2))
+
+    if args.family == "v5-maze":
+        maze = run_v5_maze_statistics(args.maze_root.resolve())
+        maze_output = args.maze_root.resolve() / "v5_maze_statistics.json"
+        maze_output.parent.mkdir(parents=True, exist_ok=True)
+        maze_output.write_text(
+            json.dumps(maze, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(maze, indent=2))
+
+    if args.family == "v5-maze-cpu-full":
+        maze_cpu = run_v5_maze_cpu_supplementary(args.maze_root.resolve())
+        maze_cpu_output = args.maze_root.resolve() / "v5_maze_cpu_full_statistics.json"
+        maze_cpu_output.parent.mkdir(parents=True, exist_ok=True)
+        maze_cpu_output.write_text(
+            json.dumps(maze_cpu, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(maze_cpu, indent=2))
 
 
 if __name__ == "__main__":

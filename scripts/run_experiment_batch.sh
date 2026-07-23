@@ -946,6 +946,9 @@ run_maze_one() {
   if [[ -n "${MAZE_MOCK_LLM:-}" ]]; then
     extra+=(--mock-llm)
   fi
+  if [[ -n "${MAZE_SIM_COST_MS:-}" ]]; then
+    extra+=(--sim-cost-ms "$MAZE_SIM_COST_MS")
+  fi
   echo "=== tier=$TIER domain=maze condition=$condition seed=$seed proposals=${MAZE_PROPOSALS:-32500} ==="
   local lock_file="$out/.run.lock"
   (

@@ -40,6 +40,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Use deterministic local mutations instead of a remote LLM.",
     )
+    parser.add_argument(
+        "--sim-cost-ms",
+        type=float,
+        default=None,
+        help="Injected per-eval simulator delay (milliseconds); fitness unchanged.",
+    )
     return parser.parse_args(argv)
 
 
@@ -56,6 +62,10 @@ def main(argv: list[str] | None = None) -> None:
             config,
             iterations=args.proposals // config.batch_size,
         )
+    if args.sim_cost_ms is not None:
+        if args.sim_cost_ms < 0.0:
+            raise SystemExit("--sim-cost-ms must be non-negative")
+        config = replace(config, sim_cost_ms=args.sim_cost_ms)
     predictor = (
         MazeSurrogate.load(Path(config.surrogate_checkpoint))
         if config.surrogate_checkpoint

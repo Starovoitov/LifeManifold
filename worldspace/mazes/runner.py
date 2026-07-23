@@ -81,6 +81,7 @@ class MazeSchedulerConfig:
     acquisition: AcquisitionConfig = AcquisitionConfig()
     surrogate_checkpoint: str | None = None
     llm_prompt_mode: Literal["off", "stub", "hints"] = "off"
+    sim_cost_ms: float = 0.0
 
     def validate(self) -> None:
         if self.iterations < 1 or self.batch_size < 1:
@@ -93,6 +94,8 @@ class MazeSchedulerConfig:
             raise ValueError("acquisition mode requires surrogate_checkpoint")
         if "llm" in self.emitters and self.llm_prompt_mode == "off":
             raise ValueError("LLM emitters require stub or hints prompt mode")
+        if self.sim_cost_ms < 0.0:
+            raise ValueError("sim_cost_ms must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,7 @@ def load_maze_scheduler(path: Path) -> MazeSchedulerConfig:
         acquisition=acquisition,
         surrogate_checkpoint=raw.get("surrogate_checkpoint"),
         llm_prompt_mode=_yaml_enum(raw.get("llm_prompt_mode", "off")),  # type: ignore[arg-type]
+        sim_cost_ms=float(raw.get("sim_cost_ms", 0.0)),
     )
     config.validate()
     return config
@@ -305,7 +309,10 @@ def run_maze_qd(
                 if action == "skip":
                     skipped += 1
                     continue
-                evaluation = evaluate_maze(emitted.spec)
+                evaluation = evaluate_maze(
+                    emitted.spec,
+                    sim_cost_ms=config.sim_cost_ms,
+                )
                 evaluations += 1
                 elite = MazeElite(
                     bin=archive.bin_for_measures(evaluation.measures),
@@ -365,6 +372,7 @@ def run_maze_qd(
         "archive_jsonl": str(archive_path.resolve()),
         "archive_trace": str(trace_path.resolve()),
         "surrogate_archive": str(surrogate_path.resolve()),
+        "sim_cost_ms": config.sim_cost_ms,
     }
     llm_audit = getattr(llm_emitter, "audit", None)
     if llm_audit is not None and hasattr(llm_audit, "to_dict"):
