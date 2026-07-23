@@ -241,9 +241,9 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=false
     RUN_MAZE=true
-    MAZE_CONDITIONS=(genetic)
+    MAZE_CONDITIONS=(genetic genetic_filter llm_stub llm_hints llm_hints_filter)
     ;;
-  q1-v4-maze-genetic|q1-v4-maze-random|q1-v4-maze-genetic-filter)
+  q1-v4-maze-genetic|q1-v4-maze-random|q1-v4-maze-genetic-filter|q1-v4-maze-llm-stub|q1-v4-maze-llm-hints|q1-v4-maze-llm-hints-filter)
     EXP_DIR="$EXP_ROOT/${MAZE_EXPERIMENT_ROOT:-q1-v4-maze}"
     RUN_FILTER=false
     RUN_SHADOW=false
@@ -427,7 +427,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v4-maze-{genetic,random,genetic-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
     exit 1
     ;;
 esac

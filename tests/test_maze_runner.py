@@ -42,6 +42,16 @@ class TestMazeRunner(unittest.TestCase):
         self.assertEqual(genetic_filter.condition, "genetic_filter")
         self.assertEqual(genetic_filter.acquisition.mode, "filter")
         self.assertEqual(genetic_filter.emitters.count("genetic"), 30)
+        expected = {
+            "llm_stub": ("llm", "off"),
+            "llm_hints": ("llm", "off"),
+            "llm_hints_filter": ("llm", "filter"),
+        }
+        for condition, (emitter, acquisition) in expected.items():
+            with self.subTest(condition=condition):
+                config = load_maze_scheduler(root / f"maze_scheduler_{condition}.yaml")
+                self.assertEqual(config.emitters.count(emitter), 30)
+                self.assertEqual(config.acquisition.mode, acquisition)
 
     def test_archive_replaces_only_with_better_fitness(self) -> None:
         spec = random_maze(np.random.default_rng(1))

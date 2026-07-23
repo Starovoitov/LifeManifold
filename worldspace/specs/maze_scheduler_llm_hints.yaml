@@ -1,0 +1,10 @@
+schema_version: "maze-1.0"
+condition: llm_hints
+iterations: 650
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+llm_prompt_mode: hints
+surrogate_checkpoint: artifacts/surrogate/checkpoints/maze_v1.pkl
+acquisition:
+  mode: off

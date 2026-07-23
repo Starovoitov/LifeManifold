@@ -1,0 +1,14 @@
+schema_version: "maze-1.0"
+condition: llm_hints_filter
+iterations: 650
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+llm_prompt_mode: hints
+surrogate_checkpoint: artifacts/surrogate/checkpoints/maze_v1.pkl
+acquisition:
+  mode: filter
+  policy: threshold_gate
+  min_predicted_fitness: 0.561
+  max_uncertainty_to_skip: 0.0141
+  never_skip_empty_bin: true

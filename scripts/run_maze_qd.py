@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from worldspace.mazes.llm_emitter import MazeLlmEmitter
 from worldspace.mazes.runner import load_maze_scheduler, run_maze_qd
 from worldspace.mazes.surrogate import MazeSurrogate
 
@@ -27,6 +28,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Override exact proposal budget; must divide scheduler batch size.",
+    )
+    parser.add_argument(
+        "--llm-spec",
+        type=Path,
+        default=Path("worldspace/specs/llm_world_generator_qwen.yaml"),
     )
     return parser.parse_args(argv)
 
@@ -49,11 +55,20 @@ def main(argv: list[str] | None = None) -> None:
         if config.surrogate_checkpoint
         else None
     )
+    llm_emitter = (
+        MazeLlmEmitter(
+            prompt_mode=config.llm_prompt_mode,
+            llm_spec_path=args.llm_spec,
+        )
+        if "llm" in config.emitters
+        else None
+    )
     result = run_maze_qd(
         config,
         seed=args.seed,
         output_dir=args.output_dir,
         predictor=predictor,
+        llm_emitter=llm_emitter,
     )
     logging.info(
         "Done condition=%s seed=%s proposals=%s evals=%s coverage=%.4f",

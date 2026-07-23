@@ -91,8 +91,8 @@ class MazeSchedulerConfig:
             raise ValueError("archive_resolution must be positive")
         if self.acquisition.mode != "off" and not self.surrogate_checkpoint:
             raise ValueError("acquisition mode requires surrogate_checkpoint")
-        if "llm" in self.emitters:
-            raise ValueError("maze LLM emitters are not implemented yet")
+        if "llm" in self.emitters and self.llm_prompt_mode == "off":
+            raise ValueError("LLM emitters require stub or hints prompt mode")
 
 
 @dataclass(frozen=True)
