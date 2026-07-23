@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from worldspace.mazes.runner import load_maze_scheduler, run_maze_qd
+from worldspace.mazes.surrogate import MazeSurrogate
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -43,10 +44,16 @@ def main(argv: list[str] | None = None) -> None:
             config,
             iterations=args.proposals // config.batch_size,
         )
+    predictor = (
+        MazeSurrogate.load(Path(config.surrogate_checkpoint))
+        if config.surrogate_checkpoint
+        else None
+    )
     result = run_maze_qd(
         config,
         seed=args.seed,
         output_dir=args.output_dir,
+        predictor=predictor,
     )
     logging.info(
         "Done condition=%s seed=%s proposals=%s evals=%s coverage=%.4f",

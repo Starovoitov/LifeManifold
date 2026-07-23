@@ -18,6 +18,15 @@ from worldspace.mazes.runner import (
 )
 
 
+from worldspace.mazes.surrogate import MazePrediction
+from worldspace.surrogate.acquisition_config import AcquisitionConfig
+
+
+class _LowPredictor:
+    def predict(self, spec: object) -> MazePrediction:
+        return MazePrediction({}, {"path_length": 0.0, "branching": 0.0}, 0.0, 0.0)
+
+
 class TestMazeRunner(unittest.TestCase):
     def test_locked_baseline_schedulers_load(self) -> None:
         root = Path(__file__).resolve().parents[1] / "worldspace/specs"
@@ -27,6 +36,12 @@ class TestMazeRunner(unittest.TestCase):
         self.assertEqual(genetic.emitters.count("random"), 20)
         self.assertEqual(genetic.emitters.count("genetic"), 30)
         self.assertEqual(genetic.archive_resolution, 30)
+        genetic_filter = load_maze_scheduler(
+            root / "maze_scheduler_genetic_filter.yaml"
+        )
+        self.assertEqual(genetic_filter.condition, "genetic_filter")
+        self.assertEqual(genetic_filter.acquisition.mode, "filter")
+        self.assertEqual(genetic_filter.emitters.count("genetic"), 30)
 
     def test_archive_replaces_only_with_better_fitness(self) -> None:
         spec = random_maze(np.random.default_rng(1))
@@ -79,6 +94,52 @@ class TestMazeRunner(unittest.TestCase):
             self.assertEqual(first.filled_cells, second.filled_cells)
             self.assertEqual(first.coverage, second.coverage)
             self.assertEqual(first.qd_score, second.qd_score)
+
+    def test_filter_skips_low_predictions_but_explores_empty_targets(self) -> None:
+        config = MazeSchedulerConfig(
+            condition="genetic_filter",
+            iterations=3,
+            batch_size=5,
+            archive_resolution=8,
+            initial_random_candidates=0,
+            emitters=("genetic",) * 5,
+            surrogate_checkpoint="dummy.pkl",
+            acquisition=AcquisitionConfig(
+                mode="filter",
+                min_predicted_fitness=0.5,
+                max_uncertainty_to_skip=1.0,
+                never_skip_empty_bin=True,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_maze_qd(
+                config,
+                seed=2,
+                output_dir=Path(tmp),
+                predictor=_LowPredictor(),  # type: ignore[arg-type]
+            )
+            self.assertGreater(result.evaluations, 0)
+            self.assertGreater(result.skipped, 0)
+            self.assertEqual(result.proposals, 15)
+            summary = json.loads(
+                (Path(tmp) / "nightly_run_summary.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(summary["surrogate_enabled"])
+            rows = (Path(tmp) / "surrogate_archive.jsonl").read_text().splitlines()
+            self.assertEqual(len(rows), 15)
+            skipped_rows = [
+                json.loads(row)
+                for row in rows
+                if json.loads(row)["decision"]["action"] == "skip"
+            ]
+            empty_eval_rows = [
+                json.loads(row)
+                for row in rows
+                if json.loads(row)["decision"]["action"] == "eval"
+                and json.loads(row)["target_was_empty"]
+            ]
+            self.assertGreater(len(skipped_rows), 0)
+            self.assertGreater(len(empty_eval_rows), 0)
 
 
 if __name__ == "__main__":

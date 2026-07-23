@@ -6,18 +6,28 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Literal, Protocol, TextIO
 
 import numpy as np
 import yaml
 
 from worldspace.illuminators.archive_trace import write_archive_trace_line
+from worldspace.illuminators.scheduler import TargetBin
 from worldspace.mazes.archive import MazeArchive, MazeElite
-from worldspace.mazes.emitters import emit_genetic, emit_random, select_uniform_frontier
+from worldspace.mazes.emitters import (
+    MazeEmitterResult,
+    MazeTarget,
+    emit_genetic,
+    emit_random,
+    select_uniform_frontier,
+)
 from worldspace.mazes.evaluation import evaluate_maze
+from worldspace.mazes.spec import MazeSpec
+from worldspace.mazes.surrogate import MazePrediction
+from worldspace.surrogate.acquisition import decide, effective_action
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
 
-MazeEmitterKind = Literal["random", "genetic"]
+MazeEmitterKind = Literal["random", "genetic", "llm"]
 MazeCondition = Literal[
     "random",
     "genetic",
@@ -26,6 +36,35 @@ MazeCondition = Literal[
     "llm_hints",
     "llm_hints_filter",
 ]
+
+
+class MazePredictor(Protocol):
+    def predict(self, spec: MazeSpec) -> MazePrediction: ...
+
+
+class MazeLlmEmitterProtocol(Protocol):
+    def emit(
+        self,
+        *,
+        target: MazeTarget,
+        archive: MazeArchive,
+        rng: np.random.Generator,
+        prediction: MazePrediction | None,
+    ) -> MazeEmitterResult: ...
+
+    def emit_batch(
+        self,
+        jobs: list[
+            tuple[
+                MazeTarget,
+                MazeArchive,
+                np.random.Generator,
+                MazePrediction | None,
+            ]
+        ],
+        *,
+        max_workers: int = 4,
+    ) -> list[MazeEmitterResult]: ...
 
 
 @dataclass(frozen=True)
@@ -50,13 +89,10 @@ class MazeSchedulerConfig:
             raise ValueError("emitters length must equal batch_size")
         if self.archive_resolution < 1:
             raise ValueError("archive_resolution must be positive")
-        if self.acquisition.mode != "off":
-            raise ValueError(
-                "maze filter/surrogate arms are not implemented yet; "
-                "use acquisition.mode=off"
-            )
-        if any(kind not in ("random", "genetic") for kind in self.emitters):
-            raise ValueError("maze emitters currently support only random and genetic")
+        if self.acquisition.mode != "off" and not self.surrogate_checkpoint:
+            raise ValueError("acquisition mode requires surrogate_checkpoint")
+        if "llm" in self.emitters:
+            raise ValueError("maze LLM emitters are not implemented yet")
 
 
 @dataclass(frozen=True)
@@ -125,6 +161,8 @@ def _default_emitters(
         raise ValueError("implicit emitter layout requires batch_size 50")
     if condition == "random":
         return ("random",) * 50
+    if condition.startswith("llm_"):
+        return ("random",) * 20 + ("llm",) * 30
     return ("random",) * 20 + ("genetic",) * 30
 
 
@@ -133,9 +171,15 @@ def run_maze_qd(
     *,
     seed: int,
     output_dir: Path,
+    predictor: MazePredictor | None = None,
+    llm_emitter: MazeLlmEmitterProtocol | None = None,
 ) -> MazeRunResult:
     """Run one exact-proposal maze seed and write the standard artifacts."""
     config.validate()
+    if predictor is None and config.surrogate_checkpoint:
+        from worldspace.mazes.surrogate import MazeSurrogate
+
+        predictor = MazeSurrogate.load(Path(config.surrogate_checkpoint))
     summary_path = output_dir / "nightly_run_summary.json"
     if summary_path.exists():
         raise FileExistsError(f"completed run already exists: {summary_path}")
@@ -152,6 +196,25 @@ def run_maze_qd(
     ):
         _write_trace(trace_file, archive, iteration=0, evaluations=0, proposals=0)
         for iteration in range(config.iterations):
+            plans: list[
+                tuple[
+                    int,
+                    MazeTarget,
+                    MazeEmitterKind,
+                    np.random.Generator,
+                    MazePrediction | None,
+                ]
+            ] = []
+            emitted_batch: list[MazeEmitterResult | None] = [None] * config.batch_size
+            llm_jobs: list[
+                tuple[
+                    MazeTarget,
+                    MazeArchive,
+                    np.random.Generator,
+                    MazePrediction | None,
+                ]
+            ] = []
+            llm_slots: list[int] = []
             for slot, configured_kind in enumerate(config.emitters):
                 target = select_uniform_frontier(archive, rng)
                 kind: MazeEmitterKind = (
@@ -162,10 +225,58 @@ def run_maze_qd(
                 slot_rng = np.random.default_rng(
                     int(rng.integers(0, np.iinfo(np.int64).max))
                 )
-                if kind == "genetic":
-                    emitted = emit_genetic(target, archive, slot_rng)
+                parent_prediction = (
+                    predictor.predict(target.parent.spec)
+                    if kind == "llm"
+                    and predictor is not None
+                    and target.parent is not None
+                    else None
+                )
+                plans.append((slot, target, kind, slot_rng, parent_prediction))
+                if kind == "llm":
+                    if llm_emitter is None:
+                        raise ValueError("LLM condition requires llm_emitter")
+                    llm_slots.append(slot)
+                    llm_jobs.append((target, archive, slot_rng, parent_prediction))
+                elif kind == "genetic":
+                    emitted_batch[slot] = emit_genetic(target, archive, slot_rng)
                 else:
-                    emitted = emit_random(slot_rng)
+                    emitted_batch[slot] = emit_random(slot_rng)
+            if llm_jobs:
+                assert llm_emitter is not None
+                llm_results = llm_emitter.emit_batch(llm_jobs, max_workers=4)
+                for slot, emitted in zip(llm_slots, llm_results, strict=True):
+                    emitted_batch[slot] = emitted
+
+            for slot, target, _, _, parent_prediction in plans:
+                emitted = emitted_batch[slot]
+                assert emitted is not None
+                prediction = parent_prediction
+                if predictor is not None:
+                    prediction = predictor.predict(emitted.spec)
+                action = "eval"
+                decision_payload: dict[str, object] | None = None
+                if config.acquisition.mode != "off":
+                    if prediction is None:
+                        raise ValueError("acquisition requires predictor")
+                    target_bin = TargetBin(
+                        bin=target.bin,
+                        target_stability=target.center[0],
+                        target_diversity=target.center[1],
+                    )
+                    decision = decide(
+                        config.acquisition,
+                        prediction,  # type: ignore[arg-type]
+                        target_bin,
+                        archive,  # type: ignore[arg-type]
+                    )
+                    action = effective_action(config.acquisition.mode, decision)
+                    decision_payload = {
+                        "action": action,
+                        "recommended_action": decision.action,
+                        "reason": decision.reason,
+                        "policy_version": decision.policy_version,
+                    }
                 proposals += 1
                 surrogate_file.write(
                     json.dumps(
@@ -176,13 +287,24 @@ def run_maze_qd(
                             "target_bin": list(target.bin),
                             "target_was_empty": archive.is_empty_cell(target.cell_id),
                             "candidate_hash": emitted.spec.candidate_hash(),
-                            "prediction": None,
-                            "decision": None,
+                            "prediction": (
+                                {
+                                    "fitness": prediction.fitness,
+                                    "uncertainty": prediction.uncertainty,
+                                    "measures": prediction.measures,
+                                }
+                                if prediction is not None
+                                else None
+                            ),
+                            "decision": decision_payload,
                         },
                         ensure_ascii=True,
                     )
                     + "\n"
                 )
+                if action == "skip":
+                    skipped += 1
+                    continue
                 evaluation = evaluate_maze(emitted.spec)
                 evaluations += 1
                 elite = MazeElite(
@@ -238,12 +360,27 @@ def run_maze_qd(
         "archive_type": "grid",
         "grid_resolution": config.archive_resolution,
         "n_cells": archive.n_cells,
-        "llm_enabled": False,
-        "surrogate_enabled": False,
+        "llm_enabled": "llm" in config.emitters,
+        "surrogate_enabled": predictor is not None,
         "archive_jsonl": str(archive_path.resolve()),
         "archive_trace": str(trace_path.resolve()),
         "surrogate_archive": str(surrogate_path.resolve()),
     }
+    llm_audit = getattr(llm_emitter, "audit", None)
+    if llm_audit is not None and hasattr(llm_audit, "to_dict"):
+        audit_payload = llm_audit.to_dict()
+        payload["llm_audit"] = audit_payload
+        payload["llm_calls"] = audit_payload.get(
+            "api_calls",
+            audit_payload["attempts"],
+        )
+        payload["llm_fallback_rate"] = audit_payload["fallback_rate"]
+        payload["llm_fallback_rate_pct"] = float(audit_payload["fallback_rate"]) * 100.0
+        payload["llm_parse_success_rate"] = audit_payload["parse_success_rate"]
+        payload["llm_mean_tile_distance"] = audit_payload["mean_tile_distance"]
+    prompt_version = getattr(llm_emitter, "prompt_version", None)
+    if prompt_version is not None:
+        payload["prompt_version"] = prompt_version
     summary_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
