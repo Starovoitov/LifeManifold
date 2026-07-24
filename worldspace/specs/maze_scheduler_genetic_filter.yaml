@@ -9,6 +9,6 @@ surrogate_checkpoint: artifacts/surrogate/checkpoints/maze_v1.pkl
 acquisition:
   mode: filter
   policy: threshold_gate
-  min_predicted_fitness: 0.561
-  max_uncertainty_to_skip: 0.0141
+  min_predicted_fitness: 0.685
+  max_uncertainty_to_skip: 0.0141206
   never_skip_empty_bin: true

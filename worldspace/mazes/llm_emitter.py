@@ -14,6 +14,7 @@ from threading import Lock
 import numpy as np
 from pydantic import ValidationError
 
+from worldspace.generators import llm_retry_backoff_seconds
 from worldspace.generators.llm_config import (
     LlmTextCaller,
     load_llm_config,
@@ -24,7 +25,7 @@ from worldspace.mazes.emitters import (
     MazeTarget,
     emit_genetic,
 )
-from worldspace.mazes.evaluation import shortest_path_length
+from worldspace.mazes.evaluation import shortest_path_length, shortest_path_positions
 from worldspace.mazes.spec import FLOOR, WALL, MazeSpec
 from worldspace.mazes.surrogate import MazePrediction
 
@@ -91,7 +92,7 @@ class MazeLlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         system_prompt_path: Path = DEFAULT_SYSTEM_PROMPT,
         user_prompt_path: Path = DEFAULT_USER_PROMPT,
-        max_retries: int = 1,
+        max_retries: int = 2,
     ) -> None:
         if prompt_mode not in ("stub", "hints"):
             raise ValueError("prompt_mode must be stub or hints")
@@ -140,6 +141,7 @@ class MazeLlmEmitter:
             if request_index:
                 with self._audit_lock:
                     self.audit.retries += 1
+                time.sleep(llm_retry_backoff_seconds(request_index))
             try:
                 with self._audit_lock:
                     self.audit.api_calls += 1
@@ -153,15 +155,12 @@ class MazeLlmEmitter:
                 distance = tile_distance(parent, proposed)
                 if distance == 0:
                     raise ValueError("unchanged")
-                if shortest_path_length(proposed) is None:
-                    repaired_spec = repair_solvable_mutation(parent, proposed)
-                    if repaired_spec is None:
-                        with self._audit_lock:
-                            self.audit.repair_collapses += 1
-                        raise ValueError("unsolvable")
-                    proposed = repaired_spec
-                    distance = tile_distance(parent, proposed)
-                    repaired = True
+                coerced, was_repaired = coerce_solvable_mutation(parent, proposed)
+                if coerced is None:
+                    raise ValueError("unsolvable")
+                proposed = coerced
+                distance = tile_distance(parent, proposed)
+                repaired = was_repaired
                 child = proposed
                 break
             except (ValueError, ValidationError, json.JSONDecodeError) as error:
@@ -172,14 +171,14 @@ class MazeLlmEmitter:
                     raise
                 last_reason = "network"
                 _record_invalid_response(self, last_reason)
-                if request_index < self.max_retries:
-                    time.sleep(2.0 * (request_index + 1))
         if child is None:
             with self._audit_lock:
                 self.audit.fallbacks += 1
                 self.audit.failure_reasons[last_reason] = (
                     self.audit.failure_reasons.get(last_reason, 0) + 1
                 )
+                if last_reason == "unsolvable":
+                    self.audit.repair_collapses += 1
             fallback = emit_genetic(target, archive, rng)
             return MazeEmitterResult(
                 spec=fallback.spec,
@@ -294,37 +293,81 @@ def repair_solvable_mutation(
     parent: MazeSpec,
     proposed: MazeSpec,
 ) -> MazeSpec | None:
-    """Revert edits until a solvable child with nonzero parent distance remains."""
-    changed = [
+    """Revert the smallest deterministic edit suffix until a path is restored."""
+    changed = _changed_positions(parent, proposed)
+    wall_first = sorted(
+        changed,
+        key=lambda position: proposed.rows[position[0]][position[1]] != WALL,
+    )
+    grid = [list(row) for row in proposed.rows]
+    for row, column in wall_first:
+        grid[row][column] = parent.rows[row][column]
+        candidate = MazeSpec(rows=tuple("".join(item) for item in grid))
+        if (
+            tile_distance(parent, candidate) > 0
+            and shortest_path_length(candidate) is not None
+        ):
+            return candidate
+    return None
+
+
+def coerce_solvable_mutation(
+    parent: MazeSpec,
+    proposed: MazeSpec,
+) -> tuple[MazeSpec | None, bool]:
+    """Return a solvable nonzero-distance child, repairing if needed."""
+    if (
+        tile_distance(parent, proposed) > 0
+        and shortest_path_length(proposed) is not None
+    ):
+        return proposed, False
+    filtered = filter_edits_preserving_solvability(parent, proposed)
+    if filtered is not None:
+        return filtered, True
+    repaired = repair_solvable_mutation(parent, proposed)
+    if repaired is not None:
+        return repaired, True
+    return None, False
+
+
+def filter_edits_preserving_solvability(
+    parent: MazeSpec,
+    proposed: MazeSpec,
+) -> MazeSpec | None:
+    """Apply parent→proposed edits one at a time, keeping solvable prefixes."""
+    changed = _changed_positions(parent, proposed)
+    if not changed:
+        return None
+    apply_first = sorted(
+        changed,
+        key=lambda position: proposed.rows[position[0]][position[1]] == FLOOR,
+        reverse=True,
+    )
+    grid = [list(row) for row in parent.rows]
+    applied = False
+    for row, column in apply_first:
+        previous = grid[row][column]
+        grid[row][column] = proposed.rows[row][column]
+        candidate = MazeSpec(rows=tuple("".join(item) for item in grid))
+        if (
+            tile_distance(parent, candidate) > 0
+            and shortest_path_length(candidate) is not None
+        ):
+            applied = True
+            continue
+        grid[row][column] = previous
+    if not applied:
+        return None
+    return MazeSpec(rows=tuple("".join(item) for item in grid))
+
+
+def _changed_positions(parent: MazeSpec, proposed: MazeSpec) -> list[tuple[int, int]]:
+    return [
         (row, column)
         for row in range(1, parent.SIZE - 1)
         for column in range(1, parent.SIZE - 1)
         if parent.rows[row][column] != proposed.rows[row][column]
     ]
-    wall_first = sorted(
-        changed,
-        key=lambda position: proposed.rows[position[0]][position[1]] != WALL,
-    )
-
-    def _candidate(grid: list[list[str]]) -> MazeSpec | None:
-        spec = MazeSpec(rows=tuple("".join(item) for item in grid))
-        if tile_distance(parent, spec) > 0 and shortest_path_length(spec) is not None:
-            return spec
-        return None
-
-    for row, column in wall_first:
-        grid = [list(item) for item in proposed.rows]
-        grid[row][column] = parent.rows[row][column]
-        repaired = _candidate(grid)
-        if repaired is not None:
-            return repaired
-    grid = [list(item) for item in proposed.rows]
-    for row, column in wall_first:
-        grid[row][column] = parent.rows[row][column]
-        repaired = _candidate(grid)
-        if repaired is not None:
-            return repaired
-    return None
 
 
 def _record_invalid_response(emitter: MazeLlmEmitter, reason: str) -> None:
@@ -349,24 +392,60 @@ def _failure_reason(error: Exception) -> str:
 
 def _retry_guidance(parent: MazeSpec) -> str:
     suggestions: list[dict[str, object]] = []
-    for row in range(1, parent.SIZE - 1):
-        for column in range(1, parent.SIZE - 1):
-            current = parent.rows[row][column]
-            if current not in (WALL, FLOOR):
-                continue
-            new_tile = FLOOR if current == WALL else WALL
-            suggestions.append(
-                {
-                    "row": row,
-                    "col": column,
-                    "current": current,
-                    "required_new_tile": new_tile,
-                }
-            )
-            if len(suggestions) == 8:
+    seen: set[tuple[int, int]] = set()
+    path = shortest_path_positions(parent)
+    if path is not None:
+        for row, column in path:
+            for neighbor in (
+                (row - 1, column),
+                (row + 1, column),
+                (row, column - 1),
+                (row, column + 1),
+            ):
+                if not (1 <= neighbor[0] <= 14 and 1 <= neighbor[1] <= 14):
+                    continue
+                if neighbor in seen:
+                    continue
+                current = parent.rows[neighbor[0]][neighbor[1]]
+                if current not in (WALL, FLOOR):
+                    continue
+                if current == FLOOR:
+                    continue
+                seen.add(neighbor)
+                suggestions.append(
+                    {
+                        "row": neighbor[0],
+                        "col": neighbor[1],
+                        "current": current,
+                        "required_new_tile": FLOOR,
+                    }
+                )
+                if len(suggestions) >= 8:
+                    break
+            if len(suggestions) >= 8:
                 break
-        if len(suggestions) == 8:
-            break
+    if len(suggestions) < 4:
+        for row in range(1, parent.SIZE - 1):
+            for column in range(1, parent.SIZE - 1):
+                if (row, column) in seen:
+                    continue
+                current = parent.rows[row][column]
+                if current not in (WALL, FLOOR):
+                    continue
+                new_tile = FLOOR if current == WALL else WALL
+                seen.add((row, column))
+                suggestions.append(
+                    {
+                        "row": row,
+                        "col": column,
+                        "current": current,
+                        "required_new_tile": new_tile,
+                    }
+                )
+                if len(suggestions) >= 8:
+                    break
+            if len(suggestions) >= 8:
+                break
     return (
         "Your previous response was invalid or made no effective change. "
         "Return exactly four unique edits selected from this safe list. For each, "

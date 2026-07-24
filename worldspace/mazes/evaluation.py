@@ -23,22 +23,34 @@ class MazeEvaluation:
 
 def shortest_path_length(spec: MazeSpec) -> int | None:
     """BFS shortest path length from S to G (4-connected)."""
+    path = shortest_path_positions(spec)
+    return None if path is None else len(path) - 1
+
+
+def shortest_path_positions(spec: MazeSpec) -> tuple[Position, ...] | None:
+    """Return shortest S→G path positions, including start and goal."""
     start = spec.position(START)
     goal = spec.position(GOAL)
     assert start is not None and goal is not None
-    queue: deque[tuple[Position, int]] = deque([(start, 0)])
-    seen = {start}
+    queue: deque[Position] = deque([start])
+    parents: dict[Position, Position | None] = {start: None}
     while queue:
-        position, distance = queue.popleft()
+        position = queue.popleft()
         if position == goal:
-            return distance
+            path: list[Position] = []
+            cursor: Position | None = position
+            while cursor is not None:
+                path.append(cursor)
+                cursor = parents[cursor]
+            path.reverse()
+            return tuple(path)
         for neighbor in _neighbors(position):
-            if neighbor in seen:
+            if neighbor in parents:
                 continue
             if spec.tile_at(neighbor) == WALL:
                 continue
-            seen.add(neighbor)
-            queue.append((neighbor, distance + 1))
+            parents[neighbor] = position
+            queue.append(neighbor)
     return None
 
 

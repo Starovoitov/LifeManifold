@@ -10,8 +10,10 @@ import numpy as np
 from worldspace.mazes.archive import MazeArchive, MazeElite
 from worldspace.mazes.emitters import select_uniform_frontier
 from worldspace.mazes.genetics import random_maze
+from worldspace.mazes.evaluation import shortest_path_length
 from worldspace.mazes.llm_emitter import (
     MazeLlmEmitter,
+    coerce_solvable_mutation,
     parse_maze_response,
     parse_maze_responses_ordered,
     repair_solvable_mutation,
@@ -130,6 +132,7 @@ class TestMazeLlmEmitter(unittest.TestCase):
         emitter = MazeLlmEmitter(
             prompt_mode="stub",
             call_llm_text=_Caller("not json"),  # type: ignore[arg-type]
+            max_retries=1,
         )
         result = emitter.emit(
             target=target,  # type: ignore[arg-type]
@@ -142,6 +145,66 @@ class TestMazeLlmEmitter(unittest.TestCase):
         self.assertEqual(emitter.audit.api_calls, 2)
         self.assertEqual(emitter.audit.retries, 1)
         self.assertIsNotNone(result.spec)
+
+    def test_filter_edits_keeps_solvable_prefix_when_extra_wall_breaks_route(
+        self,
+    ) -> None:
+        rows = ["#" * 16, "#S............G#"] + ["#" * 16] * 14
+        parent = MazeSpec(rows=tuple(rows))
+        grid = [list(row) for row in parent.rows]
+        row = list(grid[1])
+        row[8] = "#"
+        row[9] = "#"
+        grid[1] = row
+        grid[2][5] = "."
+        proposed = MazeSpec(rows=tuple("".join(item) for item in grid))
+        self.assertIsNone(shortest_path_length(proposed))
+        coerced, repaired = coerce_solvable_mutation(parent, proposed)
+        self.assertIsNotNone(coerced)
+        assert coerced is not None
+        self.assertTrue(repaired)
+        self.assertGreater(tile_distance(parent, coerced), 0)
+
+    def test_cumulative_repair_reverts_multiple_blocking_walls(self) -> None:
+        parent_rows = ["#" * 16, "#S............G#", "#..............#"] + [
+            "#" * 16
+        ] * 13
+        parent = MazeSpec(rows=tuple(parent_rows))
+        row = list(parent.rows[1])
+        row[8] = "#"
+        row[9] = "#"
+        grid = [list(item) for item in parent.rows]
+        grid[1] = row
+        grid[2][5] = "."
+        proposed = MazeSpec(rows=tuple("".join(item) for item in grid))
+        repaired = repair_solvable_mutation(parent, proposed)
+        self.assertIsNotNone(repaired)
+        assert repaired is not None
+        self.assertGreater(tile_distance(parent, repaired), 0)
+
+    def test_retry_uses_shared_exponential_backoff(self) -> None:
+        from unittest.mock import patch
+
+        from worldspace.generators import llm_retry_backoff_seconds
+
+        self.assertEqual(llm_retry_backoff_seconds(1), 2.0)
+        self.assertEqual(llm_retry_backoff_seconds(2), 4.0)
+        archive, target = _target()
+        child = random_maze(np.random.default_rng(19))
+        with patch("worldspace.mazes.llm_emitter.time.sleep") as sleep:
+            emitter = MazeLlmEmitter(
+                prompt_mode="stub",
+                call_llm_text=_SequenceCaller(["bad", child.canonical_json()]),  # type: ignore[arg-type]
+                max_retries=1,
+            )
+            result = emitter.emit(
+                target=target,  # type: ignore[arg-type]
+                archive=archive,
+                rng=np.random.default_rng(6),
+                prediction=None,
+            )
+        self.assertEqual(result.emitter_type, "llm")
+        sleep.assert_called_once_with(2.0)
 
     def test_retry_recovers_before_fallback(self) -> None:
         archive, target = _target()

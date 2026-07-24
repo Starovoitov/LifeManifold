@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and gate a small live maze-LLM preflight."""
+"""Calibrate maze LLM emitter gates at production-like call volume."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ from worldspace.mazes.llm_emitter import MazeLlmEmitter
 from worldspace.mazes.surrogate import MazeSurrogate
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--calls", type=int, default=20)
+    parser.add_argument("--calls", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--checkpoint",
@@ -39,18 +39,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("artifacts/mazes/llm_preflight.json"),
+        default=Path("artifacts/mazes/llm_calibration.json"),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=2,
+        help="Emitter retries after the first failed attempt.",
+    )
+    parser.add_argument(
+        "--parse-min",
+        type=float,
+        default=0.95,
+    )
+    parser.add_argument(
+        "--fallback-max",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument(
+        "--repair-collapse-max",
+        type=float,
+        default=0.10,
+    )
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     rng = np.random.default_rng(args.seed)
     predictor = MazeSurrogate.load(args.checkpoint)
     emitter = MazeLlmEmitter(
         prompt_mode="hints",
         llm_spec_path=args.llm_spec,
+        max_retries=max(0, int(args.max_retries)),
     )
     archive = MazeArchive(30)
     initial = random_maze(rng)
@@ -61,7 +83,7 @@ def main() -> None:
             fitness=initial_eval.fitness,
             measures=initial_eval.measures,
             spec=initial,
-            candidate_id="preflight-parent",
+            candidate_id="calibration-parent",
             parent_id=None,
             emitter_type="random",
         )
@@ -84,27 +106,30 @@ def main() -> None:
                 fitness=evaluation.fitness,
                 measures=evaluation.measures,
                 spec=emitted.spec,
-                candidate_id=f"preflight-{index}",
+                candidate_id=f"calibration-{index}",
                 parent_id=emitted.parent_id,
                 emitter_type=emitted.emitter_type,
             )
         )
     report = emitter.audit.to_dict()
-    parse_success_rate = report["parse_success_rate"]
-    mean_tile_distance = report["mean_tile_distance"]
-    repair_collapse_rate = report["repair_collapse_rate"]
-    assert isinstance(parse_success_rate, (int, float))
-    assert isinstance(mean_tile_distance, (int, float))
-    assert isinstance(repair_collapse_rate, (int, float))
+    parse_success_rate = float(report["parse_success_rate"])
+    fallback_rate = float(report["fallback_rate"])
+    repair_collapse_rate = float(report["repair_collapse_rate"])
+    mean_tile_distance = float(report["mean_tile_distance"])
     report.update(
         {
-            "schema_version": "maze-llm-preflight-1.0",
+            "schema_version": "maze-llm-calibration-1.0",
             "prompt_version": emitter.prompt_version,
-            "max_retries": emitter.max_retries,
-            "parse_gate_pass": float(parse_success_rate) >= 0.95,
-            "fallback_gate_pass": float(report["fallback_rate"]) <= 0.05,
-            "distance_gate_pass": float(mean_tile_distance) > 0.0,
-            "repair_gate_pass": float(repair_collapse_rate) < 0.10,
+            "max_retries": int(args.max_retries),
+            "gates": {
+                "parse_min": float(args.parse_min),
+                "fallback_max": float(args.fallback_max),
+                "repair_collapse_max": float(args.repair_collapse_max),
+            },
+            "parse_gate_pass": parse_success_rate >= float(args.parse_min),
+            "fallback_gate_pass": fallback_rate <= float(args.fallback_max),
+            "distance_gate_pass": mean_tile_distance > 0.0,
+            "repair_gate_pass": repair_collapse_rate <= float(args.repair_collapse_max),
         }
     )
     report["all_gates_pass"] = all(
@@ -123,7 +148,7 @@ def main() -> None:
     )
     print(json.dumps(report, indent=2))
     if not report["all_gates_pass"]:
-        raise SystemExit("Maze LLM preflight failed")
+        raise SystemExit("Maze LLM calibration failed")
 
 
 if __name__ == "__main__":

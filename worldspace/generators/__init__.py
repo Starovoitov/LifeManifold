@@ -798,6 +798,13 @@ def _llm_http_retry_backoff_seconds(attempt: int) -> float:
     return _LLM_HTTP_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
 
 
+def llm_retry_backoff_seconds(attempt: int) -> float:
+    """Public backoff schedule shared by HTTP transport and domain LLM emitters."""
+    if attempt < 1:
+        raise ValueError("attempt must be >= 1")
+    return _llm_http_retry_backoff_seconds(attempt)
+
+
 def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
     """POST once with up to three attempts on transient network/API failures."""
     last_error: BaseException | None = None

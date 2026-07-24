@@ -6,3 +6,8 @@ The maze must be 16x16. Allowed tiles: # wall, . floor, S start, G goal.
 Each row/col is zero-based and must be an interior coordinate 1–14. Only edit
 ordinary wall/floor cells and use tile # or . Never edit S or G.
 Provide 4–20 unique edits that preserve solvability.
+
+Solvability rules:
+- Keep at least one open route from S to G after every edit batch.
+- Prefer opening walls adjacent to the current shortest path over blocking it.
+- If you add a wall near the route, also open an alternate corridor elsewhere.
