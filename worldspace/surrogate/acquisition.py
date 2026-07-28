@@ -20,6 +20,7 @@ AcquisitionAction = Literal["eval", "skip"]
 REASON_ACCEPTED_FOR_EVAL = "accepted_for_eval"
 REASON_BELOW_FITNESS_THRESHOLD = "below_fitness_threshold"
 REASON_BELOW_UCB_THRESHOLD = "below_ucb_threshold"
+REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL = "extinction_gray_zone_force_eval"
 REASON_HIGH_UNCERTAINTY_FORCE_EVAL = "high_uncertainty_force_eval"
 REASON_EMPTY_BIN_EXPLORE = "empty_bin_explore"
 REASON_POLICY_UNSUPPORTED = "policy_unsupported"
@@ -28,6 +29,7 @@ REASON_ACQUISITION_DISABLED = "acquisition_disabled"
 OFF_POLICY_VERSION = "off_v1"
 UNSUPPORTED_POLICY_VERSION = "unsupported_v1"
 THRESHOLD_GATE_POLICY_VERSION = "threshold_gate_v1"
+THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION = "threshold_gate_gray_zone_v1"
 UCB_PROMOTE_POLICY_VERSION = "ucb_promote_v1"
 
 __all__ = [
@@ -36,9 +38,11 @@ __all__ = [
     "REASON_ACQUISITION_DISABLED",
     "REASON_BELOW_FITNESS_THRESHOLD",
     "REASON_BELOW_UCB_THRESHOLD",
+    "REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL",
     "REASON_EMPTY_BIN_EXPLORE",
     "REASON_HIGH_UNCERTAINTY_FORCE_EVAL",
     "REASON_POLICY_UNSUPPORTED",
+    "THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION",
     "THRESHOLD_GATE_POLICY_VERSION",
     "UCB_PROMOTE_POLICY_VERSION",
     "UNSUPPORTED_POLICY_VERSION",
@@ -106,19 +110,41 @@ def _decide_threshold_gate(
     if config.never_skip_empty_bin and archive.is_empty_cell(cell_id):
         return _eval_decision(REASON_EMPTY_BIN_EXPLORE, THRESHOLD_GATE_POLICY_VERSION)
 
+    policy_version = (
+        THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION
+        if config.force_eval_extinction_gray_zone
+        else THRESHOLD_GATE_POLICY_VERSION
+    )
+    if config.force_eval_extinction_gray_zone and _in_extinction_gray_zone(
+        prediction,
+        lo=config.extinction_gray_zone_lo,
+        hi=config.extinction_gray_zone_hi,
+    ):
+        return _eval_decision(REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL, policy_version)
+
     low_fitness = prediction.fitness < config.min_predicted_fitness
     low_uncertainty = prediction.uncertainty <= config.max_uncertainty_to_skip
     if low_fitness and low_uncertainty:
         return _skip_decision(
             REASON_BELOW_FITNESS_THRESHOLD,
-            THRESHOLD_GATE_POLICY_VERSION,
+            policy_version,
         )
     if low_fitness:
         return _eval_decision(
             REASON_HIGH_UNCERTAINTY_FORCE_EVAL,
-            THRESHOLD_GATE_POLICY_VERSION,
+            policy_version,
         )
-    return _eval_decision(REASON_ACCEPTED_FOR_EVAL, THRESHOLD_GATE_POLICY_VERSION)
+    return _eval_decision(REASON_ACCEPTED_FOR_EVAL, policy_version)
+
+
+def _in_extinction_gray_zone(
+    prediction: SurrogatePrediction,
+    *,
+    lo: float,
+    hi: float,
+) -> bool:
+    p_ext = float(prediction.components.get("early_extinction_prob", 0.0))
+    return lo <= p_ext < hi
 
 
 def _decide_ucb_promote(

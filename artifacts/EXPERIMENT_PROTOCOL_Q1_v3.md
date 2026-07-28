@@ -80,7 +80,7 @@ Lock this order before spending budget:
 | 5 | **M1** MC-dropout vs GP+UCB write-up (± ablation) | medium | **DONE 2026-07-22** — Phases 0–4; paragraph in `draft_v0.tex` §acquisition + Limitations; `gp_ucb_ablation.json` |
 | 6 | **R1** SAIL / DSA-ME related-work | cheap | **DONE 2026-07-22** — expanded `draft_v0.tex` §2.2 + positioning note; protocol §8 filled |
 | 7 | **B3** Standard QD benchmarks (sphere + rastrigin) | supplementary | **DONE 2026-07-17** — implementation + 50/50 runs; descriptive sanity PASS |
-| 8 | Optional: reopen RQ3 confirmatory if D1@0.45 passes | conditional | **BLOCKED** — D1 DONE; divergence 0.528 > 0.05 |
+| 8 | Optional: reopen RQ3 confirmatory if D1@0.45 passes | conditional | **SUPERSEDED 2026-07-28** — see §4.2.1 F-RQ3-gray |
 
 ---
 
@@ -671,27 +671,53 @@ Sphere CMA-ME exceeds ME random by **+50.03 pp coverage** and **+290,872 QD-scor
 | **F-RQ0** | vanilla vs hints: Δcov and Δfit, conjunctive (both one-sided greater) | 2 | grid |
 | **F-RQ4** | hints vs CMA-ME and hints vs CMA-MAE: for each arm, Δcov and Δfit (hints − arm), conjunctive greater; two arms → **m=4** | 4 | grid |
 | **F-RQ1g** | per additional LLM: stub vs hints Δcov+Δfit conjunctive | 2 × n_llm | grid |
-| **F-RQ3** (reopen only if D1@0.45 passes) | eval↓; cov NI; fit NI (v2 amended margins) | 3 | grid |
+| **F-RQ3** (historical; production filter) | eval↓; cov NI; fit NI | 3 | grid — **BLOCKED** (D1@0.45 fail) |
+| **F-RQ3-gray** *(2026-07-28)* | `filter_gray_zone` vs `hints`: eval↓; cov NI; fit NI | 3 | grid — **runs pending** |
 
 Holm step-down within each family separately (do not pool B1+B2+G1 into one mega-family unless explicitly amended).
 
 **F-RQ4 metric set (locked):** same primary metrics as v2 — `coverage_pct`, `mean_best_fitness`. Eval count is descriptive for pyribs (budget-matched by design).
 
-### 4.2 D1 gate — locked at combat `min_fit=0.45`
+### 4.2 D1 gate — historical (production filter @ combat `min_fit=0.45`)
 
 v2 established that **combat filter = `min_predicted_fitness=0.45`** (raised from 0.10 after shadow; logged skips agree=1.0). D1 must use the **same** threshold as combat — not the historical 0.10 draft in early §3.5.
 
 | Item | v3 lock |
 |------|---------|
 | Combat `min_predicted_fitness` | **0.45** (inherit v2) |
-| D1 confirmatory metric | live-proposal `divergent_skip` @ **min_fit=0.45**, gates 0.5 vs 0.95 |
-| Pass rule | `div ≤ 0.05` → RQ3 eligible for confirmatory; else RQ3 exploratory |
-| Primary artifact | `compose_gate_live_0p5_vs_0p95.json` — DONE, 10 seeds / 325k proposals, div=**0.528**, logged agreement=**1.0**, **FAIL** |
+| D1 confirmatory metric (historical) | live-proposal `divergent_skip` @ **min_fit=0.45**, gates 0.5 vs 0.95 |
+| Pass rule (historical) | `div ≤ 0.05` → was required for F-RQ3 on production filter |
+| Primary artifact | `compose_gate_live_0p5_vs_0p95.json` — DONE, 10 seeds / 325k proposals, div=**0.528**, **FAIL** |
 | Sensitivity only | `@min_fit=0.10` → div=**0.746** (worse; not combat; do not use for gate) |
 
-**Do not** re-lock combat or D1 to 0.10: that mismatches the −33.5% eval filter arm and **inflates** divergent_skip. Reclaiming confirmatory RQ3 requires compose-gate work (align hold-out with runtime 0.95, fitness head, or amended rule) — not lowering `min_fit`.
+**Status (2026-07-28):** D1 remains a **documented diagnostic** on locked `q1-full/filter` logs. It **does not** gate the amended confirmatory path §4.2.1. Hold-out compose gate alignment (§12 2026-07-28) fixes validity reporting only.
 
-**Shadow:** keep skip in 25–45% under **0.45** if filter is re-run; no forced return to 0.10.
+**Do not** re-lock combat or D1 to 0.10: that mismatches the −33.5% eval filter arm and **inflates** divergent_skip.
+
+**Shadow (production filter):** keep skip in 25–45% under **0.45** if filter is re-run; no forced return to 0.10.
+
+### 4.2.1 F-RQ3-gray — amended confirmatory H3 *(2026-07-28)*
+
+**Dual-report (replaces D1-unlock path for new runs):**
+
+| | **Before (§4.2 through 2026-07-27)** | **After (2026-07-28)** |
+|--|--------------------------------------|-------------------------|
+| Confirmatory H3 | Blocked until D1@0.45 ≤ 0.05 on production filter | **F-RQ3-gray** family with `force_eval_extinction_gray_zone: true` |
+| Filter policy | `threshold_gate` @ τ=0.45, compose gate 0.95 | Same τ + compose gate + **never skip** when $p_{\mathrm{ext}}\in[0.5,0.95)$ |
+| Pre-flight skip band | 25–45% (production filter) | **8–18%** (offline replay ~11.7%; shadow seed 0 before n=10) |
+| Control | `hints` (`q1-full`) | unchanged — reuse frozen arm |
+| Treatment tier | `q1-full/filter` (exploratory only) | **`q1-v3-h3-gray-zone`** |
+
+| Item | Lock |
+|------|------|
+| Scheduler YAML | `map_elites_scheduler_nightly_llm_filter_gray_zone.yaml` |
+| Implementation | `threshold_gate_gray_zone_v1`; reason `extinction_gray_zone_force_eval` |
+| Endpoints | eval count ↓ (Wilcoxon less); cov NI (Δ > −3 pp); fit NI (Δ_rel > −5%) — v2 amended margins |
+| Holm | $m=3$ within **F-RQ3-gray** only |
+| Offline justification | `compose_gate_fix_candidates.json`: gray-zone D1=0.708; force-eval policy D1=0 |
+| Task list | [`Q1_H3_GRAY_ZONE_CONFIRMATORY.md`](Q1_H3_GRAY_ZONE_CONFIRMATORY.md) |
+
+**Explicit:** passing F-RQ3-gray does not rehabilitate the historical production `filter` arm at 33.5% skip. Soft-extinction retarget remains exploratory.
 ### 4.3 Non-inferiority / TOST (RQ3 if reopened)
 
 Prefer v2 **amended one-sided NI** as paper claim (Δcov > −3 pp, Δfit_rel > −5%); keep symmetric TOST as appendix transparency. Declare before runs.
@@ -730,7 +756,8 @@ Prefer v2 **amended one-sided NI** as paper claim (Δcov > −3 pp, Δfit_rel > 
 | `q1-v3-llm-deepseek-v4-pro` | 0–4 default / 0–9 full | stub, hints | G1 DeepSeek V4 Pro |
 | `q1-v3-llm-gpt-4o-mini` | 0–4 default / 0–9 full | stub, hints | G1 OpenAI gpt-4o-mini |
 | `q1-v3-llm-<slug>` | 0–9 (or 0–4) | stub, hints | G1 other models |
-| `q1-v3-filter` | 0–9 | stub, hints, filter | optional; only if reclaiming RQ3 under min_fit=**0.45** |
+| `q1-v3-h3-gray-zone` | 0–9 | `filter_gray_zone` | **F-RQ3-gray** confirmatory; shadow 8–18% pre-flight |
+| `q1-v3-filter` | 0–9 | stub, hints, filter | historical production filter; exploratory only |
 | `cvt-shadow-v3` | 0 | shadow pair | if CVT filter revisited with new threshold |
 
 Reuse v2 `q1-full` / `q1-cvt` artifacts for paired contrasts where seeds match; keep filter arms at **min_fit=0.45** (do not mix a 0.10 policy into confirmatory tables).
@@ -894,5 +921,6 @@ Need “not custom sandbox only”? → B3 sphere + rastrigin (CPU, no LLM)
 | 2026-07-22 | **R1 DONE:** expand SAIL/DSA-ME §2.2 in `draft_v0.tex` (4-way positioning + M1/D1 cross-links); fill protocol §8. |
 | 2026-07-22 | **§3.11 heatmaps DONE:** seeds 1/4/6 hints vs CMA-ME + panel; filter seed 4 optional; `export_manuscript_figures.py --fig 7`. |
 | 2026-07-22 | **Data/code availability + freeze policy:** expanded `draft_v0.tex` §Data (tier/stats/M1 commands); **no OSF/Zenodo** for this submit — keep **internally frozen** (v3 2026-07-12; v4 2026-07-17). |
-| 2026-07-28 | **Hold-out compose-gate alignment (§12):** `evaluate_holdout` / `fitness_from_target_row` default extinction gate **0.5 → 0.95** (`PRODUCTION_EXTINCTION_GATE_THRESHOLD`); matches runtime YAML. Full hold-out n=7023: R²=**0.942** [0.94,0.95], MAE=**0.029**; `nightly_v3_mc_d005.summary.json` updated. Artifact: `holdout_compose_gate_alignment.json` + `HOLDOUT_COMPOSE_GATE_ALIGNMENT.md`. **D1@0.45 unchanged** (historical live replay 0.5 vs 0.95); confirmatory RQ3 **remains blocked** — needs new criterion + runs, not hold-out relabel alone. |
+| 2026-07-28 | **M1 hold-out recomputed @ gate 0.95:** MLP R²=**0.942** / NMAE=**0.112** vs GP R²=**0.891** / NMAE=**0.222** (~37× faster). Legacy @0.5 (0.761 vs 0.223) retired as model-quality contrast — target-rescaling artifact. Artifact `gp_ucb_ablation.json` updated. |
+| 2026-07-28 | **F-RQ3-gray confirmatory path (§4.2.1):** `force_eval_extinction_gray_zone` in acquisition + scheduler `map_elites_scheduler_nightly_llm_filter_gray_zone.yaml`; task list `Q1_H3_GRAY_ZONE_CONFIRMATORY.md`. Reopens confirmatory H3 under new family (runs pending). Historical D1@0.45 on production filter **retired as gate**; remains diagnostic on locked logs. |
 | 2026-07-17 | **B3 standard benchmarks complete (§3.12):** deterministic D=20 Sphere/Rastrigin runner, CLI, batch tiers, traces, and benchmark-safe aggregation wired; five smoke combinations passed; **50/50** full runs complete. Sphere CMA-ME beats ME random by **+50.03 pp coverage** and **+290,872 QD-score** (10/10; descriptive p=0.00098, A₁₂=1.00). Rastrigin CMA-ME reaches **90.35%** coverage vs CMA-MAE **32.17%**. Supplementary implementation sanity only; confirmatory families unchanged. |

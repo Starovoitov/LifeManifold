@@ -51,6 +51,16 @@ class TestAcquisitionSchedulerYaml(unittest.TestCase):
             "artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl",
         )
 
+    def test_load_filter_gray_zone_spec(self) -> None:
+        path = _SPECS / "map_elites_scheduler_nightly_llm_filter_gray_zone.yaml"
+        config = load_scheduler(path)
+        self.assertTrue(config.surrogate_enabled)
+        self.assertEqual(config.acquisition.mode, "filter")
+        self.assertTrue(config.acquisition.force_eval_extinction_gray_zone)
+        self.assertAlmostEqual(config.acquisition.extinction_gray_zone_lo, 0.5)
+        self.assertAlmostEqual(config.acquisition.extinction_gray_zone_hi, 0.95)
+        self.assertAlmostEqual(config.acquisition.min_predicted_fitness, 0.45)
+
     def test_calibration_disabled_via_null_empty_or_false(self) -> None:
         base = yaml.safe_load(_FILTER_PATH.read_text(encoding="utf-8"))
         cases: list[tuple[str, object]] = [

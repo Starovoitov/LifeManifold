@@ -10,8 +10,8 @@ No new simulator runs. Uses logged ``surrogate_archive.jsonl`` predictions to:
    production skip (~33.5%).
 4. Reference: align both compose gates to 0.95 (D1 → 0 by construction).
 
-These are diagnostic / policy candidates for journal-extension compose repair,
-not confirmatory H3 unlocks.
+These are diagnostic / policy candidates for journal-extension compose repair.
+Confirmatory unlock is **F-RQ3-gray** (protocol §4.2.1), not automatic from offline replay alone.
 """
 
 from __future__ import annotations

@@ -5,15 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from worldspace.surrogate.evaluation import PRODUCTION_EXTINCTION_GATE_THRESHOLD
+
 AcquisitionMode = Literal["off", "shadow", "filter"]
 AcquisitionPolicyName = Literal["threshold_gate", "ucb_promote"]
 
+DEFAULT_EXTINCTION_GRAY_ZONE_LO = 0.5
 DEFAULT_SURROGATE_ARCHIVE_PATH = "artifacts/surrogate/surrogate_archive.jsonl"
 
 __all__ = [
     "AcquisitionConfig",
     "AcquisitionMode",
     "AcquisitionPolicyName",
+    "DEFAULT_EXTINCTION_GRAY_ZONE_LO",
     "DEFAULT_SURROGATE_ARCHIVE_PATH",
     "RetrainConfig",
 ]
@@ -29,6 +33,9 @@ class AcquisitionConfig:
     max_uncertainty_to_skip: float = 0.40
     never_skip_empty_bin: bool = True
     exploration_weight: float = 0.15
+    force_eval_extinction_gray_zone: bool = False
+    extinction_gray_zone_lo: float = DEFAULT_EXTINCTION_GRAY_ZONE_LO
+    extinction_gray_zone_hi: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD
 
 
 @dataclass(frozen=True)

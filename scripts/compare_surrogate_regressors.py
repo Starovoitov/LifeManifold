@@ -33,7 +33,10 @@ from worldspace.surrogate.calibration import (  # noqa: E402
     load_uncertainty_calibration,
 )
 from worldspace.surrogate.checkpoint_io import load_surrogate_checkpoint  # noqa: E402
-from worldspace.surrogate.evaluation import fitness_from_target_row  # noqa: E402
+from worldspace.surrogate.evaluation import (  # noqa: E402
+    PRODUCTION_EXTINCTION_GATE_THRESHOLD,
+    fitness_from_target_row,
+)
 from worldspace.surrogate.model import (
     FITNESS_TARGET_KEY,
     TARGET_KEYS,
@@ -86,11 +89,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _composed_fitness_labels(targets: dict[str, np.ndarray]) -> np.ndarray:
+def _composed_fitness_labels(
+    targets: dict[str, np.ndarray],
+    *,
+    extinction_gate_threshold: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD,
+) -> np.ndarray:
     n_rows = int(next(iter(targets.values())).shape[0])
     return np.asarray(
         [
-            fitness_from_target_row({k: float(targets[k][i]) for k in TARGET_KEYS})
+            fitness_from_target_row(
+                {k: float(targets[k][i]) for k in TARGET_KEYS},
+                extinction_gate_threshold=extinction_gate_threshold,
+            )
             for i in range(n_rows)
         ],
         dtype=float,
@@ -101,7 +111,7 @@ def _mlp_fitness_batch(
     model: SurrogateModel,
     feature_matrix: np.ndarray,
     *,
-    extinction_gate_threshold: float = 0.5,
+    extinction_gate_threshold: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD,
 ) -> np.ndarray:
     """Fast fitness predictions (components / direct head; no MC-dropout)."""
     n_rows = int(feature_matrix.shape[0])
@@ -241,16 +251,20 @@ def _regression_block(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     abs_err = np.abs(y_true - y_pred)
+    target_std = float(np.std(y_true, ddof=0))
+    mae = float(mean_absolute_error(y_true, y_pred))
     block: dict[str, Any] = {
         "regressor": name,
         "n_holdout": int(y_true.shape[0]),
         "r2_fitness": float(r2_score(y_true, y_pred)),
-        "mae_fitness": float(mean_absolute_error(y_true, y_pred)),
+        "mae_fitness": mae,
+        "nmae_fitness": float(mae / target_std) if target_std > 0 else float("nan"),
         "rmse_fitness": float(np.sqrt(np.mean(abs_err**2))),
         "pred_mean": float(np.mean(y_pred)),
         "pred_std": float(np.std(y_pred, ddof=1)),
         "true_mean": float(np.mean(y_true)),
-        "true_std": float(np.std(y_true, ddof=1)),
+        "true_std": target_std,
+        "frac_true_zero": float(np.mean(y_true <= 0)),
         "train_seconds": train_seconds,
         "predict_holdout_seconds": float(predict_holdout_seconds),
         "predict_batch_seconds": predict_batch_seconds,
@@ -403,6 +417,7 @@ def main() -> None:
             "test_fraction": float(args.test_fraction),
             "random_state": int(args.random_state),
             "target": "composed_illuminator_fitness",
+            "extinction_gate_threshold": PRODUCTION_EXTINCTION_GATE_THRESHOLD,
             "gp_max_train": int(args.gp_max_train),
             "timing_batch_n": int(args.timing_batch_n),
             "uncertainty_sample": int(args.uncertainty_sample),
@@ -436,6 +451,7 @@ def main() -> None:
         payload["holdout_regression"]["delta_gp_minus_mlp"] = {
             "r2_fitness": float(gp_block["r2_fitness"] - mlp_block["r2_fitness"]),
             "mae_fitness": float(gp_block["mae_fitness"] - mlp_block["mae_fitness"]),
+            "nmae_fitness": float(gp_block["nmae_fitness"] - mlp_block["nmae_fitness"]),
             "predict_batch_seconds": float(
                 gp_block["predict_batch_seconds"] - mlp_block["predict_batch_seconds"]
             ),
@@ -446,6 +462,11 @@ def main() -> None:
                 )
                 if mlp_block["predict_batch_seconds"]
                 else None
+            ),
+            "note": (
+                "Labels and composed MLP fitness use extinction_gate_threshold="
+                f"{PRODUCTION_EXTINCTION_GATE_THRESHOLD} (runtime-aligned). "
+                "Legacy M1 Phase 1 used gate 0.5 (R² MLP≈0.76 / GP≈0.22)."
             ),
         }
 

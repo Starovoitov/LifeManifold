@@ -167,6 +167,52 @@ class TestSurrogateAcquisition(unittest.TestCase):
         second = decide(config, prediction, target, archive)
         self.assertEqual(first, second)
 
+    def test_gray_zone_forces_eval_despite_low_fitness(self) -> None:
+        from worldspace.surrogate.acquisition import (
+            REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL,
+            THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION,
+        )
+
+        bin_ij = (0, 0)
+        prediction = SurrogatePrediction(
+            components={"early_extinction_prob": 0.7},
+            measures={},
+            fitness=0.1,
+            uncertainty=0.1,
+        )
+        decision = decide(
+            AcquisitionConfig(
+                mode="filter",
+                min_predicted_fitness=0.45,
+                max_uncertainty_to_skip=1.0,
+                force_eval_extinction_gray_zone=True,
+            ),
+            prediction,
+            _target(bin_ij),
+            _archive_filled_at(bin_ij),
+        )
+        self.assertEqual(decision.action, "eval")
+        self.assertEqual(decision.reason, REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL)
+        self.assertEqual(
+            decision.policy_version, THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION
+        )
+
+    def test_gray_zone_disabled_allows_skip(self) -> None:
+        bin_ij = (0, 0)
+        prediction = SurrogatePrediction(
+            components={"early_extinction_prob": 0.7},
+            measures={},
+            fitness=0.1,
+            uncertainty=0.1,
+        )
+        decision = decide(
+            _config(min_predicted_fitness=0.45, max_uncertainty_to_skip=1.0),
+            prediction,
+            _target(bin_ij),
+            _archive_filled_at(bin_ij),
+        )
+        self.assertEqual(decision.action, "skip")
+
 
 class TestSurrogateAcquisitionCvt(unittest.TestCase):
     """E5.5 CVT acquisition policy contract."""

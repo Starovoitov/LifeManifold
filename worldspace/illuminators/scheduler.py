@@ -447,6 +447,9 @@ class _AcquisitionYamlBlock(BaseModel):
     max_uncertainty_to_skip: float = Field(default=0.40, ge=0.0)
     never_skip_empty_bin: bool = True
     exploration_weight: float = Field(default=0.15, ge=0.0)
+    force_eval_extinction_gray_zone: bool = False
+    extinction_gray_zone_lo: float = Field(default=0.5, ge=0.0, le=1.0)
+    extinction_gray_zone_hi: float = Field(default=0.95, ge=0.0, le=1.0)
 
 
 class _RetrainYamlBlock(BaseModel):
@@ -635,6 +638,9 @@ def _acquisition_config_from_yaml(
         max_uncertainty_to_skip=block.max_uncertainty_to_skip,
         never_skip_empty_bin=block.never_skip_empty_bin,
         exploration_weight=block.exploration_weight,
+        force_eval_extinction_gray_zone=block.force_eval_extinction_gray_zone,
+        extinction_gray_zone_lo=block.extinction_gray_zone_lo,
+        extinction_gray_zone_hi=block.extinction_gray_zone_hi,
     )
 
 

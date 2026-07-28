@@ -7,7 +7,12 @@ import unittest
 import numpy as np
 from sklearn.metrics import mean_absolute_error, r2_score
 
-from scripts.analyze_holdout_compose_gate_alignment import _bootstrap_ci, _metrics
+from scripts.analyze_holdout_compose_gate_alignment import (
+    _bootstrap_ci,
+    _metrics,
+    _nmae,
+    _target_distribution,
+)
 
 
 class TestHoldoutComposeGateAlignment(unittest.TestCase):
@@ -42,6 +47,18 @@ class TestHoldoutComposeGateAlignment(unittest.TestCase):
         point = float(mean_absolute_error(y, pred))
         self.assertLess(lo, hi)
         self.assertAlmostEqual(point, 0.016, places=3)
+
+    def test_nmae_and_target_std(self) -> None:
+        y = np.array([0.0, 0.0, 0.0, 0.8, 0.9])
+        pred = np.array([0.0, 0.0, 0.1, 0.7, 0.85])
+        m = _metrics(y, pred)
+        dist = _target_distribution(y)
+        self.assertGreater(dist["std"], 0.0)
+        self.assertAlmostEqual(m["nmae_fitness"], _nmae(y, pred), places=6)
+        self.assertAlmostEqual(
+            m["nmae_fitness"], m["mae_fitness"] / dist["std"], places=6
+        )
+        self.assertGreater(dist["frac_zero"], 0.5)
 
 
 if __name__ == "__main__":
