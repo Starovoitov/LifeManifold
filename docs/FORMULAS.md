@@ -374,7 +374,7 @@ where \(D = \mathrm{clip}(\text{diversity})\), \(A = \text{oscillation\_score}\)
 | **0.10** | Topology mix | Morphological complexity without expensive homology |
 | **0** | `entropy`, `mo_eoc`, ecology | Not in archive score (may still appear in JSONL `metrics`) |
 
-**Surrogate runtime (Q1 production):** `nightly_v3_mc_d005` has no direct fitness head; live fitness is **recomposed** via `compute_fitness_from_prediction` with `extinction_gate_threshold: 0.95` from scheduler YAML. Hold-out R² in training uses the same compose function with gate **0.5** (code default). Archive fitness uses simulation `early_extinct` (binary mid-run stop), not the buffer proxy `early_extinction_prob = 1 − final_density`. See `artifacts/EXPERIMENT_PROTOCOL_Q1_v2.md` §3.6.
+**Surrogate runtime (Q1 production):** `nightly_v3_mc_d005` has no direct fitness head; live fitness is **recomposed** via `compute_fitness_from_prediction` with `extinction_gate_threshold: 0.95` from scheduler YAML. Hold-out R² in training uses the same compose gate (**0.95**; `PRODUCTION_EXTINCTION_GATE_THRESHOLD` in `evaluation.py`; amendment 2026-07-28). Archive fitness uses simulation `early_extinct` (binary mid-run stop), not the buffer proxy `early_extinction_prob = 1 − final_density`. See `artifacts/EXPERIMENT_PROTOCOL_Q1_v2.md` §3.6.
 
 ---
 

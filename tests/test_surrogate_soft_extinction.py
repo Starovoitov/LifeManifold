@@ -166,7 +166,12 @@ class TestSurrogateSoftExtinction(unittest.TestCase):
                 model_type="lightgbm", random_state=42, ensemble_size=4
             )
             model.fit(x_train, y_train)
-            ab = evaluate_fitness_compose_ab(model, x_holdout, y_holdout)
+            ab = evaluate_fitness_compose_ab(
+                model,
+                x_holdout,
+                y_holdout,
+                extinction_gate_threshold=0.5,
+            )
             self.assertGreater(
                 ab["soft"]["r2_fitness"],
                 ab["hard"]["r2_fitness"],

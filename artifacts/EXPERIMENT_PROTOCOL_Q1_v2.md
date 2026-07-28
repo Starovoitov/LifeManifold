@@ -198,7 +198,7 @@ Any confirmatory |median Δ| clearly below `floor` → `noise_indistinguishable`
 
 **Runtime behaviour:** when `require_quality_gate` is set (default in `run_experiment_batch.sh` for hints and filter), `get_surrogate()` calls `checkpoint_quality_allows_hints()` — **`hints_ok` is sufficient**; `quality_passed` is only a legacy fallback when `hints_ok` is absent. If the gate fails, the facade becomes `StubSurrogate` → **hints arm ≡ stub arm** in the LLM prompt (fixed `stub_mean` / `stub_uncertainty`).
 
-**What R²(fitness) measures (D2 — single-seed labels):** each buffer row is **one** `evaluate_candidate` at `canonical_seed(WorldSpec)` (stochastic CA via genome `noise`; not MC-averaged). The nightly buffer (`buffer_nightly.jsonl`) stores **component targets only** (no `fitness` column) → checkpoint has **no direct fitness head** (`_has_fitness_head: false`). Hold-out R²/MAE in `evaluate_holdout` compare **composed** fitness from predicted vs held-out components (`compute_fitness_from_prediction`, gate **0.5** default). This is **not** \(E[\text{fitness} \mid \text{WorldSpec}]\) and **not** identical to archive fitness from simulation `early_extinct` (see §3.6 D1). See §3.6 for paper captions.
+**What R²(fitness) measures (D2 — single-seed labels):** each buffer row is **one** `evaluate_candidate` at `canonical_seed(WorldSpec)` (stochastic CA via genome `noise`; not MC-averaged). The nightly buffer (`buffer_nightly.jsonl`) stores **component targets only** (no `fitness` column) → checkpoint has **no direct fitness head** (`_has_fitness_head: false`). Hold-out R²/MAE in `evaluate_holdout` compare **composed** fitness from predicted vs held-out components (`compute_fitness_from_prediction`, gate **0.95**, aligned with runtime YAML since amendment 2026-07-28). This is **not** \(E[\text{fitness} \mid \text{WorldSpec}]\) and **not** identical to archive fitness from simulation `early_extinct` (see §3.6 D1). See §3.6 for paper captions.
 
 **Exit criteria before q1-full:**
 
@@ -212,7 +212,7 @@ jq '{hints_ok, quality_passed, holdout_metrics}' \
   artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json
 ```
 
-Current checkpoint (Jun 2026): both flags `true` (R² ≈ 0.76, MAE(fitness) ≈ 0.007, MAE(stability) ≈ 0.04).
+Current checkpoint (Jul 2026): both flags `true` (R² ≈ 0.94 @ gate 0.95, MAE(fitness) ≈ 0.029, MAE(stability) ≈ 0.04). Legacy @ gate 0.5: R² ≈ 0.76, MAE ≈ 0.007 — see `holdout_compose_gate_alignment.json`.
 
 If `hints_ok` is false → hints/filter runs are stub-equivalent; fix checkpoint or train with `--no-quality-gate` only for debugging, not for publication arms.
 
@@ -326,7 +326,7 @@ Tracked items with explicit exit criteria.
 
 **Paper wording (Table 3 caption / RQ2 text):**
 
-> *Hold-out R²(fitness) and MAE(fitness): MLP ensemble predicting illuminator fitness **recomposed from component targets** on a single canonical stochastic CA realization per genome (seed = hash(WorldSpec)); not an expectation over multiple noise trajectories. Offline hold-out uses compose gate 0.5; live acquisition uses gate 0.95 (§3.6 D1).*
+> *Hold-out R²(fitness) and MAE(fitness): MLP ensemble predicting illuminator fitness **recomposed from component targets** on a single canonical stochastic CA realization per genome (seed = hash(WorldSpec)); not an expectation over multiple noise trajectories. Offline hold-out and live acquisition both use compose gate **0.95** (amendment 2026-07-28). Historical D1 compares live skip under gates 0.5 vs 0.95 (§3.6).*
 
 #### D1 — extinction proxy vs archive vs compose gate
 
@@ -334,10 +334,10 @@ Tracked items with explicit exit criteria.
 |-------|-----------------|
 | **Archive (simulation)** | Binary `early_extinct` (density == 0 before step 200) → fitness = 0; else continuous penalty via `(1 − ext_p)`, `ext_p = 1 − final_density`. |
 | **Buffer target `early_extinction_prob`** | Always `1 − final_density` — smooth proxy, **not** the simulation `early_extinct` flag. |
-| **RQ2 hold-out (`evaluate_holdout`)** | Composed fitness on component targets; hard gate when `early_extinction_prob ≥ 0.5` (code default). |
+| **RQ2 hold-out (`evaluate_holdout`)** | Composed fitness on component targets; hard gate when `early_extinction_prob ≥ 0.95` (aligned with runtime YAML; amendment 2026-07-28). |
 | **Live hints/filter (`nightly_v3_mc_d005`)** | Composed fitness on **predicted** components; hard gate when `early_extinction_prob ≥ 0.95` (YAML). `use_soft_extinction: false`. No fitness head. |
 
-**Why this matters:** near edge-of-chaos (low `final_density`, not simulation–early-extinct), archive can assign small nonzero fitness while compose-hard may zero predicted fitness — affecting hints/filter skip decisions. Hold-out R² is computed with a **stricter compose gate (0.5)** than runtime **(0.95)**, so Table 3 is not a direct calibration of live gate behaviour.
+**Why this matters:** near edge-of-chaos (low `final_density`, not simulation–early-extinct), archive can assign small nonzero fitness while compose-hard may zero predicted fitness — affecting hints/filter skip decisions. Hold-out R² is now computed with the **same compose gate (0.95)** as runtime. The locked D1 metric remains the **historical** live replay comparing skip under gates 0.5 vs 0.95 at combat `min_fit=0.45`.
 
 **D1 exit (documentation path — adopted for Q1):**
 
@@ -380,7 +380,7 @@ uv run python scripts/replay_compose_gate_live.py
 
 **Caveat:** primary D1 = live filter `surrogate_archive.jsonl` replay at **combat 0.45**. Buffer proxy and the historical §3.5 listing of 0.10 are **superseded** for the confirmatory gate. Operational filter arms still show eval↓ ~33% with QD non-inferiority — report those as **exploratory / operational**, not confirmatory under the D1 quantitative gate.
 
-**Future hardening (out of Q1 scope):** backfill `fitness` → fitness head; align `evaluate_holdout` gate with YAML 0.95.
+**Future hardening (out of Q1 scope):** backfill `fitness` → fitness head; ~~align `evaluate_holdout` gate with YAML 0.95~~ **DONE 2026-07-28** (`PRODUCTION_EXTINCTION_GATE_THRESHOLD=0.95`; full hold-out artifact `holdout_compose_gate_alignment.json`).
 
 ---
 

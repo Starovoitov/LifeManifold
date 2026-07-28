@@ -19,12 +19,14 @@ QUALITY_MAE_FITNESS_MAX = 0.085
 QUALITY_MAE_STABILITY_MAX = 0.06
 HINTS_R2_FITNESS_MIN = 0.30
 HINTS_MAE_FITNESS_MAX = QUALITY_MAE_FITNESS_MAX
+PRODUCTION_EXTINCTION_GATE_THRESHOLD = 0.95
 
 __all__ = [
     "MIN_TRAIN_SAMPLES_FULL",
     "MIN_TRAIN_SAMPLES_MICRO",
     "HINTS_MAE_FITNESS_MAX",
     "HINTS_R2_FITNESS_MIN",
+    "PRODUCTION_EXTINCTION_GATE_THRESHOLD",
     "QUALITY_MAE_FITNESS_MAX",
     "QUALITY_MAE_STABILITY_MAX",
     "QUALITY_R2_FITNESS_MIN",
@@ -41,6 +43,7 @@ def fitness_from_target_row(
     targets: dict[str, float],
     *,
     prefer_stored: bool = False,
+    extinction_gate_threshold: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD,
 ) -> float:
     """Derive illuminator fitness from one Strategy A target dict."""
     if prefer_stored and FITNESS_TARGET_KEY in targets:
@@ -57,13 +60,18 @@ def fitness_from_target_row(
         fitness=0.0,
         uncertainty=0.0,
     )
-    return compute_fitness_from_prediction(prediction)
+    return compute_fitness_from_prediction(
+        prediction,
+        extinction_gate_threshold=extinction_gate_threshold,
+    )
 
 
 def evaluate_holdout(
     model: SurrogateModel,
     feature_matrix: np.ndarray,
     targets: dict[str, np.ndarray],
+    *,
+    extinction_gate_threshold: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD,
 ) -> dict[str, float]:
     """Score ``model`` on hold-out rows; return R²/MAE for fitness and stability."""
     n_rows = int(feature_matrix.shape[0])
@@ -73,7 +81,10 @@ def evaluate_holdout(
 
     true_fitness = np.asarray(
         [
-            fitness_from_target_row({k: float(targets[k][i]) for k in TARGET_KEYS})
+            fitness_from_target_row(
+                {k: float(targets[k][i]) for k in TARGET_KEYS},
+                extinction_gate_threshold=extinction_gate_threshold,
+            )
             for i in range(n_rows)
         ],
         dtype=float,
@@ -94,7 +105,10 @@ def evaluate_holdout(
             fitness=0.0,
             uncertainty=float(model.predict_uncertainty(feature_matrix[row_index])),
         )
-        pred_fitness[row_index] = compute_fitness_from_prediction(prediction)
+        pred_fitness[row_index] = compute_fitness_from_prediction(
+            prediction,
+            extinction_gate_threshold=extinction_gate_threshold,
+        )
 
     metrics = {
         "r2_fitness": float(r2_score(true_fitness, pred_fitness)),
@@ -153,6 +167,8 @@ def evaluate_fitness_compose_ab(
     model: SurrogateModel,
     feature_matrix: np.ndarray,
     targets: dict[str, np.ndarray],
+    *,
+    extinction_gate_threshold: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD,
 ) -> dict[str, dict[str, float]]:
     """Compare hard vs soft composed fitness on the same hold-out rows."""
     n_rows = int(feature_matrix.shape[0])
@@ -162,7 +178,10 @@ def evaluate_fitness_compose_ab(
 
     true_fitness = np.asarray(
         [
-            fitness_from_target_row({k: float(targets[k][i]) for k in TARGET_KEYS})
+            fitness_from_target_row(
+                {k: float(targets[k][i]) for k in TARGET_KEYS},
+                extinction_gate_threshold=extinction_gate_threshold,
+            )
             for i in range(n_rows)
         ],
         dtype=float,
@@ -184,6 +203,7 @@ def evaluate_fitness_compose_ab(
         pred_hard[row_index] = compute_fitness_from_prediction(
             prediction,
             use_soft_extinction=False,
+            extinction_gate_threshold=extinction_gate_threshold,
         )
         pred_soft[row_index] = compute_soft_fitness_from_prediction(prediction)
 

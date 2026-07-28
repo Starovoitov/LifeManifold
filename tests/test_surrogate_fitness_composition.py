@@ -108,7 +108,12 @@ class TestSurrogateFitnessComposition(unittest.TestCase):
             model.fit(x_train, y_train)
             self.assertFalse(model._has_fitness_head)
 
-            holdout_metrics = evaluate_holdout(model, x_holdout, y_holdout)
+            holdout_metrics = evaluate_holdout(
+                model,
+                x_holdout,
+                y_holdout,
+                extinction_gate_threshold=0.5,
+            )
             pred_stability = np.asarray(
                 [
                     model.predict_components(x_holdout[row_index])["stability"]

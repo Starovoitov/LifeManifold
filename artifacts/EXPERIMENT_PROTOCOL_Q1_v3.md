@@ -49,7 +49,7 @@ v3 (THIS DOC) ──► publication-critical baselines + method comparisons
 | ID | Question | v2 status |
 |----|----------|-----------|
 | RQ1 | Surrogate hints vs stub | **PASS** (confirmatory) |
-| RQ2 | Surrogate hold-out quality | Documented; R²≈0.76 composed @ gate 0.5 |
+| RQ2 | Surrogate hold-out quality | Documented; R²≈0.94 composed @ gate 0.95 (aligned 2026-07-28) |
 | RQ3 | Filter eval↓ without QD loss | **EXPLORATORY** (D1 fail; operational NI PASS) |
 | RQ1-s / RQ3-s | CVT sensitivity | Sign-consistent; thresholds grid-transferred |
 
@@ -894,5 +894,5 @@ Need “not custom sandbox only”? → B3 sphere + rastrigin (CPU, no LLM)
 | 2026-07-22 | **R1 DONE:** expand SAIL/DSA-ME §2.2 in `draft_v0.tex` (4-way positioning + M1/D1 cross-links); fill protocol §8. |
 | 2026-07-22 | **§3.11 heatmaps DONE:** seeds 1/4/6 hints vs CMA-ME + panel; filter seed 4 optional; `export_manuscript_figures.py --fig 7`. |
 | 2026-07-22 | **Data/code availability + freeze policy:** expanded `draft_v0.tex` §Data (tier/stats/M1 commands); **no OSF/Zenodo** for this submit — keep **internally frozen** (v3 2026-07-12; v4 2026-07-17). |
-| 2026-07-17 | **D1 live replay complete @0.45:** 10 seeds / 325k proposals; compose-gate divergent skip fraction **0.528** (required ≤0.05), logged-policy agreement **1.0**. **FAIL** — confirmatory RQ3 remains blocked pending compose-gate alignment. |
+| 2026-07-28 | **Hold-out compose-gate alignment (§12):** `evaluate_holdout` / `fitness_from_target_row` default extinction gate **0.5 → 0.95** (`PRODUCTION_EXTINCTION_GATE_THRESHOLD`); matches runtime YAML. Full hold-out n=7023: R²=**0.942** [0.94,0.95], MAE=**0.029**; `nightly_v3_mc_d005.summary.json` updated. Artifact: `holdout_compose_gate_alignment.json` + `HOLDOUT_COMPOSE_GATE_ALIGNMENT.md`. **D1@0.45 unchanged** (historical live replay 0.5 vs 0.95); confirmatory RQ3 **remains blocked** — needs new criterion + runs, not hold-out relabel alone. |
 | 2026-07-17 | **B3 standard benchmarks complete (§3.12):** deterministic D=20 Sphere/Rastrigin runner, CLI, batch tiers, traces, and benchmark-safe aggregation wired; five smoke combinations passed; **50/50** full runs complete. Sphere CMA-ME beats ME random by **+50.03 pp coverage** and **+290,872 QD-score** (10/10; descriptive p=0.00098, A₁₂=1.00). Rastrigin CMA-ME reaches **90.35%** coverage vs CMA-MAE **32.17%**. Supplementary implementation sanity only; confirmatory families unchanged. |
