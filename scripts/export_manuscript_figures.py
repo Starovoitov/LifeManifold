@@ -234,7 +234,7 @@ def fig04_rq1_rq0(out: Path) -> None:
 
 
 def fig05_ladder(out: Path) -> None:
-    # Ladder around two-role framing: policy jump, then Role-2 filter, then LLM.
+    # Terminal coverage ladder: policy jump, after-generation filter, LLM stack, pyribs refs.
     specs = [
         ("vanilla", ROOT / "artifacts/experiments/q1-v3-vanilla/summary.csv"),
         ("genetic_me", ROOT / "artifacts/experiments/q1-v3-genetic-me/summary.csv"),
@@ -254,26 +254,47 @@ def fig05_ladder(out: Path) -> None:
     ]
     labels: list[str] = []
     means: list[float] = []
-    sds: list[float] = []
+    cis: list[float] = []
+    ns: list[int] = []
     for label, path in specs:
         cov = [row["coverage_pct"] for row in _load_summary(path, label).values()]
+        n = len(cov)
+        mean = float(np.mean(cov))
+        sd = float(np.std(cov, ddof=1)) if n > 1 else 0.0
+        # Half-width of normal approx. 95% CI on the mean (same for every bar).
+        ci = 1.96 * sd / np.sqrt(n) if n > 1 else 0.0
         labels.append(label)
-        means.append(float(np.mean(cov)))
-        sds.append(float(np.std(cov, ddof=1)) if len(cov) > 1 else 0.0)
+        means.append(mean)
+        cis.append(ci)
+        ns.append(n)
+
+    if len(set(ns)) != 1:
+        raise RuntimeError(
+            f"fig05_ladder: inconsistent n across arms: {dict(zip(labels, ns))}"
+        )
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     x = np.arange(len(labels))
     bar_colors = plt.get_cmap("tab10")(np.linspace(0, 0.7, len(labels)))
-    ax.bar(x, means, yerr=sds, capsize=4, color=bar_colors)
+    ax.bar(
+        x,
+        means,
+        yerr=cis,
+        capsize=3,
+        color=bar_colors,
+        error_kw={"elinewidth": 1.0, "capthick": 1.0},
+    )
     ax.set_xticks(x, labels, rotation=25, ha="right")
     ax.set_ylabel("Mean coverage (%)")
-    ax.set_title("CA ladder: policy, Role-2 filter, LLM stack (n=10)")
+    ax.set_title(f"Primary-grid coverage ladder (mean ± 95% CI; n={ns[0]})")
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote {out}")
+    for label, mean, ci, n in zip(labels, means, cis, ns):
+        print(f"  {label}: {mean:.2f} ± {ci:.2f} (95% CI half-width, n={n})")
 
 
 def _trace_curve(path: Path, metric: str, grid: np.ndarray) -> np.ndarray:
