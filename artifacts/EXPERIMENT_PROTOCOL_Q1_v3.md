@@ -672,7 +672,7 @@ Sphere CMA-ME exceeds ME random by **+50.03 pp coverage** and **+290,872 QD-scor
 | **F-RQ4** | hints vs CMA-ME and hints vs CMA-MAE: for each arm, Δcov and Δfit (hints − arm), conjunctive greater; two arms → **m=4** | 4 | grid |
 | **F-RQ1g** | per additional LLM: stub vs hints Δcov+Δfit conjunctive | 2 × n_llm | grid |
 | **F-RQ3** (historical; production filter) | eval↓; cov NI; fit NI | 3 | grid — **BLOCKED** (D1@0.45 fail) |
-| **F-RQ3-gray** *(2026-07-28)* | `filter_gray_zone` vs `hints`: eval↓; cov NI; fit NI | 3 | grid — **deferred** (journal extension; optional $n{=}3$ pilot) |
+| **F-RQ3-gray** *(2026-07-28)* | `filter_gray_zone` vs `hints`: eval↓; cov NI; fit NI | 3 | grid — **exploratory pilot DONE** ($n{=}10$); confirmatory tier optional |
 
 Holm step-down within each family separately (do not pool B1+B2+G1 into one mega-family unless explicitly amended).
 
@@ -696,9 +696,11 @@ v2 established that **combat filter = `min_predicted_fitness=0.45`** (raised fro
 
 **Shadow (production filter):** keep skip in 25–45% under **0.45** if filter is re-run; no forced return to 0.10.
 
-### 4.2.1 F-RQ3-gray — amended confirmatory H3 *(2026-07-28; deferred for arXiv v1)*
+### 4.2.1 F-RQ3-gray — amended H3 path *(2026-07-28; journal scope 2026-07-29)*
 
-**Submission scope (2026-07-28):** This revision reports the diagnosed compose-gate mechanism (dual definition; gray-zone $74.6\%$; in-band vs out-of-band $d$), hold-out alignment to gate **0.95**, and honest NMAE degradation as a standalone Limitations / protocol-amendment contribution. **No new simulator runs** for H3 in arXiv v1. Full confirmatory **F-RQ3-gray** ($n{=}10$) is deferred to a journal extension. Optional exploratory pilot: **$n{=}3$** seeds on `filter_gray_zone` (precedent: matched H1 `gpt-4o-mini` pilot, Table 8 / `tab:hint-pilots`) — not confirmatory; if promising, anticipate full $n{=}10$ as with maze $n{=}5{\rightarrow}n{=}10$.
+**Submission scope (2026-07-29):** This revision reports the diagnosed compose-gate mechanism (dual definition; gray-zone $74.6\%$; in-band vs out-of-band $d$), hold-out alignment to gate **0.95**, honest NMAE degradation, and a live **`filter_gray_zone`** exploratory pilot ($n{=}10$, seeds 0–9) with exploratory Holm/NI read (artifact: `h3_gray_zone_pilot_holm.json`, `H3_GRAY_HOLM.md`). **Locked production H3 remains blocked** (D1@0.45 fail on historical `q1-full/filter`). A separate pre-registered confirmatory tier **`q1-v3-h3-gray-zone`** ($n{=}10$ duplicate run) remains optional; the completed pilot satisfies the exploratory reporting slot for journal-first submission.
+
+**Pilot results (2026-07-29, exploratory):** skip **11.69 ± 0.16%** (target 8–18%); mean $\Delta$cov vs frozen hints **−0.52 pp** (3/10 wins); exploratory F-RQ3-gray Holm $m{=}3$ **pass** (eval ↓, cov NI, fit NI) — **not** a coverage win and **not** rehabilitation of production `filter` @ 33.5% skip.
 
 **Dual-report (replaces D1-unlock path for new runs):**
 
@@ -758,8 +760,8 @@ Prefer v2 **amended one-sided NI** as paper claim (Δcov > −3 pp, Δfit_rel > 
 | `q1-v3-llm-deepseek-v4-pro` | 0–4 default / 0–9 full | stub, hints | G1 DeepSeek V4 Pro |
 | `q1-v3-llm-gpt-4o-mini` | 0–4 default / 0–9 full | stub, hints | G1 OpenAI gpt-4o-mini |
 | `q1-v3-llm-<slug>` | 0–9 (or 0–4) | stub, hints | G1 other models |
-| `q1-v3-h3-gray-zone` | 0–9 | `filter_gray_zone` | **F-RQ3-gray** confirmatory; shadow 8–18% pre-flight; **deferred** |
-| `q1-v3-h3-gray-zone-pilot` | 0–2 | `filter_gray_zone` | optional exploratory pilot ($n{=}3$); not confirmatory |
+| `q1-v3-h3-gray-zone` | 0–9 | `filter_gray_zone` | **F-RQ3-gray** confirmatory duplicate; optional (pilot $n{=}10$ exploratory DONE) |
+| `q1-v3-h3-gray-zone-pilot` | 0–9 | `filter_gray_zone` | exploratory pilot **DONE** ($n{=}10$); Holm/NI in `H3_GRAY_HOLM.md` |
 | `q1-v3-filter` | 0–9 | stub, hints, filter | historical production filter; exploratory only |
 | `cvt-shadow-v3` | 0 | shadow pair | if CVT filter revisited with new threshold |
 
@@ -925,5 +927,6 @@ Need “not custom sandbox only”? → B3 sphere + rastrigin (CPU, no LLM)
 | 2026-07-22 | **§3.11 heatmaps DONE:** seeds 1/4/6 hints vs CMA-ME + panel; filter seed 4 optional; `export_manuscript_figures.py --fig 7`. |
 | 2026-07-22 | **Data/code availability + freeze policy:** expanded `draft_v0.tex` §Data (tier/stats/M1 commands); **no OSF/Zenodo** for this submit — keep **internally frozen** (v3 2026-07-12; v4 2026-07-17). |
 | 2026-07-28 | **M1 hold-out recomputed @ gate 0.95:** MLP R²=**0.942** / NMAE=**0.112** vs GP R²=**0.891** / NMAE=**0.222** (~37× faster). Legacy @0.5 (0.761 vs 0.223) retired as model-quality contrast — target-rescaling artifact. Artifact `gp_ucb_ablation.json` updated. |
-| 2026-07-28 | **F-RQ3-gray confirmatory path (§4.2.1):** `force_eval_extinction_gray_zone` in acquisition + scheduler `map_elites_scheduler_nightly_llm_filter_gray_zone.yaml`; task list `Q1_H3_GRAY_ZONE_CONFIRMATORY.md`. Confirmatory H3 **deferred** for arXiv v1 (diagnosis + hold-out alignment reported instead). Optional $n{=}3$ pilot tier documented. Historical D1@0.45 on production filter **retired as gate**; remains diagnostic on locked logs. |
+| 2026-07-28 | **F-RQ3-gray path (§4.2.1):** `force_eval_extinction_gray_zone`; scheduler YAML; task list `Q1_H3_GRAY_ZONE_CONFIRMATORY.md`. Historical D1@0.45 **retired as gate** on production filter. | Locked production H3 blocked; confirmatory duplicate tier optional |
+| 2026-07-29 | **Gray-zone exploratory pilot DONE** ($n{=}10$): Holm/NI in `H3_GRAY_HOLM.md`; skip 11.7%; mean $\Delta$cov $-0.52$ pp | Exploratory pass $\neq$ confirmatory unlock; prod.\ filter not rehabilitated |
 | 2026-07-17 | **B3 standard benchmarks complete (§3.12):** deterministic D=20 Sphere/Rastrigin runner, CLI, batch tiers, traces, and benchmark-safe aggregation wired; five smoke combinations passed; **50/50** full runs complete. Sphere CMA-ME beats ME random by **+50.03 pp coverage** and **+290,872 QD-score** (10/10; descriptive p=0.00098, A₁₂=1.00). Rastrigin CMA-ME reaches **90.35%** coverage vs CMA-MAE **32.17%**. Supplementary implementation sanity only; confirmatory families unchanged. |

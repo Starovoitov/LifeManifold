@@ -79,6 +79,7 @@ SCHEDULER_HINTS_PARENT_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nigh
 SCHEDULER_HINTS_DIRECTION_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_direction.yaml"
 SCHEDULER_HINTS_WEAK_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_weak_hints.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
+SCHEDULER_FILTER_GRAY_ZONE="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter_gray_zone.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
 SCHEDULER_VANILLA_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_vanilla.yaml"
@@ -114,6 +115,7 @@ RUN_CMA_DISCRETE=false
 RUN_CMA_NATIVE_DISCRETE=false
 RUN_CMA_PBCMA=false
 RUN_H2_THRESHOLD_SWEEP=false
+RUN_GRAY_ZONE_ONLY=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -329,6 +331,16 @@ case "$TIER" in
     RUN_STUB_UNIFORM_ONLY=true
     LLM_PROVIDER=openai
     ;;
+  q1-h1-matched-deepseek-v4-pro)
+    # Matched H1 exploratory pilot: stub_uniform @ DeepSeek V4 Pro (reuse G1 hints).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-llm/deepseek-v4-pro"
+    SCHEDULER_STUB_UNIFORM="$SCHEDULER_STUB_UNIFORM_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_STUB_UNIFORM_ONLY=true
+    LLM_PROVIDER=deepseek
+    ;;
   q1-anytime-ladder)
     # Selective re-runs for archive_trace curves (vanilla + hints + cma_me); does not touch q1-full.
     ITERATIONS=650
@@ -426,9 +438,25 @@ case "$TIER" in
     RUN_WEAK_HINTS_PILOT=true
     LLM_PROVIDER=weak
     ;;
+  q1-v3-h3-gray-zone-pilot)
+    # H3 exploratory: force-eval gray zone vs frozen q1-full/hints (seeds 0–4 default).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-h3-gray-zone-pilot"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_GRAY_ZONE_ONLY=true
+    ;;
+  q1-v3-h3-gray-zone)
+    # H3 confirmatory F-RQ3-gray (deferred journal extension).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-h3-gray-zone"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_GRAY_ZONE_ONLY=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone" >&2
     exit 1
     ;;
 esac
@@ -502,6 +530,21 @@ if [[ "$REQUESTED_TIER" == "q1-h1-matched-gpt-4o-mini" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=2
   echo "NOTE: q1-h1-matched-gpt-4o-mini default seeds 0–2 (matched H1 pilot vs existing gpt-4o-mini hints)" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-h1-matched-deepseek-v4-pro" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=2
+  echo "NOTE: q1-h1-matched-deepseek-v4-pro default seeds 0–2 (matched H1 pilot vs existing deepseek hints)" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-v3-h3-gray-zone-pilot" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=4
+  echo "NOTE: q1-v3-h3-gray-zone-pilot default seeds 0–4 (exploratory n=5; vs frozen q1-full/hints)" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-v3-h3-gray-zone" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-v3-h3-gray-zone default seeds 0–9 (F-RQ3-gray confirmatory; shadow 8–18% pre-flight on seed 0)" >&2
 fi
 if [[ "$REQUESTED_TIER" == "q1-anytime-ladder" && $# -lt 2 ]]; then
   SEED_START=0
@@ -583,7 +626,7 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot)
     apply_long_run_llm_defaults
     ;;
   q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity)
@@ -677,7 +720,7 @@ run_one() {
   remove_incomplete_run_dir "$out"
   mkdir -p "$out"
   local extra=()
-  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "hints_rich" || "$condition" == "hints_parent" || "$condition" == "hints_direction" ]]; then
+  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "filter_gray_zone" || "$condition" == "hints_rich" || "$condition" == "hints_parent" || "$condition" == "hints_direction" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
   if [[ -n "$replicate" ]]; then
@@ -1064,6 +1107,8 @@ else
       elif [[ "$RUN_WEAK_HINTS_PILOT" == true ]]; then
         run_one stub_uniform "$SCHEDULER_STUB_UNIFORM" "$seed" "$rep_arg"
         run_one hints "$SCHEDULER_HINTS" "$seed" "$rep_arg"
+      elif [[ "$RUN_GRAY_ZONE_ONLY" == true ]]; then
+        run_one filter_gray_zone "$SCHEDULER_FILTER_GRAY_ZONE" "$seed" "$rep_arg"
       else
         if [[ "$FILTER_ONLY" == true ]]; then
           require_stub_hints_for_seed "$seed"
