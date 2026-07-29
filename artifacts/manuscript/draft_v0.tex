@@ -283,7 +283,7 @@ CMA proposes continuous $\theta\in\mathbb{R}^{21}$; \texttt{decode\_genome} then
 \subsection{Measurement substrate}
 \label{sec:substrate}
 
-Primary contrasts use a controlled black-box evaluator---not a domain contribution. Each candidate is a structured \texttt{WorldSpec}: birth/survival neighbour-count rule tables (18 bits) plus three continuous scalars (\texttt{noise}, \texttt{resource\_regen}, \texttt{predation}). The simulator runs a seeded $50\times50$ toroidal cellular-automaton world for $T_{\mathrm{sim}}{=}200$ steps (early extinction $\Rightarrow$ fitness~0). Behaviour characteristics are stability and diversity in $[0,1]$, so the primary archive is a $50\times50$ niche grid over that plane; insertion fitness is a fixed weighted recompose of diversity, survival, oscillation, and topology proxies (Eq.~\eqref{eq:fitness} in appendix~\S\ref{sec:substrate-appendix}). Genetic emitters flip bits / nudge scalars; LLM emitters edit the same named fields as JSON. The evaluator is cheap relative to CFD-style SAIL domains, so H2 claims evaluation-indexed efficiency and reports wall time separately (\S\ref{sec:cost}). Table~\ref{tab:domain} lists the knobs; example elites and fitness algebra remain in the appendix. Coverage is occupied-cell percentage after warm-start merge; mean best fitness averages elites over filled cells; QD-score (Eq.~\eqref{eq:qd}) is descriptive only. CVT geometry is appendix sensitivity~\cite{vassiliades2018cvt}.
+Primary contrasts use a controlled black-box evaluator---not a domain contribution. Each candidate is a structured \texttt{WorldSpec}: birth/survival neighbour-count rule tables (18 bits) plus three continuous scalars (\texttt{noise}, \texttt{resource\_regen}, \texttt{predation}). The simulator runs a seeded $50\times50$ toroidal cellular-automaton world for $T_{\mathrm{sim}}{=}200$ steps (early extinction $\Rightarrow$ fitness~0). Behaviour characteristics are stability and diversity in $[0,1]$, so the primary archive is a $50\times50$ niche grid over that plane; insertion fitness is a fixed weighted recompose of diversity, survival, oscillation, and topology proxies (Eq.~\eqref{eq:fitness} in appendix~\S\ref{sec:substrate-appendix}). Genetic emitters flip bits / nudge scalars; LLM emitters edit the same named fields as JSON. The evaluator is cheap relative to CFD-style SAIL domains, so H2 claims evaluation-indexed efficiency and reports wall time separately (\S\ref{sec:cost}). Structured named fields make both soft before-generation and hard after-generation interventions testable---the reason for a synthetic CA primary testbed rather than a pure $\mathbb{R}^d$ literature toy as the sole domain. Table~\ref{tab:domain} lists the knobs; example elites and fitness algebra remain in the appendix. Coverage is occupied-cell percentage after warm-start merge; mean best fitness averages elites over filled cells; QD-score (Eq.~\eqref{eq:qd}) is descriptive only. CVT geometry is appendix sensitivity~\cite{vassiliades2018cvt}. Complementary literature Sphere H2 transfer (threshold gate only; no LLM) is Table~\ref{tab:sphere-h2}.
 
 \begin{table}[!htbp]
   \centering
@@ -351,6 +351,8 @@ arms are not pooled into Holm tests.
     2026-07-22 & Keep in-repo freeze (no OSF/Zenodo); multi-provider bundled $n{=}10$ completed as planned G1 & Matched-policy H1 (still \texttt{qwen-turbo}); H2/H4/H5 gates \\
     2026-07-28 & Hold-out compose gate aligned to runtime $0.95$; gray-zone H3 path specified & Locked production H3 remains blocked; no re-Holm of H2/H4/H5 on new runs \\
     2026-07-29 & Gray-zone exploratory pilot ($n{=}10$) + Holm/NI read reported & Exploratory pass $\neq$ confirmatory unlock; prod.\ \texttt{filter} not rehabilitated \\
+    2026-07-30 & Maze five-arm batch complete ($n{=}10$; F-B5-maze) & Family partial (filter AUC Holm yes); hints/LLM+filter no \\
+    2026-07-30 & Supplementary Sphere H2 (\texttt{me\_uniform} vs.\ \texttt{me\_filter}, $n{=}10$) & Descriptive only; no Holm family; no LLM/H1 \\
     \bottomrule
   \end{tabular}%
   }
@@ -381,7 +383,7 @@ Table~\ref{tab:conditions} lists arms referenced in the main text. Each primary-
     \texttt{genetic} (dungeon) & 20R+30G & off & off & Dungeon domain \\
     \texttt{llm\_hints} (dungeon) & 20R+30L & dungeon surr. & on & 5k proposals/arm in reported matrix \\
     \texttt{genetic} (maze) & 20R+30G & off & off & Maze domain; 900-cell grid \\
-    \texttt{llm\_hints} (maze) & 20R+30L & maze surr. & on & 32.5k proposals/arm (interim $n{=}5$) \\
+    \texttt{llm\_hints} (maze) & 20R+30L & maze surr. & on & 32.5k proposals/arm ($n{=}10$) \\
     \bottomrule
   \end{tabular}%
   }
@@ -389,7 +391,7 @@ Table~\ref{tab:conditions} lists arms referenced in the main text. Each primary-
 
 \subsection{Confirmatory contrast sets (summary)}
 
-Confirmatory Holm contrast sets are locked in the dated protocol files (\S\ref{sec:pins}). In plain terms: the bundled stub$\rightarrow$hints and hints$\rightarrow$vanilla stack contrasts \textbf{pass}; H4 vs.\ CMA-ME/MAE does not (CMA-ME leads under continuous encoding); dungeon H5 is \textbf{partial} (filter AUC ports; LLM contrasts do not); maze five-arm Holm at $n{=}5$ is interim, while the maze CPU H2 pair ($n{=}10$) rejects after Holm. Matched-policy H1 is the TOST contrast in \S\ref{sec:decomposition}, not the bundled stub vs.\ hints stack. Locked production H3 remains blocked; gray-zone pilot is exploratory (Table~\ref{tab:h3-gray-holm}). Holm widths $m$ and outcomes: appendix Table~\ref{tab:families}.
+Confirmatory Holm contrast sets are locked in the dated protocol files (\S\ref{sec:pins}). In plain terms: the bundled stub$\rightarrow$hints and hints$\rightarrow$vanilla stack contrasts \textbf{pass}; H4 vs.\ CMA-ME/MAE does not (CMA-ME leads under continuous encoding); dungeon and maze H5 are both \textbf{partial} (filter AUC Holm-rejects; hints / LLM$+$filter do not). Matched-policy H1 is the TOST contrast in \S\ref{sec:decomposition}, not the bundled stub vs.\ hints stack. Locked production H3 remains blocked; gray-zone pilot is exploratory (Table~\ref{tab:h3-gray-holm}). Holm widths $m$ and outcomes: appendix Table~\ref{tab:families}.
 
 \subsection{Reproducibility pins}
 \label{sec:pins}
@@ -408,7 +410,7 @@ Table~\ref{tab:pins} lists frozen protocol documents, software pins, and window-
     \midrule
     Protocol (primary grid) & Q1 v2 + v3 & §§1--4 frozen 2026-07-12 (v3); v2 grid matrix \\
     Protocol dungeon & Q1 v4 & Frozen 2026-07-17; dungeon @ 5k proposals \\
-    Maze batch (journal track) & interim H5 maze & seeds 0--4 five-arm; see Data availability \\
+    Maze batch (journal track) & H5 maze $n{=}10$ & five-arm @ 32.5k; see Data availability \\
     Code revision (submission) & tag~\texttt{\SubmissionGitTag} / \texttt{\SubmissionGitShort} & Fill SHA at upload; see Data availability \\
     Seeds (primary grid) & $0,\ldots,9$ & Paired across conditions within tier \\
     Eval budget (primary grid) & 32{,}500 & $650\times50$ simulator calls \\
@@ -443,9 +445,9 @@ The primary-grid stack uses \texttt{qwen-turbo} on seeds 0--9. We additionally r
 
 The cross-domain dungeon factorial uses a 16$\times$16 tile dungeon, separate surrogate calibration (\texttt{checkpoint\_benchmark\_v2.pkl}), and five arms at \textbf{5{,}000 proposals} per seed ($n=10$). Quality gates require LLM fallback $\le 5\%$ and filter skip 25--45\%; all passed before seeds 5--9. \textbf{Confirmatory} dungeon endpoints are AUC at matched real evaluations on this 5k matrix. A \textbf{supplementary} CPU pair (\texttt{genetic} vs.\ \texttt{genetic\_filter} only, 32{,}500 proposals, $n=10$) checks H2 at the primary-grid proposal budget; LLM arms at 32{,}500 proposals are deferred to a journal extension (protocol amendment before runs). Protocol v4 §6 notes that coverage-threshold timing metrics were not pre-specified before the first pilot and are descriptive only.
 
-\subsection{Maze factorial (journal track; interim)}
+\subsection{Maze factorial (journal track; $n{=}10$)}
 
-A third-domain maze factorial mirrors the dungeon five-arm design at the primary-grid proposal budget (\textbf{32{,}500} proposals/arm; 900-cell behaviour grid; separate maze surrogate and filter calibration $\tau{=}0.685$). Endpoints match the dungeon H5 design: coverage / QD-score AUC at matched real evaluations (Holm $m{=}8$). This draft reports an \textbf{interim} five-arm slice on seeds $0$--$4$ ($n{=}5$) plus a complete genetic vs.\ genetic\_filter CPU pair on seeds $0$--$9$ ($n{=}10$). Seeds $5$--$9$ LLM arms were still running at freeze; the $n{=}10$ five-arm Holm will replace the interim slice when complete. Quality gates on the interim slice pass (pooled LLM fallback $0.016\%$; genetic\_filter skip $27.4 \pm 0.6\%$).
+A third-domain maze factorial mirrors the dungeon five-arm design at the primary-grid proposal budget (\textbf{32{,}500} proposals/arm; 900-cell behaviour grid; separate maze surrogate and filter calibration $\tau{=}0.685$). Endpoints match the dungeon H5 design: coverage / QD-score AUC at matched real evaluations (Holm $m{=}8$). All five arms complete on seeds $0$--$9$ ($n{=}10$). Quality gates pass (pooled LLM fallback $0.009\%$; genetic\_filter skip $27.3 \pm 0.6\%$).
 
 \section{Results}
 \label{sec:results}
@@ -571,6 +573,27 @@ H2 isolates after-generation attachment on matched no-LLM arms: \texttt{genetic\
 \textbf{Why MLP can cost more than skipped sims.} Acquisition runs \texttt{predict\_batch} on every proposal, including those later skipped, using a four-member MLP ensemble with MC-dropout ($p{=}0.05$) before the cheap simulator roll-out. Simulator evaluations are process-pooled; surrogate inference is a per-candidate Python path. When $t_{\mathrm{sim}}$ is milliseconds, that path dominates wall. Skipping 33.5\% of sims therefore removes little wall while adding full-batch MLP work.
 
 \textbf{Wall-time break-even (descriptive).} Write wall cost per proposal batch as $(1-s)\,t_{\mathrm{sim}}+t_{\mathrm{MLP}}$ with skip rate $s\approx 0.335$. Filter wins on wall only if $t_{\mathrm{MLP}}<s\,t_{\mathrm{sim}}$. Matching the observed wall ratio ($\sim$20 vs.\ $\sim$7~min) implies $t_{\mathrm{MLP}}/t_{\mathrm{sim}}\approx 2.2$, so the simulator would need to be roughly $\mathbf{7\times}$ slower before a 33.5\% skip saves wall clock.
+
+\textbf{Literature Sphere transfer (supplementary).} The same after-generation rule---threshold gate plus empty-bin force-eval---on Fontaine linear-projection Sphere ($D{=}20$; MAP-Elites + isotropic Gaussian; no LLM) reproduces the evaluation-indexed pattern (Table~\ref{tab:sphere-h2}): $+7.88$~pp coverage at matched evaluations (10/10) with $\sim$38\% skips and near-parity terminal coverage at fixed proposals. This is not a SAIL CFD replicate and does not test H1.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Supplementary Sphere H2: matched \texttt{me\_uniform} vs.\ \texttt{me\_filter} (Fontaine linear-projection Sphere; $n{=}10$; 32{,}500 proposals). Descriptive Wilcoxon only---not a confirmatory Holm family.}
+  \label{tab:sphere-h2}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}lr@{}}
+    \toprule
+    Quantity & Value \\
+    \midrule
+    Mean skip rate & $37.9\% \pm 2.7$ \\
+    Mean true evals (filter) & $20{,}178$ \\
+    Terminal $\Delta$cov (filter $-$ uniform @ fixed proposals) & $+0.18$~pp (5/10) \\
+    Matched-eval $\Delta$cov @ $18{,}699$ evals & $+7.88$~pp (10/10; $p{=}9.8\times10^{-4}$) \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
 
 \subsection{Why the after-generation surrogate wins (mechanism)}
 \label{sec:why-filter}
@@ -769,7 +792,7 @@ On this cheap evaluator, the after-generation surrogate increases wall time desp
 \subsection{H5 --- Cross-domain after-generation check (dungeon + maze; not cross-domain LLM QD)}
 \label{sec:h5}
 
-\textbf{Scope.} Does the after-generation surrogate \emph{port} beyond the primary evaluator? The locked check is a 16$\times$16 patch-LLM dungeon under frozen v4 ($n{=}10$, 5{,}000 proposals/arm). A maze factorial at 32{,}500 proposals/arm is an interim third-domain slice. Confirmatory endpoints are AUC at matched real evaluations (pilot timing metrics are descriptive). Dungeon quality gates passed (LLM fallback $\le 0.99\%$, filter skip 34--40\%). Figure~\ref{fig:b4} shows dungeon anytime curves. A supplementary dungeon CPU after-generation pair at 32{,}500 proposals is in Table~\ref{tab:h2-cpu-full}; full-budget LLM dungeon arms remain deferred.
+\textbf{Scope.} Does the after-generation surrogate \emph{port} beyond the primary evaluator? The locked check is a 16$\times$16 patch-LLM dungeon under frozen v4 ($n{=}10$, 5{,}000 proposals/arm). A maze factorial at 32{,}500 proposals/arm completes the third-domain slice ($n{=}10$). Confirmatory endpoints are AUC at matched real evaluations (pilot timing metrics are descriptive). Dungeon quality gates passed (LLM fallback $\le 0.99\%$, filter skip 34--40\%). Figure~\ref{fig:b4} shows dungeon anytime curves. A supplementary dungeon CPU after-generation pair at 32{,}500 proposals is in Table~\ref{tab:h2-cpu-full}; full-budget LLM dungeon arms remain deferred.
 
 \textbf{Filter thresholds.} Each domain uses its own $\tau$, chosen by shadow replay to land in a skip band $\sim$25--45\%: primary $\tau{=}0.45$, dungeon $\tau{=}0.78$, maze $\tau{=}0.685$. Absolute $\tau$ values are not transferable; the shared rule is the skip band. Primary-grid H2 has an online sweep at $\{0.35,0.45,0.55\}$ (Table~\ref{tab:h2-tau-sweep}). Dungeon/maze transfer is reported at those operating points; a within-domain $\tau$ ablation is deferred.
 
@@ -835,32 +858,32 @@ At a matched real-evaluation checkpoint (2{,}991 evals), genetic\_filter beats g
   }
 \end{table}
 
-\paragraph{Maze (journal-track H5; interim $n{=}5$).}
+\paragraph{Maze (journal-track H5; $n{=}10$).}
 \label{sec:h5-maze}
-A maze factorial mirrors the dungeon five-arm design at the primary-grid proposal budget (32{,}500 proposals/arm; 900-cell grid; maze filter $\tau{=}0.685$). We report seeds $0$--$4$ as an interim five-arm slice; genetic vs.\ genetic\_filter is already complete for seeds $0$--$9$. Quality gates pass on the interim slice (pooled LLM fallback $0.016\%$; genetic\_filter skip $27.4 \pm 0.6\%$; parse success $\ge 99.89\%$).
+A maze factorial mirrors the dungeon five-arm design at the primary-grid proposal budget (32{,}500 proposals/arm; 900-cell grid; maze filter $\tau{=}0.685$). All five arms complete on seeds $0$--$9$. Quality gates pass ($n{=}10$; pooled LLM fallback $0.009\%$; genetic\_filter skip $27.3 \pm 0.6\%$; parse success $\ge 99.89\%$).
 
-At fixed proposals (Table~\ref{tab:b5}): genetic arms saturate the 900-cell archive ($99.2 \pm 1.7$\% genetic; $99.3 \pm 1.6$\% genetic\_filter), while LLM arms plateau near half coverage (llm\_hints $46.6 \pm 3.1$\%; llm\_stub $47.1 \pm 4.5$\%; llm\_hints\_filter $43.4 \pm 4.8$\%). The terminal genetic$-$LLM gap ($\sim$52~pp) is therefore a \textbf{ceiling artifact} on the genetic side (saturation by $\sim$14k evaluations) plus a real emitter gap---not a fair terminal-coverage ranking. Descriptive hints$-$stub is near zero at the terminal ($-0.5$~pp); llm\_hints\_filter finishes $-3.2$~pp vs.\ hints.
+At fixed proposals (Table~\ref{tab:b5}): genetic arms saturate the 900-cell archive ($99.6 \pm 1.1$\% genetic; $99.6 \pm 1.1$\% genetic\_filter), while LLM arms plateau near half coverage (llm\_hints $47.7 \pm 3.3$\%; llm\_stub $47.3 \pm 3.5$\%; llm\_hints\_filter $43.5 \pm 3.6$\%). The terminal genetic$-$LLM gap ($\sim$52~pp) is therefore a \textbf{ceiling artifact} on the genetic side plus a real emitter gap---not a fair terminal-coverage ranking. Descriptive hints$-$stub is near zero at the terminal ($+0.4$~pp); llm\_hints\_filter finishes $-4.3$~pp vs.\ hints.
 
 \begin{table}[!htbp]
   \centering
-  \caption{Maze mean levels at 32{,}500 proposals (interim seeds $0$--$4$, $n{=}5$). Genetic arms hit a 900-cell ceiling; primary endpoints are AUC at matched evaluations (Table~\ref{tab:b5-holm}).}
+  \caption{Maze mean levels at 32{,}500 proposals ($n{=}10$). Genetic arms hit a 900-cell ceiling; primary endpoints are AUC at matched evaluations (Table~\ref{tab:b5-holm}).}
   \label{tab:b5}
   \fitcenter{%
   \begin{tabular}{@{}lrrrr@{}}
     \toprule
     Arm & Coverage (\%) & QD-score & Skip (\%) & Wall (min) \\
     \midrule
-    genetic & $99.2 \pm 1.7$ & 573 & 0 & $\sim$0.8 \\
-    genetic\_filter & $99.3 \pm 1.6$ & 573 & 27.4 & $\sim$1.1 \\
-    llm\_stub & $47.1 \pm 4.5$ & 248 & 0 & $\sim$393 \\
-    llm\_hints & $46.6 \pm 3.1$ & 245 & 0 & $\sim$342 \\
-    llm\_hints\_filter & $43.4 \pm 4.8$ & 229 & 28.2 & $\sim$355 \\
+    genetic & $99.6 \pm 1.1$ & 574 & 0 & $\sim$1 \\
+    genetic\_filter & $99.6 \pm 1.1$ & 574 & 27.3 & $\sim$1 \\
+    llm\_stub & $47.3 \pm 3.5$ & 250 & 0 & $\sim$377 \\
+    llm\_hints & $47.7 \pm 3.3$ & 253 & 0 & $\sim$389 \\
+    llm\_hints\_filter & $43.5 \pm 3.6$ & 230 & 27.9 & $\sim$424 \\
     \bottomrule
   \end{tabular}%
   }
 \end{table}
 
-At matched real evaluations (22{,}860 evals; Table~\ref{tab:b5-holm}), genetic\_filter leads genetic on coverage AUC by $+4.7$~pp (5/5; raw $p{=}0.031$) and on QD-score AUC by $+32.2$ (5/5). Hints$-$stub coverage AUC is $+1.9$~pp (4/5; raw $p{=}0.094$). LLM$+$filter and acquisition interaction are negative (1/5 and 0/5). Interim five-arm Holm $m{=}8$ does \textbf{not} pass: no contrast survives correction at $n{=}5$. Retrospective MDE ${\approx}4.7$~pp (Eq.~\eqref{eq:mde}) on genetic\_filter coverage AUC---so the observed $+4.7$~pp sits at the detection edge before Holm $m{=}8$, and the interim slice cannot support confirmatory transfer claims. We report only \emph{sign concordance} with locked dungeon H5 (H2-direction positive; hints / LLM$+$filter not), not a powered maze replica of the dungeon Holm family. Confirmatory maze H2 evidence in this draft is the complete CPU pair at $n{=}10$ (below).
+At matched real evaluations (22{,}860 evals; Table~\ref{tab:b5-holm}), genetic\_filter leads genetic on coverage AUC by $+4.7$~pp (10/10; Holm reject) and on QD-score AUC by $+30.8$ (10/10; Holm reject). Hints$-$stub coverage AUC is $+1.5$~pp (8/10; raw $p{=}0.065$; Holm non-reject). LLM$+$filter and acquisition interaction remain negative (4/10 and 0/10). Full five-arm Holm $m{=}8$ does \textbf{not} pass as a family (`family\_pass{=}False`)---the same \textbf{partial} pattern as locked dungeon H5: after-generation filter AUC ports; bundled LLM QD and interaction do not.
 
 \textbf{Supplementary maze CPU @ 32{,}500 proposals} (genetic vs.\ genetic\_filter only, seeds $0$--$9$; Table~\ref{tab:h2-cpu-full}). Terminal coverage is again saturated ($\sim$99.6\% both arms; skip $27.3\%$). On the evaluation axis at 23{,}300 matched evals, filter AUC rejects after Holm: coverage $+4.6$~pp (10/10) and QD-score $+30.2$ (10/10). This is the third domain (primary grid $\rightarrow$ dungeon $\rightarrow$ maze) on which after-generation sample-efficiency ports without an LLM.
 
@@ -887,7 +910,7 @@ At matched real evaluations (22{,}860 evals; Table~\ref{tab:b5-holm}), genetic\_
 
 \begin{table}[!htbp]
   \centering
-  \caption{Maze Holm outcomes (interim H5; $m{=}8$; AUC @ 22{,}860 real evaluations, seeds $0$--$4$). No contrast survives Holm at $n{=}5$ (retrospective MDE ${\approx}4.7$~pp). Sign concordance with dungeon H5; replace with $n{=}10$ when seeds 5--9 LLM arms complete.}
+  \caption{Maze Holm outcomes (H5; $m{=}8$; AUC @ 22{,}860 real evaluations, $n{=}10$). Family does not pass ($2/8$ Holm rejects); partial pattern matches dungeon H5.}
   \label{tab:b5-holm}
   \small
   \fitcenter{%
@@ -895,27 +918,27 @@ At matched real evaluations (22{,}860 evals; Table~\ref{tab:b5-holm}), genetic\_
     \toprule
     Contrast (AUC) & Mean $\Delta$ & Raw $p$ & Holm reject \\
     \midrule
-    genetic\_filter $-$ genetic (coverage) & $+0.047$ & 0.031 & No \\
-    genetic\_filter $-$ genetic (QD-score) & $+32.2$ & 0.031 & No \\
-    hints $-$ stub (coverage) & $+0.019$ & 0.094 & No \\
-    hints $-$ stub (QD-score) & $+11.3$ & 0.063 & No \\
-    llm\_hints\_filter $-$ llm\_hints (coverage) & $-0.017$ & 0.938 & No \\
-    llm\_hints\_filter $-$ llm\_hints (QD-score) & $-8.6$ & 0.938 & No \\
-    acquisition interaction (coverage) & $-0.063$ & 1.0 & No \\
-    acquisition interaction (QD-score) & $-40.8$ & 1.0 & No \\
+    genetic\_filter $-$ genetic (coverage) & $+0.047$ & $9.8\times10^{-4}$ & Yes \\
+    genetic\_filter $-$ genetic (QD-score) & $+30.8$ & $9.8\times10^{-4}$ & Yes \\
+    hints $-$ stub (coverage) & $+0.015$ & 0.065 & No \\
+    hints $-$ stub (QD-score) & $+10.0$ & 0.053 & No \\
+    llm\_hints\_filter $-$ llm\_hints (coverage) & $-0.009$ & 0.862 & No \\
+    llm\_hints\_filter $-$ llm\_hints (QD-score) & $-3.6$ & 0.839 & No \\
+    acquisition interaction (coverage) & $-0.056$ & 1.0 & No \\
+    acquisition interaction (QD-score) & $-34.3$ & 0.999 & No \\
     \bottomrule
   \end{tabular}%
   }
 \end{table}
 
-\textbf{H5 readout.} After-generation sample-efficiency without LLM transfers on dungeon and maze at their calibrated $\tau$ where $n{=}10$ Holm is available. The maze five-arm interim ($n{=}5$) is sign-consistent but underpowered for Holm $m{=}8$. Bundled LLM QD lift does not transfer: genetic MAP-Elites leads LLM arms by $\sim$19~pp on dungeon coverage AUC and $\sim$40~pp on the maze interim slice. Dungeon hints$-$stub ($+0.85$~pp AUC) does not survive Holm. LLM$+$filter stays negative or near zero. Alternate $\tau$ within each secondary domain is not tested here.
+\textbf{H5 readout.} After-generation sample-efficiency without LLM transfers on dungeon and maze at their calibrated $\tau$: genetic\_filter coverage AUC Holm-rejects in both domains ($n{=}10$). Full five-arm families remain \textbf{partial} on both domains (hints / LLM$+$filter / interaction do not survive Holm). Bundled LLM QD lift does not transfer: genetic MAP-Elites leads LLM arms by $\sim$19~pp on dungeon coverage AUC and $\sim$46~pp on maze ($35.5\%$ vs $81.7\%$ AUC @ matched evals). Dungeon hints$-$stub ($+0.85$~pp AUC) does not survive Holm; maze hints$-$stub ($+1.5$~pp) is directionally similar but also Holm non-reject. LLM$+$filter stays negative or near zero. Alternate $\tau$ within each secondary domain is not tested here.
 
 \section{Discussion}
 \label{sec:discussion}
 
 \subsection{Synthesis}
 
-This paper recasts a classical evolution-control question---where a surrogate should intervene relative to expensive evaluation---as an intervention-point decomposition for LLM-guided MAP-Elites. Hard after-generation intervention (H2) improves coverage \emph{per simulation} (Figure~\ref{fig:acquisition}); soft before-generation intervention (H1) stays within $\pm 2$~pp on \texttt{qwen-turbo}. CMA-ME, multi-provider, and dungeon/maze rows are evidence kinds for that methodological answer, not separate theses. Magnitudes are testbed-specific (\S\ref{sec:limitations}).
+This paper recasts a classical evolution-control question---where a surrogate should intervene relative to expensive evaluation---as an intervention-point decomposition for LLM-guided MAP-Elites. Hard after-generation intervention (H2) improves coverage \emph{per simulation} (Figure~\ref{fig:acquisition}); soft before-generation intervention (H1) stays within $\pm 2$~pp on \texttt{qwen-turbo}. A literature Sphere transfer reproduces the H2 evaluation-indexed pattern without an LLM (Table~\ref{tab:sphere-h2}). CMA-ME, multi-provider, and dungeon/maze rows are further evidence kinds for that methodological answer. Magnitudes are testbed-specific (\S\ref{sec:limitations}).
 
 \subsection{Mechanistic reading}
 \label{sec:why-discussion}
@@ -985,23 +1008,24 @@ Primary evidence uses a cheap evaluator where MLP inference dominates wall time,
 
 H3 is \textbf{exploratory}: the locked production filter fails compose-gate skip agreement ($d{=}0.528$), but offline replay localizes the mechanism and documents corrected hold-out validity after aligning the extinction gate to production~$0.95$ (NMAE $0.052\!\rightarrow\!0.112$; appendix~\S\ref{sec:checkpoint-appendix}). A live \texttt{filter\_gray\_zone} pilot ($n{=}10$) validates the repair mechanism (skip $\sim$11.7\%) and passes exploratory F-RQ3-gray NI margins (Table~\ref{tab:h3-gray-holm}), but mean coverage remains $-0.52$~pp vs.\ hints (3/10 wins)---not a stack win and not rehabilitation of production \texttt{filter}. Live skip logs always used gate~$0.95$ (Table~\ref{tab:skip-mech}).
 
-LLM endpoints are window-pinned with \texttt{llm\_spec\_hash}, but floating aliases limit bit-exact replay; genetic ME and pyribs CMA remain locally re-runnable. Holm is within locked contrast sets; paper-wide Holm agrees on claim-driving rows (Table~\ref{tab:paper-holm}). Only matched H1 carries a formal TOST/MDE. Other non-rejects are fail-to-reject, not equivalence claims: dungeon hints$-$stub and LLM$+$filter are small or wrong-direction; H4's CMA-ME miss is a large reverse effect; maze five-arm Holm at $n{=}5$ is interim (MDE ${\approx}4.7$~pp).
+LLM endpoints are window-pinned with \texttt{llm\_spec\_hash}, but floating aliases limit bit-exact replay; genetic ME and pyribs CMA remain locally re-runnable. Holm is within locked contrast sets; paper-wide Holm agrees on claim-driving rows (Table~\ref{tab:paper-holm}). Only matched H1 carries a formal TOST/MDE. Other non-rejects are fail-to-reject, not equivalence claims: dungeon and maze hints$-$stub and LLM$+$filter are small or wrong-direction; H4's CMA-ME miss is a large reverse effect. Maze five-arm Holm $m{=}8$ is complete at $n{=}10$ but remains \textbf{partial} (filter AUC Holm-rejects; family does not pass).
 
 \subsubsection{Generalizability}
 
-Primary contrasts use the grid evaluator (\S\ref{sec:substrate}); dungeon and maze are two further discrete PCG domains with cheap simulators relative to CFD-style SAIL. Magnitudes ($+3.7$~pp, $33.5\%$ skips) are testbed-specific. The before/after question is reusable; a universal ranking on expensive continuous genomes is not shown. H2 is positive on the evaluation-count axis here; wall-clock transfer near the $\sim$7$\times$ break-even forecast is untested. Prompt-side attachment (H1) fits structured genotypes; a pure $\mathbb{R}^d$ continuous-control prompt interface is out of scope.
+Primary contrasts use a controlled structured-genotype evaluator (\S\ref{sec:substrate}) chosen so that both soft prompt-side and hard after-generation interventions are definable. Dungeon and maze are further discrete PCG transfer domains; magnitudes ($+3.7$~pp, $33.5\%$ skips) remain testbed-specific. We do not claim a universal ranking on expensive continuous genomes or CFD-style SAIL domains.
 
-Dungeon and maze transfer filter AUC at calibrated skip-band $\tau$, not bundled LLM QD lift; maze genetic arms also hit a 900-cell ceiling. Secondary-domain $\tau$ was set by shadow replay, not by repeating the primary online sweep (Table~\ref{tab:h2-tau-sweep}). Multi-provider rows replicate the bundled $\Delta$ direction at $n{=}10$; absolute coverage still differs by API (matched H1 remains \texttt{qwen-turbo}). Repository Sphere/Rastrigin pyribs tiers are glue-code smoke checks, not scientific claims.
+To check whether the \emph{after-generation} mechanism depends on the custom CA, a supplementary Fontaine linear-projection Sphere run applies the same threshold-gate rule (with empty-bin force-eval) on anonymous $\mathbb{R}^{20}$ genotypes ($n{=}10$; 32{,}500 proposals): filter skips $37.9\%\pm 2.7\%$ of proposals and leads by $+7.88$~pp coverage at matched evaluations (10/10; Wilcoxon one-sided $p{=}9.8\times10^{-4}$; Table~\ref{tab:sphere-h2}). Terminal coverage at fixed proposals stays near parity ($+0.18$~pp). That package is descriptive / supplementary---not a confirmatory Holm family---and does not re-open H1 (no named fields for prompt scalars). Repository CMA Sphere/Rastrigin tiers remain pyribs-runner sanity checks. Wall-clock transfer near the $\sim$7$\times$ break-even forecast is still untested on costly simulators.
+
+Dungeon and maze transfer filter AUC at calibrated skip-band $\tau$, not bundled LLM QD lift; maze genetic arms also hit a 900-cell ceiling. Secondary-domain $\tau$ was set by shadow replay, not by repeating the primary online sweep (Table~\ref{tab:h2-tau-sweep}). Multi-provider rows replicate the bundled $\Delta$ direction at $n{=}10$; absolute coverage still differs by API (matched H1 remains \texttt{qwen-turbo}).
 
 \subsubsection{Scope of this paper}
 
-Hypotheses and analysis rules are locked in dated repository protocol files (primary grid: 2026-07-12; dungeon: 2026-07-17; Table~\ref{tab:amendments}), not a public OSF/Zenodo pre-registration. This draft reports frozen primary-grid sets, locked dungeon H5 on the 5k five-arm matrix (partial), supplementary CPU H2 pairs (Table~\ref{tab:h2-cpu-full}), an interim maze five-arm slice ($n{=}5$), maze CPU H2 at $n{=}10$, and an exploratory gray-zone H3 pilot ($n{=}10$; \S\ref{sec:h3}). Still open: full maze five-arm Holm at $n{=}10$, full-budget LLM dungeon, dungeon/maze $\tau$ ablations, and matched H1 at $n{=}10$ on additional providers (DeepSeek pilot $n{=}3$ in progress). Offline MLP/GP/UCB and compose-gate replays are appendix-only (\S\ref{sec:surrogate-ablation-appendix}, \S\ref{sec:h3-appendix}); they do not re-run the confirmatory filter matrix. The locked stub/hints PASS is a stack test; matched H1 isolates hint content (\S\ref{sec:decomposition}). Hint-content and weak-model pilots ($n{\le}3$) are illustrative. Open extensions: \S\ref{sec:discussion} (Future work).
-
+Hypotheses and analysis rules are locked in dated repository protocol files (primary grid: 2026-07-12; dungeon: 2026-07-17; Table~\ref{tab:amendments}), not a public OSF/Zenodo pre-registration. This draft reports frozen primary-grid sets, locked dungeon/maze H5 (partial), supplementary Sphere H2 (Table~\ref{tab:sphere-h2}), supplementary CPU H2 pairs (Table~\ref{tab:h2-cpu-full}), and an exploratory gray-zone H3 pilot ($n{=}10$; \S\ref{sec:h3}). Still open: full-budget LLM dungeon, dungeon/maze $\tau$ ablations, matched H1 at $n{=}10$ on additional providers, and cost-scaled wall-clock H2.
 \subsection{Future work}
 
 What remains open is less about new LLMs or domains than about mechanism timing (\S\ref{sec:why-discussion}): (1)~\textbf{phase analysis}---extend anytime curves to genetic ME and mid-trajectory H2 vs.\ hints; (2)~\textbf{prompt micro-ablation} (drop uncertainty / predicted fitness / archive stats) to refine the soft-channel reading of H1. H2 threshold sensitivity at $\tau\in\{0.35,0.45,0.55\}$ ($n{=}10$) is reported in Table~\ref{tab:h2-tau-sweep}; a wider $\tau$ grid remains optional.
 
-The fixed attach-role contrasts (Table~\ref{tab:role-exp}) leave open a follow-on question: when should before- vs.\ after-generation be active, and when to call LLM vs.\ genetic emitters (\S\ref{sec:bootstrap-hyp})? That is future work, not a claim of this paper. Near-term candidates: (i)~complete maze five-arm Holm at $n{=}10$; (ii)~full-budget LLM dungeon and dungeon/maze $\tau$ ablations; (iii)~matched H1 at $n{=}10$ on additional providers; (iv)~a cost-scaled domain to measure wall-clock break-even near the $\sim$7$\times$ forecast; (v)~optional duplicate confirmatory **F-RQ3-gray** tier if reviewers require pre-registered replication beyond the exploratory pilot. An external OSF/Zenodo timestamp remains optional.
+The fixed attach-role contrasts (Table~\ref{tab:role-exp}) leave open a follow-on question: when should before- vs.\ after-generation be active, and when to call LLM vs.\ genetic emitters (\S\ref{sec:bootstrap-hyp})? That is future work, not a claim of this paper. Near-term candidates: (i)~full-budget LLM dungeon and dungeon/maze $\tau$ ablations; (ii)~matched H1 at $n{=}10$ on additional providers; (iii)~a cost-scaled domain to measure wall-clock break-even near the $\sim$7$\times$ forecast; (iv)~optional duplicate confirmatory **F-RQ3-gray** tier if reviewers require pre-registered replication beyond the exploratory pilot. An external OSF/Zenodo timestamp remains optional.
 
 \section{Conclusion}
 \label{sec:conclusion}
@@ -1015,9 +1039,9 @@ Previous work often compared QD pipelines; we compared surrogate intervention po
 
 \textbf{Code revision pin.} This manuscript is intended to match a tagged GitHub revision: tag~\texttt{\SubmissionGitTag}, short SHA~\texttt{\SubmissionGitShort}, full SHA~\texttt{\SubmissionGitFull}. At journal submission, cut that tag on the commit that produced the submitted PDF (\texttt{git tag \SubmissionGitTag} then \texttt{git push origin \SubmissionGitTag}) and replace the \texttt{TBD} macros in the LaTeX preamble with \texttt{git rev-parse --short=12 HEAD} / \texttt{git rev-parse HEAD}. Protocol freeze dates below remain the scientific lock; the git pin is the code+artifact snapshot for that PDF.
 
-\textbf{Protocols (internally frozen).} Confirmatory analysis rules for the primary-grid tiers are locked in \texttt{artifacts/EXPERIMENT\_PROTOCOL\_Q1\_v2.md} / \texttt{\_v3.md} (freeze date \textbf{2026-07-12}, §§1--4). The dungeon factorial is locked in \texttt{artifacts/EXPERIMENT\_PROTOCOL\_Q1\_v4.md} (freeze date \textbf{2026-07-17}; supplementary logged §10; journal extension draft §11). Reader-facing amendment summary: Table~\ref{tab:amendments}; full dual-report logs in v3 §12 / v4 §10. The maze batch (\texttt{q1-v5-maze-full}; journal-track H5) is interim; analysis lives under \texttt{artifacts/experiments/q1-v5-maze-full/ANALYSIS.md}. For this submission we do \emph{not} deposit an external OSF/Zenodo timestamp; we report the protocols as \emph{internally frozen} (git-dated repository files), not as a public pre-registration. Amendments require the protocol amendment log.
+\textbf{Protocols (internally frozen).} Confirmatory analysis rules for the primary-grid tiers are locked in \texttt{artifacts/EXPERIMENT\_PROTOCOL\_Q1\_v2.md} / \texttt{\_v3.md} (freeze date \textbf{2026-07-12}, §§1--4). The dungeon factorial is locked in \texttt{artifacts/EXPERIMENT\_PROTOCOL\_Q1\_v4.md} (freeze date \textbf{2026-07-17}; supplementary logged §10; journal extension draft §11). Reader-facing amendment summary: Table~\ref{tab:amendments}; full dual-report logs in v3 §12 / v4 §10. The maze batch (\texttt{q1-v5-maze-full}; journal-track H5) is complete ($n{=}10$); analysis lives under \texttt{artifacts/experiments/q1-v5-maze-full/ANALYSIS.md}. For this submission we do \emph{not} deposit an external OSF/Zenodo timestamp; we report the protocols as \emph{internally frozen} (git-dated repository files), not as a public pre-registration. Amendments require the protocol amendment log.
 
-\textbf{Primary artifacts.} Aggregated \texttt{summary.csv}, per-seed \texttt{map\_elites\_archive.jsonl}, \texttt{nightly\_run\_summary.json}, and (where applicable) \texttt{surrogate\_archive.jsonl} / \texttt{archive\_trace.jsonl} live under \texttt{artifacts/experiments/}. Key tiers: \texttt{q1-full} (stub/hints/filter); \texttt{q1-v3-vanilla}; \texttt{q1-v3-pyribs}; \texttt{q1-v3-pyribs-pbcma}; \texttt{q1-v3-genetic-me*}; \texttt{q1-stub-uniform-sensitivity}; \texttt{q1-v3-llm/\{deepseek-v4-pro,gpt-4o-mini\}} (bundled + matched H1 \texttt{stub\_uniform} pilot); \texttt{q1-h2-threshold-sensitivity}; \texttt{q1-anytime-ladder}; \texttt{q1-cma-encoding-ablation}; \texttt{q1-v4-dungeon-rerun} (confirmatory dungeon @ 5k); \texttt{q1-v4-dungeon-full-cpu} (supplementary CPU @ 32.5k); \texttt{q1-v5-maze-full} (interim maze five-arm @ 32.5k). Surrogate checkpoints, M1 ablation JSON, compose-gate replay (\texttt{compose\_gate\_live\_0p5\_vs\_0p95.json}), H3 $\tau$/emitter replay (\texttt{filter\_threshold\_emitter\_replay.json}), and compose-gate fix-candidate replay (\texttt{compose\_gate\_fix\_candidates.json}) are under \texttt{artifacts/surrogate/} (e.g.\ \texttt{checkpoints/nightly\_v3\_mc\_d005.pkl}, \texttt{gp\_ucb\_ablation.json}). Manuscript figures: \texttt{artifacts/manuscript/figures/}.
+\textbf{Primary artifacts.} Aggregated \texttt{summary.csv}, per-seed \texttt{map\_elites\_archive.jsonl}, \texttt{nightly\_run\_summary.json}, and (where applicable) \texttt{surrogate\_archive.jsonl} / \texttt{archive\_trace.jsonl} live under \texttt{artifacts/experiments/}. Key tiers: \texttt{q1-full} (stub/hints/filter); \texttt{q1-v3-vanilla}; \texttt{q1-v3-pyribs}; \texttt{q1-v3-pyribs-pbcma}; \texttt{q1-v3-genetic-me*}; \texttt{q1-stub-uniform-sensitivity}; \texttt{q1-v3-llm/\{deepseek-v4-pro,gpt-4o-mini\}} (bundled + matched H1 \texttt{stub\_uniform} pilot); \texttt{q1-h2-threshold-sensitivity}; \texttt{q1-anytime-ladder}; \texttt{q1-cma-encoding-ablation}; \texttt{q1-v4-dungeon-rerun} (confirmatory dungeon @ 5k); \texttt{q1-v4-dungeon-full-cpu} (supplementary CPU @ 32.5k); \texttt{q1-v5-maze-full} (maze five-arm @ 32.5k, $n{=}10$). Surrogate checkpoints, M1 ablation JSON, compose-gate replay (\texttt{compose\_gate\_live\_0p5\_vs\_0p95.json}), H3 $\tau$/emitter replay (\texttt{filter\_threshold\_emitter\_replay.json}), and compose-gate fix-candidate replay (\texttt{compose\_gate\_fix\_candidates.json}) are under \texttt{artifacts/surrogate/} (e.g.\ \texttt{checkpoints/nightly\_v3\_mc\_d005.pkl}, \texttt{gp\_ucb\_ablation.json}). Manuscript figures: \texttt{artifacts/manuscript/figures/}.
 
 \textbf{Reproduce (tiers).} Batch entry point:
 \begin{verbatim}
@@ -1069,7 +1093,7 @@ Matched-policy H1 uses a post-hoc TOST equivalence check at $|\Delta\mathrm{cov}
   \mathrm{MDE} \;=\; \bigl(t_{1-\alpha/2,\,n-1} + t_{0.80,\,n-1}\bigr)\,\frac{s_{\Delta}}{\sqrt{n}},
   \label{eq:mde}
 \end{equation}
-with $s_{\Delta}$ the observed paired-difference SD (descriptive when used retrospectively). For H1, $\mathrm{MDE}{\approx}1.2$~pp at $n{=}10$; accept/reject and CIs appear in \S\ref{sec:decomposition}. Elsewhere we quote only the resulting MDE numbers under the same convention (e.g.\ dungeon hints$-$stub coverage AUC ${\approx}1.2$~pp at $n{=}10$; maze interim genetic\_filter coverage AUC ${\approx}4.7$~pp at $n{=}5$)---not a second formula statement. These bound what $n$ can detect; they do not re-open locked Holm families or convert non-rejects into equivalence claims.
+with $s_{\Delta}$ the observed paired-difference SD (descriptive when used retrospectively). For H1, $\mathrm{MDE}{\approx}1.2$~pp at $n{=}10$; accept/reject and CIs appear in \S\ref{sec:decomposition}. Elsewhere we quote only the resulting MDE numbers under the same convention (e.g.\ dungeon hints$-$stub coverage AUC ${\approx}1.2$~pp at $n{=}10$; maze genetic\_filter coverage AUC ${\approx}2.1$~pp at $n{=}10$ before Holm $m{=}8$)---not a second formula statement. These bound what $n$ can detect; they do not re-open locked Holm families or convert non-rejects into equivalence claims.
 
 \paragraph{Other descriptive metrics.}
 QD-score (Eq.~\eqref{eq:qd}), evaluation count, wall-clock time, LLM fallback rate, anytime curves, and bootstrap 95\% CIs on median $\Delta$ are reported for interpretation. QD-score and eval-to-threshold curves are \emph{not} used for confirmatory rejection. Hold-out surrogate CIs use $B{=}10{,}000$ row resamples; cross-gate comparisons prefer NMAE when the fitness target distribution changes (appendix~\S\ref{sec:checkpoint-appendix}).
@@ -1210,7 +1234,7 @@ Main-text contrasts use only \textbf{H1}--\textbf{H5} (Table~\ref{tab:role-exp})
     H3 (gray-zone pilot) & \texttt{hints} vs.\ \texttt{filter\_gray\_zone} & --- & exploratory ($n{=}10$) \\
     H4 (ceiling) & hints $>$ cma\_me \textbf{and} hints $>$ cma\_mae & 4 & does not pass \\
     H5 (dungeon) & dungeon AUC (filter, hints, interaction) & 8 & partial \\
-    H5 (maze interim) & maze AUC (same contrasts) & 8 & interim $n{=}5$; CPU $n{=}10$ H2 passes \\
+    H5 (maze) & maze AUC (same contrasts) & 8 & partial ($n{=}10$; filter Holm yes) \\
     Bundled confound$^\dagger$ & hints $>$ stub ($\Delta$cov \& $\Delta$fit) & 2 & passes$^\dagger$ (not H1) \\
     Bundled floor$^\dagger$ & hints $>$ vanilla ($\Delta$cov \& $\Delta$fit) & 2 & passes$^\dagger$ \\
     Multi-provider$^\dagger$ & hints $>$ stub \emph{per} LLM & $2$/model & passes$^\dagger$ (same confound) \\
