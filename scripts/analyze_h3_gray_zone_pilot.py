@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exploratory F-RQ3-gray Holm/NI on q1-v3-h3-gray-zone-pilot vs frozen q1-full/hints."""
+"""F-RQ3-gray Holm/NI: filter_gray_zone vs frozen q1-full/hints (pilot or confirmatory tier)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import csv
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy import stats as sp
@@ -23,6 +23,7 @@ from scripts.analyze_q1_statistics import (
 )
 
 PILOT_ROOT = ROOT / "artifacts/experiments/q1-v3-h3-gray-zone-pilot"
+CONFIRM_ROOT = ROOT / "artifacts/experiments/q1-v3-h3-gray-zone"
 HINTS_ROOT = ROOT / "artifacts/experiments/q1-full"
 PROPOSALS = 32500
 
@@ -64,13 +65,13 @@ def _load_summary(
     }
 
 
-def _paired_rows(seeds: list[int]) -> list[dict[str, Any]]:
+def _paired_rows(seeds: list[int], *, tier_root: Path) -> list[dict[str, Any]]:
     hints_csv = HINTS_ROOT / "summary.csv"
-    gz_csv = PILOT_ROOT / "summary.csv"
+    gz_csv = tier_root / "summary.csv"
     rows: list[dict[str, Any]] = []
     for seed in seeds:
         gz = _load_summary(
-            PILOT_ROOT
+            tier_root
             / "filter_gray_zone"
             / f"seed_{seed}"
             / "nightly_run_summary.json",
@@ -103,13 +104,18 @@ def _paired_rows(seeds: list[int]) -> list[dict[str, Any]]:
     return rows
 
 
-def analyze(seeds: list[int]) -> dict[str, Any]:
-    rows = _paired_rows(seeds)
+def analyze(
+    seeds: list[int],
+    *,
+    tier_root: Path,
+    confirmatory: bool,
+) -> dict[str, Any]:
+    rows = _paired_rows(seeds, tier_root=tier_root)
     d_cov = np.array([r["delta_cov_pp"] for r in rows], dtype=float)
     d_fit_rel = np.array([r["delta_fit_rel"] for r in rows], dtype=float)
     d_eval = np.array([r["delta_eval"] for r in rows], dtype=float)
 
-    p_eval = float(sp.wilcoxon(d_eval, alternative="less").pvalue)
+    p_eval = float(cast(Any, sp.wilcoxon(d_eval, alternative="less")).pvalue)
     ni_cov = noninferiority(d_cov, neg_margin=-3.0)
     ni_fit = noninferiority(d_fit_rel, neg_margin=-0.05)
 
@@ -123,16 +129,23 @@ def analyze(seeds: list[int]) -> dict[str, Any]:
     family_pass = all(holm.values())
 
     skip_rates = [r["gray_zone"]["skip_rate_pct"] for r in rows]
+    tier_name = tier_root.name
+    family = "F-RQ3-gray" if confirmatory else "F-RQ3-gray-exploratory"
     payload: dict[str, Any] = {
-        "family": "F-RQ3-gray-exploratory",
+        "family": family,
         "n": len(seeds),
         "seeds": seeds,
         "control": "q1-full/hints (frozen)",
-        "treatment": "q1-v3-h3-gray-zone-pilot/filter_gray_zone",
-        "confirmatory": False,
+        "treatment": f"{tier_name}/filter_gray_zone",
+        "confirmatory": confirmatory,
         "note": (
-            "Exploratory Holm/NI read on completed pilot runs; not a pre-registered "
-            "confirmatory unlock of historical production filter."
+            "Confirmatory F-RQ3-gray Holm/NI on pre-registered duplicate tier; "
+            "does not rehabilitate historical production filter @ 33.5% skip."
+            if confirmatory
+            else (
+                "Exploratory Holm/NI read on completed pilot runs; not a pre-registered "
+                "confirmatory unlock of historical production filter."
+            )
         ),
         "mean_delta_cov_pp": round(float(np.mean(d_cov)), 4),
         "sd_delta_cov_pp": round(float(np.std(d_cov, ddof=1)), 4),
@@ -176,12 +189,14 @@ def analyze(seeds: list[int]) -> dict[str, Any]:
 
 def write_markdown(payload: dict[str, Any], path: Path) -> None:
     t = payload["tests"]
+    tier_label = "Confirmatory" if payload["confirmatory"] else "Exploratory"
     lines = [
-        "## Exploratory Holm / NI (F-RQ3-gray margins)",
+        f"## {tier_label} Holm / NI (F-RQ3-gray margins)",
         "",
+        f"**Tier:** `{payload['treatment'].split('/')[0]}` · "
         f"**n={payload['n']}** paired seeds vs frozen `q1-full/hints`. "
-        f"**Family pass (exploratory):** `{payload['family_pass']}`. "
-        "Not confirmatory on historical production `filter`.",
+        f"**Family pass ({tier_label.lower()}):** `{payload['family_pass']}`. "
+        "Does not rehabilitate historical production `filter`.",
         "",
         "| Test | Mean Δ | Raw p | Holm @0.05 | A₁₂ | Pass detail |",
         "|------|--------|-------|------------|-----|-------------|",
@@ -211,23 +226,110 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines))
 
 
+def write_analysis_md(payload: dict[str, Any], path: Path) -> None:
+    t = payload["tests"]
+    tier = payload["treatment"].split("/")[0]
+    tier_label = "confirmatory" if payload["confirmatory"] else "exploratory pilot"
+    rows = payload["per_seed"]
+    g_cov = [r["gray_zone"]["coverage_pct"] for r in rows]
+    h_cov = [r["hints"]["coverage_pct"] for r in rows]
+    g_fit = [r["gray_zone"]["mean_best_fitness"] for r in rows]
+    skips = [r["gray_zone"]["skip_rate_pct"] for r in rows]
+    lines = [
+        f"# H3 gray-zone {tier_label} — `{tier}`",
+        "",
+        f"**Tier:** `{tier}` · **Status:** seeds 0–9 DONE ({payload['n']}/{payload['n']})",
+        f"**Family:** `{payload['family']}` · **Confirmatory:** `{payload['confirmatory']}`",
+        "",
+        "## Mechanism check",
+        "",
+        f"- Skip rate: **{payload['mean_skip_rate_pct']:.2f}%** (target 8–18%)",
+        f"- Mean eval reduction vs hints: **{payload['mean_eval_reduction_pct']:.2f}%**",
+        "",
+        "## Mean levels",
+        "",
+        "| Arm | Cov % | Mean fit | Skip % |",
+        "|-----|------:|---------:|-------:|",
+        (
+            f"| `hints` (frozen) | {np.mean(h_cov):.2f} ± {np.std(h_cov, ddof=1):.2f} "
+            f"| {np.mean([r['hints']['mean_best_fitness'] for r in rows]):.3f} | 0.0 |"
+        ),
+        (
+            f"| `filter_gray_zone` | {np.mean(g_cov):.2f} ± {np.std(g_cov, ddof=1):.2f} "
+            f"| {np.mean(g_fit):.3f} | {np.mean(skips):.2f} |"
+        ),
+        "",
+        "## Paired vs frozen hints",
+        "",
+        (
+            f"- Mean Δcov: **{payload['mean_delta_cov_pp']:+.2f} pp** "
+            f"(SD {payload['sd_delta_cov_pp']:.2f}; {payload['wins_cov']}/{payload['n']} wins)"
+        ),
+        f"- Family pass (Holm $m=3$): **{payload['family_pass']}**",
+        "",
+        "## Holm / NI",
+        "",
+        "| Test | Mean Δ | Raw p | Holm | Detail |",
+        "|------|--------|-------|------|--------|",
+        (
+            f"| eval ↓ | {t['eval_less_hints']['mean_delta_eval']:.0f} sims | "
+            f"{t['eval_less_hints']['raw_p']:.4g} | "
+            f"{'Yes' if t['eval_less_hints']['holm_reject'] else 'No'} | "
+            f"{t['eval_less_hints']['wins']}/{payload['n']} fewer |"
+        ),
+        (
+            f"| cov NI (>−3 pp) | {t['cov_ni_minus3pp']['mean_delta_pp']:+.2f} pp | "
+            f"{t['cov_ni_minus3pp']['raw_p']:.4g} | "
+            f"{'Yes' if t['cov_ni_minus3pp']['holm_reject'] else 'No'} | "
+            f"{t['cov_ni_minus3pp']['per_seed_pass']}/{payload['n']} per-seed |"
+        ),
+        (
+            f"| fit NI (>−5% rel.) | {100*t['fit_ni_minus5pct']['mean_delta_rel']:+.2f}% | "
+            f"{t['fit_ni_minus5pct']['raw_p']:.4g} | "
+            f"{'Yes' if t['fit_ni_minus5pct']['holm_reject'] else 'No'} | "
+            f"NI accept={t['fit_ni_minus5pct']['ni_accepted']} |"
+        ),
+        "",
+        "See [`H3_GRAY_HOLM.md`](H3_GRAY_HOLM.md) and JSON artifact in this directory.",
+        "",
+    ]
+    path.write_text("\n".join(lines))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seeds", type=int, nargs="+", default=list(range(10)))
     parser.add_argument(
-        "--output-json",
+        "--root",
         type=Path,
-        default=PILOT_ROOT / "h3_gray_zone_pilot_holm.json",
+        default=PILOT_ROOT,
+        help="Experiment tier root (pilot or confirmatory)",
     )
     parser.add_argument(
-        "--output-md",
-        type=Path,
-        default=PILOT_ROOT / "H3_GRAY_HOLM.md",
+        "--confirmatory",
+        action="store_true",
+        help="Mark as confirmatory F-RQ3-gray (default: exploratory pilot)",
     )
+    parser.add_argument("--output-json", type=Path, default=None)
+    parser.add_argument("--output-md", type=Path, default=None)
+    parser.add_argument("--output-analysis-md", type=Path, default=None)
     args = parser.parse_args()
-    payload = analyze(args.seeds)
-    args.output_json.write_text(json.dumps(payload, indent=2))
-    write_markdown(payload, args.output_md)
+
+    tier_root = args.root.resolve()
+    confirmatory = args.confirmatory or tier_root.name == CONFIRM_ROOT.name
+    json_name = (
+        "h3_gray_zone_confirmatory_holm.json"
+        if confirmatory
+        else "h3_gray_zone_pilot_holm.json"
+    )
+    output_json = args.output_json or tier_root / json_name
+    output_md = args.output_md or tier_root / "H3_GRAY_HOLM.md"
+    output_analysis = args.output_analysis_md or tier_root / "ANALYSIS.md"
+
+    payload = analyze(args.seeds, tier_root=tier_root, confirmatory=confirmatory)
+    output_json.write_text(json.dumps(payload, indent=2))
+    write_markdown(payload, output_md)
+    write_analysis_md(payload, output_analysis)
     print(json.dumps(payload, indent=2))
 
 

@@ -672,7 +672,7 @@ Sphere CMA-ME exceeds ME random by **+50.03 pp coverage** and **+290,872 QD-scor
 | **F-RQ4** | hints vs CMA-ME and hints vs CMA-MAE: for each arm, Δcov and Δfit (hints − arm), conjunctive greater; two arms → **m=4** | 4 | grid |
 | **F-RQ1g** | per additional LLM: stub vs hints Δcov+Δfit conjunctive | 2 × n_llm | grid |
 | **F-RQ3** (historical; production filter) | eval↓; cov NI; fit NI | 3 | grid — **BLOCKED** (D1@0.45 fail) |
-| **F-RQ3-gray** *(2026-07-28)* | `filter_gray_zone` vs `hints`: eval↓; cov NI; fit NI | 3 | grid — **exploratory pilot DONE** ($n{=}10$); confirmatory tier optional |
+| **F-RQ3-gray** *(2026-07-28)* | `filter_gray_zone` vs `hints`: eval↓; cov NI; fit NI | 3 | grid — **confirmatory DONE** ($n{=}10$; tier `q1-v3-h3-gray-zone`); pilot exploratory DONE |
 
 Holm step-down within each family separately (do not pool B1+B2+G1 into one mega-family unless explicitly amended).
 
@@ -698,9 +698,11 @@ v2 established that **combat filter = `min_predicted_fitness=0.45`** (raised fro
 
 ### 4.2.1 F-RQ3-gray — amended H3 path *(2026-07-28; journal scope 2026-07-29)*
 
-**Submission scope (2026-07-29):** This revision reports the diagnosed compose-gate mechanism (dual definition; gray-zone $74.6\%$; in-band vs out-of-band $d$), hold-out alignment to gate **0.95**, honest NMAE degradation, and a live **`filter_gray_zone`** exploratory pilot ($n{=}10$, seeds 0–9) with exploratory Holm/NI read (artifact: `h3_gray_zone_pilot_holm.json`, `H3_GRAY_HOLM.md`). **Locked production H3 remains blocked** (D1@0.45 fail on historical `q1-full/filter`). A separate pre-registered confirmatory tier **`q1-v3-h3-gray-zone`** ($n{=}10$ duplicate run) remains optional; the completed pilot satisfies the exploratory reporting slot for journal-first submission.
+**Submission scope (2026-07-31):** This revision reports the diagnosed compose-gate mechanism (dual definition; gray-zone $74.6\%$; in-band vs out-of-band $d$), hold-out alignment to gate **0.95**, honest NMAE degradation, an exploratory **`filter_gray_zone`** pilot ($n{=}10$; `q1-v3-h3-gray-zone-pilot`), and a **confirmatory duplicate** tier ($n{=}10$; `q1-v3-h3-gray-zone`) with F-RQ3-gray Holm/NI read (artifacts: `h3_gray_zone_confirmatory_holm.json`, `H3_GRAY_HOLM.md`). **Locked production H3 remains blocked** (D1@0.45 fail on historical `q1-full/filter`). Passing F-RQ3-gray does **not** rehabilitate production `filter` @ 33.5% skip.
 
-**Pilot results (2026-07-29, exploratory):** skip **11.69 ± 0.16%** (target 8–18%); mean $\Delta$cov vs frozen hints **−0.52 pp** (3/10 wins); exploratory F-RQ3-gray Holm $m{=}3$ **pass** (eval ↓, cov NI, fit NI) — **not** a coverage win and **not** rehabilitation of production `filter` @ 33.5% skip.
+**Confirmatory results (2026-07-31, tier `q1-v3-h3-gray-zone`):** skip **11.90 ± 0.20%** (target 8–18%); mean $\Delta$cov vs frozen hints **−0.60 pp** (2/10 wins); F-RQ3-gray Holm $m{=}3$ **pass** (eval ↓, cov NI, fit NI) — **not** a coverage win and **not** rehabilitation of production `filter`.
+
+**Pilot results (2026-07-29, exploratory):** skip **11.69 ± 0.16%**; mean $\Delta$cov **−0.52 pp** (3/10 wins); exploratory F-RQ3-gray Holm **pass** — directional replication of confirmatory tier.
 
 **Dual-report (replaces D1-unlock path for new runs):**
 
@@ -760,7 +762,7 @@ Prefer v2 **amended one-sided NI** as paper claim (Δcov > −3 pp, Δfit_rel > 
 | `q1-v3-llm-deepseek-v4-pro` | 0–4 default / 0–9 full | stub, hints | G1 DeepSeek V4 Pro |
 | `q1-v3-llm-gpt-4o-mini` | 0–4 default / 0–9 full | stub, hints | G1 OpenAI gpt-4o-mini |
 | `q1-v3-llm-<slug>` | 0–9 (or 0–4) | stub, hints | G1 other models |
-| `q1-v3-h3-gray-zone` | 0–9 | `filter_gray_zone` | **F-RQ3-gray** confirmatory duplicate; optional (pilot $n{=}10$ exploratory DONE) |
+| `q1-v3-h3-gray-zone` | 0–9 | `filter_gray_zone` | **F-RQ3-gray** confirmatory **DONE** ($n{=}10$); Holm/NI in `H3_GRAY_HOLM.md` |
 | `q1-v3-h3-gray-zone-pilot` | 0–9 | `filter_gray_zone` | exploratory pilot **DONE** ($n{=}10$); Holm/NI in `H3_GRAY_HOLM.md` |
 | `q1-v3-filter` | 0–9 | stub, hints, filter | historical production filter; exploratory only |
 | `cvt-shadow-v3` | 0 | shadow pair | if CVT filter revisited with new threshold |
@@ -929,7 +931,8 @@ Need “not custom sandbox only”? → B3 sphere + rastrigin (CPU, no LLM)
 | 2026-07-28 | **M1 hold-out recomputed @ gate 0.95:** MLP R²=**0.942** / NMAE=**0.112** vs GP R²=**0.891** / NMAE=**0.222** (~37× faster). Legacy @0.5 (0.761 vs 0.223) retired as model-quality contrast — target-rescaling artifact. Artifact `gp_ucb_ablation.json` updated. |
 | 2026-07-28 | **F-RQ3-gray path (§4.2.1):** `force_eval_extinction_gray_zone`; scheduler YAML; task list `Q1_H3_GRAY_ZONE_CONFIRMATORY.md`. Historical D1@0.45 **retired as gate** on production filter. | Locked production H3 blocked; confirmatory duplicate tier optional |
 | 2026-07-29 | **Gray-zone exploratory pilot DONE** ($n{=}10$): Holm/NI in `H3_GRAY_HOLM.md`; skip 11.7%; mean $\Delta$cov $-0.52$ pp | Exploratory pass $\neq$ confirmatory unlock; prod.\ filter not rehabilitated |
-| 2026-07-30 | **B5 maze DONE** (v5): `q1-v5-maze-full` 50/50; F-B5-maze $n{=}10$ **partial** — filter AUC Holm yes; `ANALYSIS.md` | Does not amend v3 primary-grid Holm families |
+| 2026-07-31 | **Gray-zone confirmatory DONE** ($n{=}10$; tier `q1-v3-h3-gray-zone`): Holm/NI in `H3_GRAY_HOLM.md`; skip 11.9%; mean $\Delta$cov $-0.60$ pp (2/10 wins) | F-RQ3-gray pass; prod.\ filter not rehabilitated |
+| 2026-07-31 | **Matched H1 multi-provider ($n{=}10$):** gpt-4o-mini + DeepSeek `stub_uniform` vs frozen hints; both TOST $\pm$2 pp accept | Does not amend confirmatory Holm; exploratory replication |
 | 2026-07-17 | **B3 standard benchmarks complete (§3.12):** deterministic D=20 Sphere/Rastrigin runner, CLI, batch tiers, traces, and benchmark-safe aggregation wired; five smoke combinations passed; **50/50** full runs complete. Sphere CMA-ME beats ME random by **+50.03 pp coverage** and **+290,872 QD-score** (10/10; descriptive p=0.00098, A₁₂=1.00). Rastrigin CMA-ME reaches **90.35%** coverage vs CMA-MAE **32.17%**. Supplementary implementation sanity only; confirmatory families unchanged. |
 
 | 2026-07-30 | **Supplementary Sphere H2:** `me_uniform` vs `me_filter` on Fontaine Sphere (D=20); offline sklearn MLP + threshold gate + empty-bin force-eval; n=10; 32500 proposals; descriptive matched-eval +7.88 pp (10/10). Artifacts: `artifacts/experiments/q1-v3-sphere-h2/`. Does not amend confirmatory Holm families; no LLM/H1. |
