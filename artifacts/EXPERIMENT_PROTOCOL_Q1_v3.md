@@ -736,7 +736,7 @@ Prefer v2 **amended one-sided NI** as paper claim (Δcov > −3 pp, Δfit_rel > 
 
 ### 4.5 Descriptive effect sizes (reporting only) *[2026-07-14]*
 
-**Intent:** SWEVO/QD reporting convention — non-parametric effect size alongside Wilcoxon p-values; **does not** amend confirmatory gates (still Holm on Wilcoxon only).
+**Intent:** QD reporting convention — non-parametric effect size alongside Wilcoxon p-values; **does not** amend confirmatory gates (still Holm on Wilcoxon only).
 
 | Item | Lock |
 |------|------|
