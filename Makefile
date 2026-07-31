@@ -33,7 +33,7 @@ smoke-map-elites-cvt:
 nightly-map-elites:
 	$(UV) run python -m worldspace.scripts.run_map_elites_nightly
 
-# Qwen LLM + nightly_v2.pkl; default 120 iter (CI-safe). Fresh archive for more LLM lines.
+# Qwen LLM + nightly_v3_mc_d005.pkl; default 120 iter (CI-safe). Fresh archive for more LLM lines.
 github-llm-map-elites:
 	$(UV) run python scripts/run_github_llm_map_elites.py --no-resume-nightly --train-surrogate-if-missing
 

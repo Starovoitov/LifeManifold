@@ -10,7 +10,7 @@ Architecture and stage-by-stage design: [`docs/SURROGATE_MODEL.md`](../../docs/S
 1. Baseline MAP-Elites (surrogate off)
 2. Backfill buffer from baseline archive (append; skip when live_eval + backfill already present)
 3. Surrogate-enabled run (append live_eval rows)
-4. Train on full buffer -> nightly_v2.pkl + summary + optional calibration
+4. Train on full buffer -> nightly_v3_mc_d005.pkl + summary + optional calibration
 ```
 
 ```bash
@@ -40,8 +40,8 @@ Flags:
 ```bash
 uv run python scripts/train_surrogate.py \
   --buffer-path artifacts/surrogate/buffer_nightly.jsonl \
-  --checkpoint-path artifacts/surrogate/checkpoints/nightly_v2.pkl \
-  --summary-path artifacts/surrogate/checkpoints/nightly_v2.summary.json \
+  --checkpoint-path artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl \
+  --summary-path artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json \
   --consistency-weight 0 \
   --no-quality-gate
 ```
@@ -94,7 +94,7 @@ uv run python scripts/migrate_surrogate_buffer.py \
 
 ```bash
 uv run python scripts/record_surrogate_improvement_eval.py \
-  --summary artifacts/surrogate/checkpoints/nightly_v2.summary.json \
+  --summary artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json \
   --buffer-path artifacts/surrogate/buffer_nightly.jsonl \
   --dataset-source nightly_append \
   --notes "cw=0, full buffer"

@@ -1,8 +1,9 @@
 [project]
 name = "lifemanifold"
 version = "0.1.0"
-description = ""
+description = "Cellular-automata world-space simulation and MAP-Elites quality-diversity search"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "matplotlib>=3.8",

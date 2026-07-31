@@ -86,8 +86,8 @@ flowchart TB
 | `metrics.py` | `WorldMetrics`, `METRICS_VECTOR_DIM=12`, `mo_eoc_indicator` |
 | `pipeline.py` | Two-pass JSONL: dominant-metric-delta + k-means |
 | `illuminators/` | Archive, `evaluate_candidate`, scheduler, emitters, loop, `MapElitesIlluminator` |
-| `surrogate/` | Features, JSONL buffer, `get_surrogate`, training (see [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md)) |
-| `visualizer/plotting.py`, `diagnostics.py` | Scatter/trajectories; single-world dashboard and tertile galleries |
+| `surrogate/` | Features, JSONL buffer, `get_surrogate`, acquisition ([`SURROGATE_MODEL.md`](SURROGATE_MODEL.md)) |
+| `mazes/`, `dungeons/`, `benchmarks/` | Parallel domains ([`DOMAINS.md`](DOMAINS.md)); separate scripts, not `--illuminator` |
 | `visualizer/` | **Deprecated** PNG CLI (`python -m worldspace.visualizer`); use `dashboard/` for archives |
 | `cli.py`, `cli_mapelites.py`, `__main__.py` | Legacy `--generator` and `--illuminator mapelites` |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
@@ -375,7 +375,7 @@ Five additional scalars are computed on the **final** `life` and `food` grids in
 
 - **Topology (approximate, fast):** `topology_interface_index` — normalized boundary density of live/dead phase on the torus; `topology_window_heterogeneity` — fraction of locally non-uniform `2×2` windows. These are **not** Betti numbers or persistent homology: cheap proxies for morphological complexity.
 - **Compression:** `compressibility_score` — ratio of zlib-compressed length to raw `life‖food` bytes; reflects **algorithmic simplicity** of the configuration (high score ≈ “short description”).
-- **Ecology with two types per cell** (`life` ∈ {0,1}, `food` ∈ {0,1}, as in the simulator): `ecology_state_entropy_norm` — entropy of the joint 4-class distribution; `ecology_resource_adjacency` — how close food is to live cells. `WorldSpec.cell_types` names types in the spec; in the current MVP dynamics remain binary for life plus a separate resource grid.
+- **Ecology with two types per cell** (`life` ∈ {0,1}, `food` ∈ {0,1}, as in the simulator): `ecology_state_entropy_norm` — entropy of the joint 4-class distribution; `ecology_resource_adjacency` — how close food is to live cells. `WorldSpec.cell_types` names types in the spec; dynamics remain binary life plus a separate resource grid.
 
 ---
 
@@ -563,16 +563,17 @@ Output: `{output_dir}/map_elites_archive.jsonl` (schema 1.2). Resume: `--load-ar
 
 ## 9. Surrogate model (brief)
 
-The `worldspace/surrogate/` package speeds up **hints** for the LLM emitter; it does not replace simulation.
+The `worldspace/surrogate/` package approximates evaluation outcomes from `WorldSpec` alone. Archive fitness always comes from the real simulation.
 
-| What it does | What it does not do (MVP) |
+| What it does | Notes |
 | --- | --- |
-| After each `evaluate_candidate`, appends a line to the JSONL buffer (`features`, `targets`) | Does not skip `run_world` |
-| In the LLM user prompt, inserts `surrogate_mean` and `surrogate_uncertainty` | Does not change archive fitness (only real simulation) |
+| Appends `(features, targets)` to a JSONL buffer after each real eval (when `surrogate.enabled: true`) | Feature schema **2.1** (24-dim) by default; **2.0** (21-dim) still loads |
+| Injects `surrogate_mean` / `surrogate_uncertainty` into LLM emitter prompts | Stubs used when surrogate off or checkpoint fails quality gates |
+| Optional acquisition (`acquisition.mode`: `off` / `shadow` / `filter`) | `filter` can skip `run_world` for some candidates; see [`SURROGATE_MODEL.md`](SURROGATE_MODEL.md) §8 |
 
-Local artifacts (synthetic buffer): `make surrogate-artifacts` → `artifacts/surrogate/buffer.jsonl`, `checkpoints/micro.pkl`, `checkpoints/latest.pkl` (see `artifacts/surrogate/README.md`). Training: `python scripts/train_surrogate.py` (full mode ≥ 2000 buffer lines; strict schema 2.0; `--micro` for smoke). Nightly pipeline: `make nightly-map-elites` → baseline → migrate/train → `nightly_v2.pkl` → second phase with `surrogate.enabled: true`. Buffer append runs only in the surrogate-enabled phase.
+Local artifacts (synthetic buffer): `make surrogate-artifacts` → `artifacts/surrogate/buffer.jsonl`, `checkpoints/micro.pkl`, `checkpoints/latest.pkl`. Training: `python scripts/train_surrogate.py` (full mode ≥ 2000 buffer lines; `--micro` for smoke). Nightly: `make nightly-map-elites` → baseline → migrate/train → **`nightly_v3_mc_d005.pkl`** → surrogate-enabled phase.
 
-Details: [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md), [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
+Details: [`SURROGATE_MODEL.md`](SURROGATE_MODEL.md), [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
 
 ---
 
@@ -582,7 +583,7 @@ Details: [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md), [`artifacts/surrogate/
 2. Initial life density is **fixed (20%)** in the simulator code.
 3. **entropy** is not configuration entropy of the grid, but a function of **mean density over time**.
 4. **diversity** is a sampled heuristic on the last frame, not the full pattern spectrum.
-5. **Clustering and PCA** are simplified (teaching MVP); for a serious world map, feature normalization, other dimensionality reduction, and distance choice matter.
+5. **Clustering and PCA** (legacy `--generator` path) are simplified teaching tools; for a serious world map, feature normalization and distance choice matter.
 
 ---
 
@@ -597,6 +598,9 @@ Makefile: `make smoke-map-elites`, `make nightly-map-elites`.
 ## See also
 
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — package map, two execution paths, module layout.
+- [`docs/MAPELITES.md`](MAPELITES.md) — illuminator, archives, schedulers.
+- [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate and acquisition.
+- [`docs/DOMAINS.md`](DOMAINS.md) — maze / dungeon / sphere runners.
 - [`docs/FORMULAS.md`](FORMULAS.md) — all metrics, `mo_eoc_indicator`, MAP-Elites fitness, genome encoding.
 - [`docs/MAPELITES.md`](MAPELITES.md) — MAP-Elites: algorithm, schemas, JSONL inputs/outputs.
 - [`docs/SURROGATE_MODEL.md`](SURROGATE_MODEL.md) — surrogate: stages, I/O, quality thresholds.

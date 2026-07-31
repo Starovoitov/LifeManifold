@@ -1,6 +1,6 @@
 # LifeManifold Streamlit Dashboard
 
-Interactive research UI for MAP-Elites archives, surrogate predictions, and metrics.
+Interactive UI for MAP-Elites archives, surrogate predictions, metrics, and acquisition logs.
 
 CVT manual checks: [DASHBOARD_PARITY_CHECKLIST.md](DASHBOARD_PARITY_CHECKLIST.md)
 

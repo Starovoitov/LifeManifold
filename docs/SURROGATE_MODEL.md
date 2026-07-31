@@ -14,20 +14,20 @@ Related material:
 
 `evaluate_candidate()` runs a full cellular-automata simulation (`run_world`) for every MAP-Elites candidate. That is accurate but expensive. A **surrogate** is a fast function that **approximates** the outcome of evaluation from the static `WorldSpec` alone (rules and parameters), without running the simulator.
 
-### 1.2 What the surrogate does in MVP
+### 1.2 What the surrogate does
 
 | Role | Description |
 |------|-------------|
-| **LLM hint** | Before each LLM emitter call, inject two numbers into the user prompt: expected fitness (`surrogate_mean`) and model uncertainty (`surrogate_uncertainty`). |
-| **Training data** | After every real evaluation, append one JSONL row `(features, targets)` for offline retraining. |
-| **Future scaling** | Same pipeline (features → predict → fitness) is intended for Surrogate Acquisition (pre-filtering candidates, acquisition). Not active in MVP. |
+| **LLM hint** | Before each LLM emitter call, inject expected fitness (`surrogate_mean`) and uncertainty (`surrogate_uncertainty`) into the user prompt. |
+| **Training data** | After every real evaluation, append one JSONL row `(features, targets)` for offline (or nested) retraining. |
+| **Acquisition** | With `acquisition.mode: shadow` or `filter`, run `predict` before eval and apply a policy (`threshold_gate` by default). `filter` may skip `evaluate_candidate`; skipped slots are logged to `surrogate_archive.jsonl`. See §8. |
 
-### 1.3 What the surrogate does *not* do in MVP
+### 1.3 What the surrogate does *not* do
 
-- Does **not** skip `evaluate_candidate` or change how many simulations run.
-- Does **not** change archive insert logic, RNG, batch slot order, or `map_elites_archive.jsonl` schema.
+- Does **not** invent archive fitness for evaluated candidates (ground truth is always the real simulation).
+- Does **not** change insert rules for elites that were evaluated.
 - Does **not** edit prompt text files under `prompts/` (only placeholder substitution).
-- Does **not** replace **archive fitness** (ground truth is always the real simulation).
+- Does **not** run when `surrogate.enabled: false` (prompt stubs only; no buffer append).
 
 ### 1.4 Fitness values (archive vs surrogate)
 
@@ -67,20 +67,23 @@ flowchart TB
     EMIT --> PARENT --> RS --> PR --> PROMPT --> API --> CHILD
   end
 
-  subgraph truth [Per candidate - always]
+  subgraph truth [Per candidate]
+    ACQ[acquisition gate]
     EVAL[evaluate_candidate / run_world]
     ARCH[archive insert]
-    CHILD --> EVAL --> ARCH
+    CHILD --> ACQ
+    ACQ -->|eval| EVAL --> ARCH
+    ACQ -->|filter skip| SKIP[surrogate_archive skip]
   end
 
-  subgraph log [When surrogate.enabled]
+  subgraph log [When surrogate.enabled and evaluated]
     BUF[append_eval_to_buffer]
     EVAL --> BUF
   end
 
   subgraph offline [Outside run]
     TR[train_surrogate.py]
-    CKPT[nightly_v2.pkl]
+    CKPT[nightly_v3_mc_d005.pkl]
     BUF --> TR --> CKPT
     CKPT -.-> FAC
   end
@@ -92,9 +95,10 @@ flowchart TB
 **Order inside one iteration (one batch slot):**
 
 1. Emitter produces a candidate `WorldSpec` (LLM or other).
-2. `evaluate_candidate` runs the **real** simulation → archive fitness.
-3. When `surrogate.enabled: true`, `append_eval_to_buffer` logs features and targets from that **real** result.
-4. For **LLM slots only**, step 0 also ran `predict` on the **parent** spec to fill the prompt (before the LLM call).
+2. If acquisition is on: `predict` → policy → maybe skip (filter) or always continue (shadow / off).
+3. On eval path: `evaluate_candidate` runs the **real** simulation → archive fitness.
+4. When `surrogate.enabled: true` and the candidate was evaluated, `append_eval_to_buffer` logs features and targets.
+5. For **LLM slots**, step 0 also ran `predict` on the **parent** spec to fill the prompt (before the LLM call).
 
 ---
 
@@ -108,7 +112,7 @@ flowchart TB
 |--------------|---------|
 | `surrogate.enabled` | If `false`, prompt uses stubs only; `get_surrogate` returns `StubSurrogate`. |
 | `surrogate.model_type` | `mlp` (default) or `lightgbm` (training script; runtime loads pickled `SurrogateModel`). |
-| `surrogate.checkpoint` | Path to `SurrogateModel` pickle (e.g. `artifacts/surrogate/checkpoints/nightly_v2.pkl`). |
+| `surrogate.checkpoint` | Path to `SurrogateModel` pickle (production: `artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl`). |
 | `surrogate.buffer_path` | Append-only JSONL for training (e.g. `artifacts/surrogate/buffer.jsonl`). |
 | `surrogate.stub_mean` | Default prompt fitness hint when surrogate off or model missing (typical `0.5`). |
 | `surrogate.stub_uncertainty` | Default prompt uncertainty hint (typical `0.85`–`1.0`). |
@@ -160,13 +164,13 @@ Canonical seed is applied inside `evaluate_candidate` and again inside `Surrogat
 
 ### Stage 3 — Feature extraction
 
-**Where:** `worldspace/surrogate/feature_extractor.py` → `extract(spec)` (delegates to `genome_features.encode_world_spec_features`).
+**Where:** `worldspace/surrogate/feature_extractor.py` → `extract(spec)` (default schema **`"2.1"`** → `encode_world_spec_features_v21`).
 
 | Input | Output |
 |-------|--------|
-| Canonicalized `WorldSpec` | `np.ndarray` shape `(21,)`, dtype `float` |
+| Canonicalized `WorldSpec` | `np.ndarray` shape `(24,)` dtype float (schema 2.1); or `(21,)` for legacy schema `"2.0"` |
 
-**Feature vector (schema version `"2.0"`):**
+**Feature vector (schema `"2.0"`, 21-dim):**
 
 | Index | Feature |
 |-------|---------|
@@ -176,9 +180,11 @@ Canonical seed is applied inside `evaluate_candidate` and again inside `Surrogat
 | 19 | `resource_regen` |
 | 20 | `predation` |
 
-**Not included in core v2:** `grid_size`, `steps`, `seed` (zero variance in nightly/github_llm schedulers or redundant with genome after canonical seed).
+**Schema `"2.1"` (default, 24-dim):** the 21-dim vector plus three normalized counts — birth cardinality, survival cardinality, and birth∩survival overlap (each ÷ 9).
 
-No randomness in this module (determinism requirement). Legacy v1 density features (`birth_density`, 8-dim checkpoints) are rejected at load time.
+**Not included:** `grid_size`, `steps`, `seed` (fixed or redundant after canonical seed in typical schedulers).
+
+No randomness in this module. Legacy v1 density features are rejected at load time.
 
 ---
 
@@ -188,7 +194,7 @@ No randomness in this module (determinism requirement). Legacy v1 density featur
 
 | Input | Output |
 |-------|--------|
-| Feature vector `(21,)` | `dict` with **seven** component targets (multi-task regression) |
+| Features | `np.ndarray` shape matching checkpoint (24 for schema 2.1) | `dict` with **seven** component targets (multi-task regression) |
 
 **Mandatory component keys (`TARGET_KEYS`):**
 
@@ -206,7 +212,7 @@ No randomness in this module (determinism requirement). Legacy v1 density featur
 
 | Input | Output |
 |-------|--------|
-| Features | `uncertainty` scalar (MVP: ensemble std placeholder; `0.0` triggers fallback) |
+| Features | `uncertainty` scalar (ensemble / calibrated spread; `0.0` triggers fallback) |
 
 ---
 
@@ -327,9 +333,9 @@ Surrogate predictions are **never** written into the archive.
 
 | Field | Type | Source |
 |-------|------|--------|
-| `feature_schema_version` | string | `"2.0"` |
+| `feature_schema_version` | string | `"2.1"` (default) or `"2.0"` |
 | `emitter_type` | string | e.g. `random`, `genetic`, `llm`, `llm_fallback` |
-| `features` | list[float] | 21 floats from `extract(eval_result.world_spec)` |
+| `features` | list[float] | 24 floats (schema 2.1) or 21 (schema 2.0) from `extract(eval_result.world_spec)` |
 | `targets` | object | `targets_from_eval_result(eval_result)` — seven Strategy A keys from **real** metrics |
 | `world_spec` | object | canonical `WorldSpec` dict (required for re-featurize / migrate) |
 | `metadata` | object | optional |
@@ -338,7 +344,7 @@ Surrogate predictions are **never** written into the archive.
 
 Written for every evaluation in surrogate-enabled runs (insert accept or reject). Baseline nightly phase (`surrogate.enabled: false`) does not append.
 
-**Load guard:** `load_buffer()` accepts only schema `"2.0"`, dim 21, with `world_spec`. Migrate legacy archives via `scripts/migrate_surrogate_buffer.py`.
+**Load guard:** `load_buffer()` accepts schemas `"2.0"` / `"2.1"` with matching dims and `world_spec`. Migrate via `scripts/migrate_surrogate_buffer.py` (`--re-featurize --target-schema 2.1`).
 
 ---
 
@@ -351,7 +357,7 @@ Written for every evaluation in surrogate-enabled runs (insert accept or reject)
 | Buffer JSONL path (>= 2000 rows for production; schema 2.0 or 2.1) | `feature_matrix` `(N, 21|24)`, optional `+3` emitter one-hot at train time |
 | 80/20 hold-out split (`random_state=42`) | Train fit + hold-out metrics |
 | `--model-type lightgbm` | LightGBM ensemble per Strategy A target |
-| `--checkpoint-path` | Pickle loaded by `get_surrogate` (production: `nightly_v2.pkl`) |
+| `--checkpoint-path` | Pickle loaded by `get_surrogate` (production: `nightly_v3_mc_d005.pkl`) |
 | `--summary-path` | JSON with `feature_schema_version`, `feature_dim`, `quality_passed`, `holdout_metrics` |
 | `--micro` | >= 100 rows; writes checkpoint without failing on quality gate |
 
@@ -364,7 +370,7 @@ Written for every evaluation in surrogate-enabled runs (insert accept or reject)
 
 Summary also includes `per_target_holdout`, `r2_fitness_direct` / `mae_fitness_direct` when the fitness head is trained, and `model_type` (`lightgbm` | `mlp`).
 
-Summary is written beside the checkpoint (e.g. `nightly_v2.summary.json`). See [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md) for go/no-go policy.
+Summary is written beside the checkpoint (e.g. `nightly_v3_mc_d005.summary.json`). See [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md) for go/no-go policy.
 
 **Uncertainty after training:** `predict_uncertainty` returns the standard deviation of fitness computed from each ensemble member’s component prediction.
 
@@ -409,9 +415,7 @@ worldspace/illuminators/
 | Stub / missing checkpoint | Same |
 | `SurrogateFacade` + trained model | `SurrogateModel.predict_uncertainty(features)`; if ≤ 0, use `stub_uncertainty` |
 
-**Intent:** tell the LLM when the surrogate is unreliable so it can avoid over-trusting the fitness hint. It is **not** the variance of repeated simulations.
-
-**Future (Surrogate Acquisition):** ensemble spread across LightGBM models (e.g. eight estimators), calibration, active learning.
+**Intent:** tell the LLM when the surrogate is unreliable so it can avoid over-trusting the fitness hint. It is **not** the variance of repeated simulations. Production checkpoints typically expose ensemble spread, optionally passed through isotonic calibration (§8.1).
 
 ---
 
@@ -435,7 +439,7 @@ Requirements: fixed `random_state=42` for training; no RNG in feature extractor;
 ```yaml
 surrogate:
   enabled: true
-  checkpoint: artifacts/surrogate/checkpoints/nightly_v2.pkl
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
 ```
 
 **Train from collected buffer:**
@@ -444,8 +448,8 @@ surrogate:
 python scripts/train_surrogate.py \
   --model-type mlp \
   --buffer-path artifacts/surrogate/buffer_nightly.jsonl \
-  --checkpoint-path artifacts/surrogate/checkpoints/nightly_v2.pkl \
-  --summary-path artifacts/surrogate/checkpoints/nightly_v2.summary.json
+  --checkpoint-path artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl \
+  --summary-path artifacts/surrogate/checkpoints/nightly_v3_mc_d005.summary.json
 ```
 
 **Migrate buffer from archive (v2 backfill):**
@@ -502,11 +506,13 @@ flowchart TD
 
 Scheduler specs for CI: `worldspace/specs/map_elites_scheduler_mini_surrogate_shadow.yaml`, `..._filter.yaml`.
 
+Gray-zone force-eval (not a separate `mode`): set `force_eval_extinction_gray_zone: true` with `extinction_gray_zone_lo` / `hi` so candidates whose predicted extinction probability falls in that band are always evaluated. Example scheduler: `map_elites_scheduler_nightly_llm_filter_gray_zone.yaml`.
+
 ### 8.1 Calibrated uncertainty
 
-- Offline: `scripts/calibrate_surrogate_uncertainty.py` or `train_surrogate.py --calibrate` → `checkpoints/calibration.pkl`.
+- Offline: `scripts/calibrate_surrogate_uncertainty.py` or `train_surrogate.py --calibrate` → typically `checkpoints/calibration_v3_mc_d005.pkl` (symlink `calibration.pkl` may point at the same file).
 - Runtime: `SurrogateFacade.predict` maps raw ensemble spread through isotonic regression fit on hold-out `|pred_fitness - actual_fitness|`.
-- Scheduler YAML: `surrogate.calibration: artifacts/surrogate/checkpoints/calibration.pkl`.
+- Scheduler YAML: `surrogate.calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl` (or `calibration.pkl`).
 - `threshold_gate` and LLM `{surrogate_uncertainty}` use the same calibrated field; missing artifact → raw spread + one warning per process.
 
 Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/README.md).
@@ -518,4 +524,4 @@ Operational notes: [`artifacts/surrogate/README.md`](../artifacts/surrogate/READ
 - `scripts/report_surrogate_acquisition.py` — metrics only from buffer + checkpoint.
 - `scripts/compare_acquisition_runs.py` — A/B eval reduction, filled cells, mean best fitness.
 
-Still planned: none for acquisition policies — ``ucb_promote`` is implemented (M1 Phase 2 offline).
+Still planned: none for the listed acquisition policies — `threshold_gate` and `ucb_promote` are both implemented.

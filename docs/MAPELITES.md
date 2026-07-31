@@ -76,13 +76,16 @@ flowchart TB
   SLOT --> BUF
 ```
 
-**One run** performs exactly `iterations × batch_size` simulations. Each simulation:
+**One run** schedules `iterations × batch_size` **slots**. Each slot:
 
 1. Generates a candidate (emitter).
-2. Runs the CA (`evaluate_candidate` → `run_world`).
-3. Computes BC, fitness, bin.
-4. Tries to insert into the archive (strict fitness improvement per cell).
-5. On accept — appends a JSONL line; always — a surrogate buffer line (if the buffer is open).
+2. Optionally runs surrogate acquisition (`off` / `shadow` / `filter`); under `filter`, some slots skip simulation.
+3. Otherwise runs the CA (`evaluate_candidate` → `run_world`).
+4. Computes BC, fitness, bin.
+5. Tries to insert into the archive (strict fitness improvement per cell).
+6. On accept — appends a JSONL line; on real eval with surrogate enabled — a buffer line.
+
+When acquisition is `off`, the number of simulations equals `iterations × batch_size`.
 
 Entry point: `MapElitesIlluminator.run()` (`worldspace/illuminators/illuminator.py`).
 
@@ -94,6 +97,8 @@ python -m worldspace --illuminator mapelites \
   --output-dir output/map_elites \
   --seed 0 --grid 50 --steps 200
 ```
+
+(`python -m worldspace.illuminators` is an equivalent entry.)
 
 `--steps` ≥ 200 (`ILLUMINATOR_MIN_STEPS`).
 
@@ -629,9 +634,9 @@ Each evaluation (when `surrogate.enabled: true`) → one line in `surrogate.buff
 }
 ```
 
-(`features` length 21; `world_spec` required for train/migrate.)
+(`features` length 24 under schema **2.1**, or 21 under legacy **2.0**; `world_spec` required for train/migrate.)
 
-The surrogate does **not** replace archive `fitness`; it only adds LLM prompt hints when `surrogate.enabled: true`.
+The surrogate does **not** replace archive `fitness` for evaluated candidates. With `acquisition.mode: filter`, some candidates are never simulated (see [`SURROGATE_MODEL.md`](SURROGATE_MODEL.md) §8). LLM prompt hints use the surrogate when `surrogate.enabled: true`.
 
 ### 10.5 `MapElitesRunResult`
 
@@ -682,7 +687,7 @@ sequenceDiagram
 ```mermaid
 flowchart LR
   P1["Phase 1: baseline scheduler\ngrid or CVT (alternating)\nsurrogate off"]
-  TR["train_surrogate.py\n→ nightly_v2.pkl"]
+  TR["train_surrogate.py\n→ nightly_v3_mc_d005.pkl"]
   SUR["Phase 3: surrogate scheduler\nresume same archive type\nsurrogate on"]
   P1 --> TR --> SUR
 ```
@@ -703,7 +708,7 @@ Artifacts per run: `artifacts/map_elites_nightly/{grid,cvt}/baseline/`, `.../sur
 | Fitness | Task reward | Custom formula + extinction penalty |
 | Variation | Genome mutation | random / genetic / LLM via **YAML slots** |
 | Grid | Often 1D or few axes | Up to 50×50, JSONL + resume |
-| Surrogate | Rare in basics | Buffer + LLM hints (MVP) |
+| Surrogate | Optional | Buffer + LLM hints; optional `shadow`/`filter` acquisition |
 
 ---
 
@@ -731,7 +736,7 @@ tests/test_map_elites_*.py
 
 **Smoke test:** `make smoke-map-elites` — mini scheduler, no LLM, artifacts under `artifacts/map_elites_smoke/`.
 
-**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` — **120×50** evals by default (20 LLM slots/batch, fresh archive), fits ~6h GHA limit; profile **full** = 650 iter (usually needs local: `--iterations 650`). Surrogate: `nightly_v2.pkl` (LLM hints stub unless `quality_passed` in summary; env `SURROGATE_REQUIRE_QUALITY_GATE=true`). Secret: `QWEN_API_KEY`.
+**GitHub LLM special:** workflow `.github/workflows/map_elites_llm_special.yml` — **120×50** evals by default (20 LLM slots/batch, fresh archive), fits ~6h GHA limit; profile **full** = 650 iter (usually needs local: `--iterations 650`). Surrogate: `nightly_v3_mc_d005.pkl` (LLM hints stub unless `hints_ok` / quality gate passes; env `SURROGATE_REQUIRE_QUALITY_GATE=true`). Secret: `QWEN_API_KEY`.
 
 ---
 

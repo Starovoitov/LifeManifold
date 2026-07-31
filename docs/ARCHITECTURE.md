@@ -13,12 +13,13 @@ The package is an **offline research pipeline** (no `celery`, `redis`, or legacy
 
 | Document | Read this for |
 | --- | --- |
-| [**FORMULAS.md**](FORMULAS.md) | All metrics, fitness functions, coefficients, genome encoding |
-| [**WORLDSPACE.md**](WORLDSPACE.md) | `WorldSpec`, simulator step-by-step, legacy pipeline (PCA/k-means), generators, CLI flags |
-| [**MAPELITES.md**](MAPELITES.md) | MAP-Elites algorithm, archive JSONL schema, state diagrams, schedulers, emitters, resume |
-| [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md) | Surrogate buffer, training, LLM hints, quality gates |
-| [**DASHBOARD.md**](DASHBOARD.md) | Streamlit research dashboard (setup, pages, config) |
-| [artifacts/surrogate/README.md](../artifacts/surrogate/README.md) | Buffer paths, train commands |
+| [**FORMULAS.md**](FORMULAS.md) | Metrics, fitness, coefficients, genome encoding |
+| [**WORLDSPACE.md**](WORLDSPACE.md) | `WorldSpec`, simulator, legacy pipeline (PCA/k-means), generators, CLI flags |
+| [**MAPELITES.md**](MAPELITES.md) | MAP-Elites loop, archive JSONL, schedulers, emitters, resume, nightly |
+| [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md) | Features, training, LLM hints, acquisition (`shadow` / `filter`), calibration |
+| [**DASHBOARD.md**](DASHBOARD.md) | Streamlit UI (setup, pages, config) |
+| [**DOMAINS.md**](DOMAINS.md) | Maze / dungeon / sphere packages (separate runners, not main CLI) |
+| [artifacts/surrogate/README.md](../artifacts/surrogate/README.md) | Buffer paths, train commands, checkpoint names |
 
 
 ---
@@ -47,8 +48,8 @@ flowchart TB
   subgraph me["Path B: MAP-Elites (--illuminator mapelites)"]
     SCH["scheduler YAML"]
     ILL["illuminators/\narchive + emitters"]
-    SUR["surrogate/ buffer"]
-    OUT2["map_elites_archive.jsonl"]
+    SUR["surrogate/\nbuffer + acquisition"]
+    OUT2["map_elites_archive.jsonl\n(+ optional surrogate_archive.jsonl)"]
     SCH --> ILL
     shared --> ILL --> OUT2
     ILL --> SUR
@@ -113,10 +114,11 @@ flowchart LR
 | `simulator.py` | `run_world` → `SimulationResult` |
 | `metrics.py` | `WorldMetrics`, `METRICS_VECTOR_DIM=12` |
 | `pipeline.py` | `stream_world_space_to_jsonl` |
-| `illuminators/` | MAP-Elites loop, archive, evaluation |
-| `surrogate/` | Features, buffer, `get_surrogate` |
+| `illuminators/` | MAP-Elites loop, archive, evaluation, emitters |
+| `surrogate/` | Features, buffer, `get_surrogate`, acquisition policies |
+| `mazes/`, `dungeons/`, `benchmarks/` | Parallel domains ([DOMAINS.md](DOMAINS.md)) — not main CLI |
 | `visualizer/` | **Deprecated** matplotlib PNG from pipeline JSONL traces |
-| `dashboard/` | **Primary** Streamlit research UI (archives, surrogate, metrics, acquisition log) |
+| `dashboard/` (repo root) | **Primary** Streamlit UI (archives, surrogate, metrics, acquisition log) |
 | `scripts/run_map_elites_nightly.py` | `make nightly-map-elites` |
 
 ---
@@ -182,16 +184,15 @@ Detail: state graphs, fitness formula, resume, nightly phases → [**MAPELITES.m
 
 ## Surrogate (summary)
 
-MVP: **does not** skip simulation or change archive fitness.
+Default production checkpoint: `artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl` (feature schema **2.1**, 24-dim).
 
-| Does | Does not (MVP) |
+| Does | Does not |
 | --- | --- |
-| Log `(features, targets)` after each eval | Replace `evaluate_candidate` |
-| Inject `surrogate_mean` / uncertainty into LLM prompt | Change archive insert rules |
+| Log `(features, targets)` after each real eval (when enabled) | Replace archive fitness (always from simulation) |
+| Inject `surrogate_mean` / uncertainty into LLM prompts | Change insert rules for evaluated elites |
+| Optional **acquisition**: `shadow` (log would-skip) or `filter` (skip `evaluate_candidate`) | Run when `acquisition.mode: off` (default) |
 
-Optional **nested retrain** (Surrogate Acquisition 2.1): `surrogate.retrain` in scheduler YAML retrains from the buffer and hot-swaps the checkpoint at **iteration** boundaries via `worldspace/surrogate/retrain.py`.
-
-Detail → [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md).
+Optional nested retrain: `surrogate.retrain` in scheduler YAML (`worldspace/surrogate/retrain.py`). Detail → [**SURROGATE_MODEL.md**](SURROGATE_MODEL.md).
 
 ---
 
@@ -212,7 +213,8 @@ flowchart TD
 | `--generator random --worlds N --steps S --grid G` | [WORLDSPACE.md §8](WORLDSPACE.md) |
 | `--metrics-trace`, `--ca-step-trace`, `--echo-lines` | [WORLDSPACE.md §8](WORLDSPACE.md) |
 | `--illuminator mapelites --scheduler … --output-dir …` | [MAPELITES.md §2](MAPELITES.md) |
-| `cd dashboard && streamlit run Home.py` | Streamlit dashboard (MAP-Elites research) |
+| `streamlit run dashboard/Home.py` (or `cd dashboard && streamlit run Home.py`) | [DASHBOARD.md](DASHBOARD.md) |
+| `python -m worldspace.illuminators …` | Alternate MAP-Elites entry (same illuminator CLI) |
 | `python -m worldspace.visualizer --output-dir …` | **Deprecated** pipeline PNG only — [WORLDSPACE.md §8](WORLDSPACE.md) |
 
 ---
@@ -252,4 +254,5 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [FORMULAS.md](FORMULAS.md) — equations and coefficient rationale
 - [WORLDSPACE.md](WORLDSPACE.md) — parameters, metrics, simulator, legacy pipeline
 - [MAPELITES.md](MAPELITES.md) — quality-diversity search
-- [SURROGATE_MODEL.md](SURROGATE_MODEL.md) — fast model for LLM hints
+- [SURROGATE_MODEL.md](SURROGATE_MODEL.md) — surrogate + acquisition
+- [DOMAINS.md](DOMAINS.md) — maze / dungeon / sphere runners
