@@ -2,7 +2,7 @@
 
 **Status:** §§1–4 **FROZEN** as of **2026-07-12**. §§5–12 remain operational drafts (tiers, cost, checklist execution).  
 **Freeze rule:** changes to §§1–4 require a dated row in §12 + dual-report of pre/post wording (same bar as v2 RQ3 NI amendment). Do not start B1/B2/G1 runs under a silent edit.  
-**External timestamp:** **none for this journal submit** (decision **2026-07-22**) — report as *internally frozen* git-dated protocol files; OSF/Zenodo optional for a later revision.  
+**External timestamp:** Zenodo integrity snapshot **10.5281/zenodo.21727011** (published **2026-07-31**; git tag `journal-v1` / `6d07dcdecf64`) — *not* a prospective pre-registration of completed runs; protocols remain frozen per family in this file + v2/v4/v5.  
 **Extends:** [`EXPERIMENT_PROTOCOL_Q1_v2.md`](EXPERIMENT_PROTOCOL_Q1_v2.md) (grid primary + CVT sensitivity; results already in [`Q1_GRID_CVT_ANALYSIS.md`](Q1_GRID_CVT_ANALYSIS.md)).  
 **Does not supersede v2 claims** until v3 confirmatory family is complete; v2 remains the frozen record of the first matrix.
 

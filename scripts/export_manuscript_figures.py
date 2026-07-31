@@ -308,7 +308,7 @@ def fig05_ladder(out: Path) -> None:
         0.02,
         0.98,
         "H2 claim = eval-indexed (per sim), not bar height\n"
-        "H3 = LLM+filter stack (descriptive / blocked prod.)",
+        "H3 = LLM+filter stack (descriptive / not confirmatory)",
         transform=ax.transAxes,
         va="top",
         ha="left",
@@ -318,6 +318,30 @@ def fig05_ladder(out: Path) -> None:
             "facecolor": "white",
             "edgecolor": "0.6",
             "alpha": 0.92,
+        },
+    )
+    # Callout on the H2 terminal bar: claim is per-sim efficiency, not this height.
+    h2_idx = labels.index("genetic_me_filter")
+    ax.annotate(
+        "H2: read per-sim\ncurves, not this bar",
+        xy=(h2_idx, means[h2_idx]),
+        xytext=(h2_idx + 1.35, means[h2_idx] + 6.5),
+        textcoords="data",
+        fontsize=7.5,
+        ha="left",
+        va="bottom",
+        color="0.15",
+        arrowprops={
+            "arrowstyle": "->",
+            "color": "0.25",
+            "lw": 1.0,
+            "connectionstyle": "arc3,rad=0.12",
+        },
+        bbox={
+            "boxstyle": "round,pad=0.25",
+            "facecolor": "white",
+            "edgecolor": "0.45",
+            "alpha": 0.95,
         },
     )
     ax.grid(True, axis="y", alpha=0.3)
