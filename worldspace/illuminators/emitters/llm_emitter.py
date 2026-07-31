@@ -334,7 +334,16 @@ class LlmEmitter:
     def _resolve_surrogate_prediction(
         self, world_spec: WorldSpec
     ) -> SurrogatePrediction:
-        """Return surrogate prediction for the user prompt."""
+        """Return surrogate prediction for the user prompt.
+
+        When ``llm.stub_hints_only`` is set, prompt scalars stay at YAML stubs
+        even if a live facade is loaded for after-generation filtering.
+        """
+        if self._scheduler is not None and self._scheduler.llm_stub_hints_only:
+            return StubSurrogate(
+                self._scheduler.surrogate_stub_mean,
+                self._scheduler.surrogate_stub_uncertainty,
+            ).predict(world_spec)
         if self._scheduler is not None and self._surrogate is not None:
             return resolve_surrogate_prediction(
                 self._scheduler,

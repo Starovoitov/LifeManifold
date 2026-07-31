@@ -10,6 +10,7 @@
 # v3 B1b:      q1-v3-genetic-me           (20R+30G; no LLM; matched stub/hints slots)
 # v3 sensitivity: q1-v3-genetic-me-uniform  (genetic_me + uniform_frontier; no surrogate)
 # v3 factorial: q1-v3-genetic-me-filter    (−LLM + surrogate filter; 2×2 ablation cell)
+# v3 mixed 2×2: q1-v3-mixed-2x2 (stub_uniform / hints / filter_stub / filter; archive_trace)
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
@@ -79,6 +80,7 @@ SCHEDULER_HINTS_PARENT_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nigh
 SCHEDULER_HINTS_DIRECTION_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_hints_direction.yaml"
 SCHEDULER_HINTS_WEAK_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_weak_hints.yaml"
 SCHEDULER_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
+SCHEDULER_FILTER_STUB_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter_stub.yaml"
 SCHEDULER_FILTER_GRAY_ZONE="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_filter_gray_zone.yaml"
 SCHEDULER_SHADOW_HINTS_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow_hints.yaml"
 SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_shadow.yaml"
@@ -116,6 +118,7 @@ RUN_CMA_NATIVE_DISCRETE=false
 RUN_CMA_PBCMA=false
 RUN_H2_THRESHOLD_SWEEP=false
 RUN_GRAY_ZONE_ONLY=false
+RUN_MIXED_2X2=false
 case "$TIER" in
   pilot)
     ITERATIONS=120
@@ -454,9 +457,21 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_GRAY_ZONE_ONLY=true
     ;;
+  q1-v3-mixed-2x2)
+    # Mixed LLM stack 2×2: soft hints × hard filter (archive_trace re-run tier).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-mixed-2x2"
+    SCHEDULER_STUB_UNIFORM="$SCHEDULER_STUB_UNIFORM_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    SCHEDULER_FILTER_STUB="$SCHEDULER_FILTER_STUB_NIGHTLY"
+    SCHEDULER_FILTER="$SCHEDULER_FILTER_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_MIXED_2X2=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
     exit 1
     ;;
 esac
@@ -591,6 +606,11 @@ if [[ "$REQUESTED_TIER" == "q1-hints-direction-pilot" && $# -lt 2 ]]; then
   SEED_END=0
   echo "NOTE: q1-hints-direction-pilot default seed 0 only; extend: $0 q1-hints-direction-pilot 0 4" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-v3-mixed-2x2" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-v3-mixed-2x2 default seeds 0–9 (4 arms × archive_trace); parallel: run_mixed_2x2_nohup.sh" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-v3-llm-weak-pilot" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=2
@@ -626,7 +646,7 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
     apply_long_run_llm_defaults
     ;;
   q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity)
@@ -720,7 +740,7 @@ run_one() {
   remove_incomplete_run_dir "$out"
   mkdir -p "$out"
   local extra=()
-  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "filter_gray_zone" || "$condition" == "hints_rich" || "$condition" == "hints_parent" || "$condition" == "hints_direction" ]]; then
+  if [[ "$condition" == "hints" || "$condition" == "filter" || "$condition" == "filter_stub" || "$condition" == "filter_gray_zone" || "$condition" == "hints_rich" || "$condition" == "hints_parent" || "$condition" == "hints_direction" ]]; then
     extra+=(--require-surrogate-quality-gate)
   fi
   if [[ -n "$replicate" ]]; then
@@ -1035,6 +1055,13 @@ elif [[ "$RUN_PYRIBS" == true ]]; then
       run_pyribs_one "$algo" "$seed"
     done
   done
+elif [[ "$RUN_MIXED_2X2" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    run_one stub_uniform "$SCHEDULER_STUB_UNIFORM" "$seed"
+    run_one hints "$SCHEDULER_HINTS" "$seed"
+    run_one filter_stub "$SCHEDULER_FILTER_STUB" "$seed"
+    run_one filter "$SCHEDULER_FILTER" "$seed"
+  done
 elif [[ "$RUN_ANYTIME_LADDER" == true ]]; then
   for seed in $(seq "$SEED_START" "$SEED_END"); do
     run_one vanilla "$SCHEDULER_VANILLA" "$seed"
@@ -1124,7 +1151,7 @@ else
   done
 fi
 
-if [[ -f "$AGG_SCRIPT" ]]; then
+if [[ -f "$AGG_SCRIPT" && -z "${LIFEMANIFOLD_SKIP_EXPERIMENT_AGGREGATE:-}" ]]; then
   if ! uv run python "$AGG_SCRIPT" --root "$EXP_DIR" --output "$EXP_DIR/summary.csv"; then
     echo "WARNING: failed to write $EXP_DIR/summary.csv (runs may still be valid)" >&2
     exit 1

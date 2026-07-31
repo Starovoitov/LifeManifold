@@ -64,7 +64,7 @@
 
 \begin{frontmatter}
 
-\title{Asymmetric Surrogate Value in {MAP}-{E}lites: Attachment-Point Decomposition under {LLM} Variation}
+\title{Soft Prompt Advice vs.\ Hard Evaluation Gating in {MAP}-{E}lites: Two Matched Case Studies}
 
 \author{Artem Starovoitov\corref{cor1}}
 \ead{artem.starovoitov@proton.me}
@@ -73,7 +73,7 @@
 \cortext[cor1]{Corresponding author}
 
 \begin{abstract}
-Classical surrogate-assisted evolutionary algorithms ask where a surrogate should intervene before an expensive evaluation. In LLM-guided MAP-Elites the same question becomes: should a shared surrogate attach \emph{before} generation (prompt-side advice) or \emph{after} generation (evaluation gating)? Holding checkpoint, archive, budget, and emitters fixed, we find a mostly null or negative pattern on free superiority claims, with one conditional positive: after-generation gating improves coverage per simulation (${\sim}{+}3.7$~pp at mid-budget), while matched before-generation scalars stay within $\pm 2$~pp of stub constants. On this cheap evaluator the hard gate still costs terminal coverage and wall time. The contribution is a matched model-management result---channel asymmetry under controls, with stacking, CMA, and maze transfer as bounds---not a broad recipe for LLM-guided QD gains. Magnitudes and secondary contrasts are in the Contributions and Results.
+Classical SAEAs ask where a surrogate should intervene before an expensive evaluation. LLM-guided MAP-Elites adds a soft channel---prompt-side advice---so the natural question is soft before-generation vs.\ hard after-generation use of one shared model. We do \emph{not} claim a fully isolated attach-point decomposition: our two confirmatory contrasts are matched \emph{within} stack, not a single $2\times2$ on one emitter mix. Case study H1 (LLM mixed emitters; terminal coverage): adding the tested parent-level scalar fields to this prompt stays within $\pm 2$~pp of stub constants---not a general before-generation null. Case study H2 (non-LLM genetic ME; evaluation-indexed coverage): threshold gating gains ${\sim}{+}3.7$~pp at mid-budget and $33.5\%$ fewer sims, but costs terminal coverage and wall time on this cheap evaluator. Stacking, CMA, and maze transfer bound the reading. Magnitudes: Contributions / Results.
 \end{abstract}
 
 \begin{keyword}
@@ -85,16 +85,16 @@ evolutionary computation \sep quality-diversity \sep MAP-Elites \sep surrogate-a
 \section{Introduction}
 \label{sec:intro}
 
-Classical surrogate-assisted evolutionary algorithms ask where a surrogate should intervene before an expensive evaluation~\cite{jin2005fitness}. Quality-diversity (QD) search with MAP-Elites makes the same budget pressure concrete: each candidate still needs a black-box roll-out before it can enter a behavioural archive~\cite{mouret2015illuminating,gaier2018sail}. LLM-guided MAP-Elites adds a soft channel that classical SAEAs did not have---prompt-side advice---so the model-management question becomes: should a shared surrogate attach \emph{before} generation or \emph{after} generation? We situate that question in Jin's evolution-control vocabulary (Table~\ref{tab:jin-map}): H2 is individual-based pre-selection; H1 is a soft non-skipping use of the same model; generation-based control is not tested.
+Classical surrogate-assisted evolutionary algorithms ask where a surrogate should intervene before an expensive evaluation~\cite{jin2005fitness}. Quality-diversity (QD) search with MAP-Elites makes the same budget pressure concrete: each candidate still needs a black-box roll-out before it can enter a behavioural archive~\cite{mouret2015illuminating,gaier2018sail}. LLM-guided MAP-Elites adds a soft channel that classical SAEAs did not have---prompt-side advice---so a natural model-management question is soft before-generation vs.\ hard after-generation use of one shared checkpoint. We situate both mechanisms in Jin's evolution-control vocabulary (Table~\ref{tab:jin-map}): H2 is individual-based pre-selection; H1 is a soft non-skipping use of the same model; generation-based control is not tested.
 
-We answer with a matched attach-point experiment (Figure~\ref{fig:pipeline}): checkpoint, archive, budget, and emitters fixed; only soft prompt scalars vs.\ hard threshold gating varies. Payoffs use a controlled structured-genotype evaluator (\S\ref{sec:substrate}). Labels \textbf{H1}--\textbf{H5} and outcomes: Table~\ref{tab:h-status}. Headline numbers live in the Contributions below; later sections do not restate them unless needed for a local contrast.
+We answer with \emph{two matched case studies} that share a checkpoint and warm-start archive but \emph{do not} form a single factorial attach-point experiment (Figure~\ref{fig:pipeline}; confound table: \S\ref{sec:cross-stack}). H1 holds the LLM mixed-emitter stack fixed and varies only prompt scalars vs.\ stub constants (terminal coverage). H2 holds a non-LLM genetic ME stack fixed and varies only threshold gating (evaluation-indexed coverage). Payoffs use a controlled structured-genotype evaluator (\S\ref{sec:substrate}). Labels \textbf{H1}--\textbf{H5}: Table~\ref{tab:h-status}. Headline numbers: Contributions.
 
 \subsection{Contributions}
 
 \begin{enumerate}
-  \item \textbf{Matched soft/hard attach-role contrast.} One shared checkpoint; before-generation prompt scalars vs.\ after-generation threshold gating under identical archive and budget controls (Figure~\ref{fig:pipeline}; \S\ref{sec:decomposition}--\ref{sec:h2}).
-  \item \textbf{Mostly null/negative bounds, one conditional positive.} Soft scalars flat within $\pm 2$~pp ($n{=}10$; TOST); historical $+15$~pp stub$\rightarrow$hints gap is mostly archive policy (${\approx}{+}14.8$~pp). Hard gating: ${\sim}{+}3.7$~pp mid-budget coverage per simulation and $33.5\%$ fewer sims, but $-0.83$~pp terminal and slower wall here (${\sim}20$ vs.\ ${\sim}7$~min). Bounds (Table~\ref{tab:h-status}): LLM$+$filter stacking, CMA-ME (${\sim}13$~pp lead), maze H5 (non-LLM filter AUC yes; LLM arms no).
-  \item \textbf{Reading.} Controlled negative-results / robustness paper with one eval-indexed asymmetry---not a broad LLM-QD win. Soft-channel threats: \S\ref{sec:h1-impl-threat}.
+  \item \textbf{Two matched case studies, not a full attach-point $2\times2$.} Shared checkpoint and warm-start; H1 on the LLM mixed stack (soft scalars); H2 on non-LLM genetic ME (hard gate). Cross-stack factors (emitters, slot mix, reporting axis, parent vs.\ child surrogate inputs) are disclosed in \S\ref{sec:cross-stack}---not claimed away.
+  \item \textbf{Mostly null/negative bounds, one conditional positive \emph{within} H2.} Parent-level prompt scalars flat within $\pm 2$~pp ($n{=}10$; TOST)---scoped to this interface (\S\ref{sec:h1-impl-threat}); historical $+15$~pp stub$\rightarrow$hints gap is mostly archive policy (${\approx}{+}14.8$~pp). Non-LLM hard gating: ${\sim}{+}3.7$~pp mid-budget coverage per simulation and $33.5\%$ fewer sims, but $-0.83$~pp terminal and slower wall here (${\sim}20$ vs.\ ${\sim}7$~min). Bounds (Table~\ref{tab:h-status}): LLM$+$filter stacking, CMA-ME (${\sim}13$~pp lead), maze H5 (non-LLM filter AUC yes; LLM arms no).
+  \item \textbf{Reading.} Two controlled case studies plus bounds. H1 supports only: the tested parent-level scalar fields did not move terminal coverage---not ``before-generation surrogates have no value.'' Soft-channel threats: \S\ref{sec:h1-impl-threat}.
 \end{enumerate}
 
 Method \S\ref{sec:method}; protocol \S\ref{sec:protocol}; results \S\ref{sec:results}; discussion \S\ref{sec:discussion}; limitations \S\ref{sec:limitations}; related work \S\ref{sec:related}.
@@ -117,7 +117,7 @@ Table~\ref{tab:jin-map} places our attach points in that taxonomy once; later se
 
 \begin{table}[!htbp]
   \centering
-  \caption{Jin~(2005) evolution-control vocabulary $\leftrightarrow$ this paper's attach points. The paper is an empirical decomposition inside that SAEA model-management frame, not a full re-test of the classical taxonomy.}
+  \caption{Jin~(2005) evolution-control vocabulary $\leftrightarrow$ the two mechanisms studied here. Mapping is taxonomic; H1 and H2 are separate matched case studies (\S\ref{sec:cross-stack}), not a full re-test of the classical taxonomy.}
   \label{tab:jin-map}
   \small
   \fitcenter{%
@@ -149,7 +149,7 @@ Confirmatory evaluations are deterministically seeded from the genotype (canonic
 
 \begin{table}[!htbp]
   \centering
-  \caption{Positioning vs.\ related QD + surrogate + LLM lines.}
+  \caption{Where this work sits relative to related QD, surrogate, and LLM lines (not a result table).}
   \label{tab:positioning}
   \small
   \fitcenter{%
@@ -174,12 +174,12 @@ Confirmatory evaluations are deterministically seeded from the genotype (canonic
 \section{Method}
 \label{sec:method}
 
-Everything below implements one contrast: before- vs.\ after-generation attachment of a shared surrogate in a MAP-Elites propose$\rightarrow$evaluate loop (Figure~\ref{fig:pipeline}). The LLM is an optional emitter; the evaluator is a controlled measurement substrate (\S\ref{sec:substrate}). Archive insertion always uses simulated fitness.
+Everything below implements two mechanisms for attaching a shared surrogate in a MAP-Elites propose$\rightarrow$evaluate loop (Figure~\ref{fig:pipeline})---as separate matched case studies, not one factorial (\S\ref{sec:cross-stack}). The LLM is an optional emitter; the evaluator is a controlled measurement substrate (\S\ref{sec:substrate}). Archive insertion always uses simulated fitness.
 
 \begin{figure}[!htbp]
   \centering
   \pagefitfig{fig01_pipeline.pdf}
-  \caption{Architectural attach-role map for LLM-guided MAP-Elites: \emph{before-generation surrogate} (H1) vs.\ \emph{after-generation surrogate} (H2). Stacking both under LLM is H3.}
+  \caption{Architectural map of the two mechanisms: \emph{before-generation} prompt scalars (H1 case study, LLM stack) vs.\ \emph{after-generation} threshold gate (H2 case study, primarily non-LLM genetic ME). Stacking both under LLM is H3---not a confirmatory $2\times2$ cell.}
   \label{fig:pipeline}
 \end{figure}
 
@@ -197,21 +197,21 @@ We use those two names throughout. Synonyms appear only here: before-generation 
 
 \begin{table}[!htbp]
   \centering
-  \caption{H1--H5 outcomes (plain-language summary; protocol detail in appendix Table~\ref{tab:families}). Bundled stub$\rightarrow$hints is \emph{not} H1.}
+  \caption{H1--H5 board. \emph{Reading} is the one-word takeaway; detail is local. Bundled stub$\rightarrow$hints is \emph{not} H1 (appendix Table~\ref{tab:families}).}
   \label{tab:role-exp}
   \label{tab:h-status}
   \small
   \fitcenter{%
-  \begin{tabular}{@{}llp{3.6cm}l@{}}
+  \begin{tabular}{@{}lllp{4.4cm}@{}}
     \toprule
-    Label & Contrast & Claim tested & Outcome \\
+    Label & Contrast & Reading & Detail \\
     \midrule
-    H1 & \texttt{stub\_uniform} vs.\ \texttt{hints} & soft before-gen.\ scalars & flat within $\pm 2$~pp \\
-    H2 & \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} & hard after-gen.\ eval efficiency & supported on eval count; terminal $-0.83$~pp / slower wall here \\
-    H3-prod & \texttt{hints} vs.\ production \texttt{filter} & LLM$+$filter stack superiority & not confirmatory (extinction-gate $0.5$ vs.\ $0.95$; $d{=}0.528$) \\
-    H3-gray & \texttt{hints} vs.\ gray-zone filter & LLM$+$filter non-inferiority & not superior (mean $\Delta$cov $-0.60$~pp) \\
-    H4 & hints $>$ cma\_me \textbf{and} cma\_mae & clears continuous-relax.\ ceiling (conjunctive) & not supported (expected vs.\ CMA-ME; ${\sim}13$~pp) \\
-    H5 & maze AUC family (main) & after-gen.\ transfer (esp.\ non-LLM) & mixed: genetic filter AUC yes; LLM arms no \\
+    H1 & \texttt{stub\_uniform} vs.\ \texttt{hints} (LLM stack) & Flat & parent-level scalars in this prompt; terminal $\pm 2$~pp (\S\ref{sec:h1-impl-threat}) \\
+    H2 & \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} (no LLM) & Conditional positive & eval-count gain on genetic ME; not an LLM-stack isolation \\
+    H3-prod & \texttt{hints} vs.\ production \texttt{filter} & Bound & not confirmatory (extinction-gate $0.5$ vs.\ $0.95$; $d{=}0.528$) \\
+    H3-gray & \texttt{hints} vs.\ gray-zone filter & Bound & not superior (mean $\Delta$cov $-0.60$~pp) \\
+    H4 & hints $>$ cma\_me \textbf{and} cma\_mae & Bound & expected miss vs.\ continuous-relax.\ CMA-ME (${\sim}13$~pp) \\
+    H5 & maze AUC family (main) & Bound (partial) & non-LLM filter AUC yes; LLM arms no \\
     \bottomrule
   \end{tabular}%
   }
@@ -241,11 +241,16 @@ The surrogate maps a canonical \texttt{WorldSpec} to predicted MAP-Elites outcom
 
 Production checkpoint \texttt{nightly\_v3\_mc\_d005.pkl} is a four-member MLP ensemble with MC-dropout uncertainty ($N=35{,}114$ training rows; hold-out at runtime-aligned compose gate~$0.95$: NMAE$=0.112$ [95\% CI $0.107{,}0.117$], MAE$_{\text{fitness}}=0.029$, and $R^2_{\text{fitness}}=0.94$ [95\% CI $0.94{,}0.95$]---the last inflated by target std$\times 1.92$ vs.\ gate~$0.5$, not a model upgrade; appendix~\S\ref{sec:checkpoint-appendix}). Runtime fitness is recomposed via \texttt{compute\_fitness\_from\_prediction} using Eq.~\eqref{eq:fitness} (same weights as the simulator). \texttt{get\_surrogate()} falls back to constant \texttt{StubSurrogate} values if the checkpoint is missing, dimension-mismatched, or fails the \texttt{hints\_ok} gate ($R^2 \ge 0.30$, MAE $< 0.085$).
 
-\textbf{Why this regressor family.} The scientific contrast fixes \emph{one} shared checkpoint so H1 and H2 differ only by attach role, not by swapping models between slots. An MLP ensemble fits that contract: multi-head Strategy~A targets, MC-dropout/ensemble uncertainty, and fast batch inference over 32{,}500-proposal schedules. SAIL-style GPs are the natural lineage check, not a required production drop-in: under the same runtime compose labels the MLP leads a scikit-learn GP on hold-out fitness (NMAE $0.112$ vs.\ $0.222$; $R^2{=}0.94$ vs.\ $0.89$ on that same high-variance target) and is ${\sim}37\times$ faster at a full-budget proposal batch, while GP+UCB threshold replays do not beat the production gate (appendix~\S\ref{sec:surrogate-ablation-appendix}). Gradient-boosted trees (e.g.\ XGBoost) are a plausible tabular alternative; the repository retains an optional LightGBM path, but confirmatory H1/H2 pin the MLP checkpoint. We do not claim MLP is uniquely optimal---only that a competent shared regressor was frozen so the soft/hard asymmetry is not confounded with regressor-family shopping.
+\textbf{Why this regressor family.} Both case studies pin \emph{one} shared checkpoint so soft vs.\ hard mechanisms are not confounded by swapping models---but they still differ in emitter stack and reporting axis (\S\ref{sec:cross-stack}). An MLP ensemble fits that shared-model contract: multi-head Strategy~A targets, MC-dropout/ensemble uncertainty, and fast batch inference over 32{,}500-proposal schedules. SAIL-style GPs are the natural lineage check, not a required production drop-in: under the same runtime compose labels the MLP leads a scikit-learn GP on hold-out fitness (NMAE $0.112$ vs.\ $0.222$; $R^2{=}0.94$ vs.\ $0.89$ on that same high-variance target) and is ${\sim}37\times$ faster at a full-budget proposal batch, while GP+UCB threshold replays do not beat the production gate (appendix~\S\ref{sec:surrogate-ablation-appendix}). Gradient-boosted trees (e.g.\ XGBoost) are a plausible tabular alternative; the repository retains an optional LightGBM path, but confirmatory H1/H2 pin the MLP checkpoint. We do not claim MLP is uniquely optimal---only that a competent shared regressor was frozen so the soft/hard asymmetry is not confounded with regressor-family shopping.
 
-\textbf{Before-generation surrogate (H1).} Before each LLM call, \texttt{SurrogateFacade.predict(parent)} runs on the \emph{parent} elite's spec. Placeholders \texttt{\{surrogate\_mean\}} and \texttt{\{surrogate\_uncertainty\}} in the user prompt receive \texttt{prediction.fitness} and calibrated ensemble spread. When \texttt{surrogate.enabled=false}, fixed YAML stubs (\texttt{stub\_mean}, \texttt{stub\_uncertainty}) are substituted without calling \texttt{predict}. One LLM HTTP request per LLM slot regardless of surrogate mode.
+\textbf{Before-generation surrogate (H1) --- what is predicted and what is inserted.}
+For each of the $10/50$ LLM slots per batch, the emitter first selects the archive elite in the target niche (or a random parent if empty). Confirmatory H1 feeds that \emph{parent} \texttt{WorldSpec} to \texttt{SurrogateFacade.predict(parent)}---not a child candidate, and not a counterfactual edit. The user prompt already serializes the parent elite as JSON including its \emph{true} simulated \texttt{fitness}, BC measures, and \texttt{world\_spec}, plus few-shot neighbour elites that also carry true fitness (template: \texttt{prompts/map\_elites\_llm\_emitter\_user.txt}; full text: appendix~\S\ref{sec:h1-prompt-appendix}). The only H1 treatment fields are two additional scalars on one line:
+\begin{quote}
+\small\texttt{Surrogate predicts fitness ≈ \{surrogate\_mean\}, uncertainty = \{surrogate\_uncertainty\}}
+\end{quote}
+Under \texttt{hints}, those placeholders receive live \texttt{prediction.fitness} and calibrated ensemble uncertainty on the parent genotype. Under \texttt{stub\_uniform}, they are fixed YAML constants (\texttt{stub\_mean}$=0.5$, \texttt{stub\_uncertainty}$=1.0$) with \texttt{surrogate.enabled=false} (no \texttt{predict} call). One LLM HTTP request per LLM slot either way. Because the true parent fitness is already in the JSON block, the live scalars are largely a \emph{noisy re-statement of already-available parent information}, not a directional improvement signal about an unseen child. A null terminal result is therefore unsurprising and does not speak to before-generation guidance in general (\S\ref{sec:h1-impl-threat}).
 
-\textbf{Why prompt scalars (and not a stronger before-gen actuator).} H1 is intentionally the \emph{weakest non-skipping} use of the shared checkpoint that still differs from stub constants: advice enters the emitter, every proposal is still simulated, and the LLM/genetic pipelines otherwise match. That keeps the soft/hard contrast about attach role rather than about inventing a second optimizer. Stronger before-generation actuators---surrogate-guided candidate rewriting, RL-style reward shaping of the emitter, or constraint/repair loops that alter genotypes before evaluation---could well move coverage; they are different interventions (often closer to hard control or a new variation operator) and are out of confirmatory scope (\S\ref{sec:h1-impl-threat}). Surrogate-informed parent selection is likewise out of scope.
+\textbf{Why this weak actuator (and what it is not).} Confirmatory H1 tests the weakest non-skipping soft channel that still differs from stub constants under a shared checkpoint. It is \emph{not} a test of: (i)~exact archive parent statistics as the sole advice channel (true fitness is already present for both arms); (ii)~shuffled/permutation placebos with the same scalar distribution; (iii)~evidence that the LLM uses the numbers; (iv)~child-level advice, local counterfactual directions, or candidate rewriting. Stronger before-generation actuators remain out of confirmatory scope (Future work). Surrogate-informed parent selection is likewise out of scope.
 
 \subsection{LLM emitter}
 
@@ -423,12 +428,12 @@ We first report the locked contrast that motivated matched H1: \texttt{stub} vs.
   }
 \end{table}
 
-Mean terminal levels: stub $45.32 \pm 2.44$\% coverage, fitness $0.452 \pm 0.041$; hints $60.41 \pm 0.82$\%, fitness $0.499 \pm 0.008$. Bootstrap 95\% CI on median $\Delta$: coverage $[+13.2, +17.1]$~pp; fitness $[+0.038, +0.054]$. Holm $m=2$ rejects both endpoints. Per-seed deltas: Table~\ref{tab:rq1-seeds} (appendix).
+Mean terminal levels: stub $45.32 \pm 2.44$\% coverage, fitness $0.452 \pm 0.012$; hints $60.41 \pm 0.82$\%, fitness $0.499 \pm 0.005$. Bootstrap 95\% CI on median $\Delta$: coverage $[+13.2, +17.1]$~pp; fitness $[+0.038, +0.054]$. Holm $m=2$ rejects both endpoints. Per-seed deltas: Table~\ref{tab:rq1-seeds} (appendix).
 
 \subsection{H1 --- Before-generation surrogate}
 \label{sec:decomposition}
 
-\textbf{H1 answer.} At matched \texttt{uniform\_frontier}, live prompt scalars vs.\ stub constants are flat (Table~\ref{tab:decomposition}; multi-provider replication Table~\ref{tab:h1-matched-providers}). On \texttt{qwen-turbo} ($n{=}10$): mean coverage $60.15 \pm 0.73\%$ vs.\ $60.41 \pm 0.82\%$ ($\Delta = +0.26$~pp; SD~$1.19$~pp; Wilcoxon $p{=}0.41$; bootstrap 95\% CI $[-0.43, +0.98]$~pp). Post-hoc TOST at $|\Delta\mathrm{cov}| \le 2$~pp accepts ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $\subset [-2,2]$). MDE ${\approx}1.2$~pp (Eq.~\eqref{eq:mde}). Changing target selection alone recovers ${\approx}{+}14.8$~pp of the historical $+15$~pp gap (\texttt{stub\_uniform} $-$ \texttt{stub}). On \texttt{gpt-4o-mini} and DeepSeek V4 Pro ($n{=}10$ each), matched $\Delta$cov is $+0.12 \pm 1.02$~pp and $+1.02 \pm 3.51$~pp; both pass the same $\pm 2$~pp TOST band (Wilcoxon non-significant). Enriched / weak-model pilots ($n{\le}3$; Table~\ref{tab:hint-pilots}) stay within $|\Delta\text{cov}| < 2$~pp---stopping-rule pilots, not powered equivalence. Multi-provider Table~\ref{tab:g1} repeats the bundled stack contrast. Soft-channel threats: \S\ref{sec:h1-impl-threat}.
+\textbf{H1 answer (scoped).} At matched \texttt{uniform\_frontier}, adding the tested parent-level scalar fields to this prompt does not change terminal coverage relative to stub constants (Table~\ref{tab:decomposition}; multi-provider Table~\ref{tab:h1-matched-providers}). That is the claim---not that before-generation surrogates lack value. On \texttt{qwen-turbo} ($n{=}10$): mean coverage $60.15 \pm 0.73\%$ vs.\ $60.41 \pm 0.82\%$ ($\Delta = +0.26$~pp; SD~$1.19$~pp; Wilcoxon $p{=}0.41$; bootstrap 95\% CI $[-0.43, +0.98]$~pp). Post-hoc \emph{paired-$t$} TOST at $|\Delta\mathrm{cov}| \le 2$~pp accepts ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $[-0.43,+0.95]\subset[-2,2]$). MDE ${\approx}1.2$~pp (Eq.~\eqref{eq:mde}). Changing target selection alone recovers ${\approx}{+}14.8$~pp of the historical $+15$~pp gap (\texttt{stub\_uniform} $-$ \texttt{stub}). On \texttt{gpt-4o-mini} ($n{=}10$), matched $\Delta$cov $+0.12 \pm 1.02$~pp also accepts the same paired-$t$ $\pm 2$~pp band. DeepSeek V4 Pro ($n{=}10$) is noisier ($+1.02 \pm 3.51$~pp; one seed $+10.24$~pp): the paired-$t$ 90\% CI $[-1.01,3.06]$ is \emph{not} inside $[-2,2]$, so mean-TOST rejects; a bootstrap-median TOST accepts as a different estimand (Table~\ref{tab:h1-matched-providers}). Enriched / weak-model pilots ($n{\le}3$; Table~\ref{tab:hint-pilots}) were stopped by a $|\Delta\mathrm{cov}|<2$~pp gate and add \emph{no} confirmatory weight. Prompt I/O and missing mechanistic controls: \S\ref{sec:h1-impl-threat}; templates: appendix~\S\ref{sec:h1-prompt-appendix}.
 
 \begin{table}[!htbp]
   \centering
@@ -445,7 +450,7 @@ Mean terminal levels: stub $45.32 \pm 2.44$\% coverage, fitness $0.452 \pm 0.041
     Mean $\Delta$cov (hints $-$ stub\_uniform) & $+0.26$~pp (SD~$1.19$~pp) \\
     Bootstrap 95\% CI (mean $\Delta$cov) & $[-0.43, +0.98]$~pp \\
     Wilcoxon (two-sided) & $p{=}0.41$ \\
-    TOST $|\Delta\mathrm{cov}|\le 2$~pp (post-hoc) & accept ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $\subset[-2,2]$) \\
+    Paired-$t$ TOST $|\Delta\mathrm{cov}|\le 2$~pp (post-hoc) & accept ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $[-0.43,+0.95]$) \\
     MDE (Eq.~\eqref{eq:mde}) & ${\approx}1.2$~pp (power ${\approx}0.66$ @ 1~pp; ${\approx}0.997$ @ 2~pp) \\
     \bottomrule
   \end{tabular}%
@@ -454,7 +459,7 @@ Mean terminal levels: stub $45.32 \pm 2.44$\% coverage, fitness $0.452 \pm 0.041
 
 \begin{table}[!htbp]
   \centering
-  \caption{Pilot runs ($n{=}1$ / $n{\le}3$). Enriched / weak-model hint pilots stopped by a pre-set $|\Delta\mathrm{cov}|<2$~pp gate. Not co-tabulated with the matched H1 table (Table~\ref{tab:decomposition}).}
+  \caption{Stopping-rule pilots only ($n{=}1$ / $n{\le}3$; $|\Delta\mathrm{cov}|<2$~pp gate). Not evidence for or against H1; not co-tabulated with Table~\ref{tab:decomposition}.}
   \label{tab:hint-pilots}
   \small
   \fitcenter{%
@@ -475,19 +480,21 @@ Mean terminal levels: stub $45.32 \pm 2.44$\% coverage, fitness $0.452 \pm 0.041
 
 \begin{table}[!htbp]
   \centering
-  \caption{Matched-policy H1 on additional LLM providers ($n{=}10$; hints $-$ stub\_uniform @ \texttt{uniform\_frontier}; post-hoc TOST outside confirmatory Holm). Primary \texttt{qwen-turbo} row: Table~\ref{tab:decomposition}.}
+  \caption{Matched-policy H1 on additional LLM providers ($n{=}10$; hints $-$ stub\_uniform @ \texttt{uniform\_frontier}; post-hoc; outside confirmatory Holm). Primary \texttt{qwen-turbo} paired-$t$ TOST: Table~\ref{tab:decomposition}. Mean-TOST $=$ paired $t$ 90\% CI vs.\ $\pm 2$~pp; median-TOST $=$ bootstrap-median 90\% CI (reported only when mean-TOST fails).}
   \label{tab:h1-matched-providers}
   \small
   \fitcenter{%
-  \begin{tabular}{@{}lrrrrl@{}}
+  \begin{tabular}{@{}lrrrll@{}}
     \toprule
-    Provider & Mean $\Delta$cov & SD & Wilcoxon & TOST $\pm 2$~pp & Reading \\
+    Provider & Mean $\Delta$cov & SD & Wilcoxon & Mean-TOST $\pm 2$~pp & Reading \\
     \midrule
-    gpt-4o-mini & $+0.12$~pp & 1.02 & $p{=}0.94$ & accept & flat \\
-    DeepSeek V4 Pro & $+1.02$~pp & 3.51 & $p{=}0.71$ & accept & flat \\
+    gpt-4o-mini & $+0.12$~pp & 1.02 & $p{=}0.94$ & accept (90\% CI $[-0.47,0.72]$) & flat \\
+    DeepSeek V4 Pro & $+1.02$~pp & 3.51 & $p{=}0.71$ & \textbf{reject} (90\% CI $[-1.01,3.06]$) & not mean-flat$^\dagger$ \\
     \bottomrule
   \end{tabular}%
   }
+  \vspace{0.25em}
+  \noindent\small\textit{Note:} $^\dagger$Bootstrap-median 90\% CI $[-0.48,1.36]$ lies in $[-2,2]$, but mean-TOST is the procedure co-reported with primary \texttt{qwen-turbo}; DeepSeek seed~8 $\Delta{=}{+}10.24$~pp drives the mean SD.
 \end{table}
 
 \subsection{Non-LLM MAP-Elites baselines (floor + genetic ME)}
@@ -517,7 +524,7 @@ Descriptive stub $-$ vanilla: $+2.96$~pp coverage.
 \subsection{After-generation surrogate (H2)}
 \label{sec:h2}
 
-H2 isolates after-generation attachment on matched no-LLM arms: \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} ($n=10$; Figure~\ref{fig:acquisition}).
+H2 is a matched \emph{non-LLM} case study of after-generation gating: \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} ($n=10$; Figure~\ref{fig:acquisition}). It does \emph{not} isolate the hard gate under the LLM mixed stack (that cell is H3 / missing stub$+$filter; \S\ref{sec:cross-stack}).
 
 \begin{figure}[!htbp]
   \centering
@@ -526,19 +533,20 @@ H2 isolates after-generation attachment on matched no-LLM arms: \texttt{genetic\
   \label{fig:acquisition}
 \end{figure}
 
-\textbf{Evaluation-indexed} coverage is the primary H2 axis (Figure~\ref{fig:acquisition}). At equal evaluation budgets, filter leads by $+3.65$~pp at 20{,}000 evaluations (10/10 seeds) and reaches 50\%/55\% coverage with 28\%/29\% fewer evaluations. At fixed 650 iterations, filter uses 33.5\% fewer simulator calls, finishes $-0.83$~pp below uniform ($58.21 \pm 1.03\%$ vs.\ $59.04 \pm 0.76\%$), and is slower in wall time ($\sim$20 vs.\ $\sim$7~min). The gain is sample efficiency under a matched proposal schedule.
+\textbf{Evaluation-indexed} coverage is the primary H2 axis (Figure~\ref{fig:acquisition}). At equal evaluation budgets, filter leads by $+3.65$~pp at 20{,}000 evaluations (10/10 seeds) and reaches 50\%/55\% coverage with 28\%/29\% fewer evaluations. At fixed 650 iterations, filter uses 33.5\% fewer simulator calls, finishes $-0.83$~pp below uniform ($58.21 \pm 1.03\%$ vs.\ $59.04 \pm 0.76\%$), and is slower in wall time ($\sim$20 vs.\ $\sim$7~min). The supported gain is sample efficiency; wall-clock implications are \S\ref{sec:h2-breakeven}.
 
-\textbf{Why MLP can cost more than skipped sims.} Acquisition runs \texttt{predict\_batch} on every proposal, including those later skipped, using a four-member MLP ensemble with MC-dropout ($p{=}0.05$) before the cheap simulator roll-out. Simulator evaluations are process-pooled; surrogate inference is a per-candidate Python path. When $t_{\mathrm{sim}}$ is milliseconds, that path dominates wall. Skipping 33.5\% of sims therefore removes little wall while adding full-batch MLP work.
+\subsubsection{Cost-benefit break-even}
+\label{sec:h2-breakeven}
 
-\textbf{Wall-time break-even (descriptive).} Write wall cost per proposal batch as $(1-s)\,t_{\mathrm{sim}}+t_{\mathrm{MLP}}$ with skip rate $s$. Filter wins on wall only if $t_{\mathrm{MLP}}<s\,t_{\mathrm{sim}}$. On the primary grid ($s{\approx}0.335$), matching the observed wall ratio ($\sim$20 vs.\ $\sim$7~min) implies $t_{\mathrm{MLP}}/t_{\mathrm{sim}}\approx 2.2$, so the simulator would need to be roughly $\mathbf{7\times}$ slower before a 33.5\% skip saves wall clock.
+H2's supported claim is evaluation-count efficiency: fewer simulations for a given mid-budget coverage. That matters when the evaluator is expensive. It is \emph{not} a guarantee of wall-clock speedup on cheap testbeds.
 
-The same inequality, applied to maze micro-timings ($t_{\mathrm{BFS}}{\approx}0.34$~ms, $t_{\mathrm{MLP}}{\approx}0.95$~ms) and writing $t_{\mathrm{sim}}=t_{\mathrm{BFS}}+\delta$ for an injected per-eval delay $\delta$, yields a maze-specific break-even
+Acquisition runs \texttt{predict\_batch} on every proposal (including skips) with a four-member MLP ensemble and MC-dropout before the roll-out. When $t_{\mathrm{sim}}$ is milliseconds, that path dominates wall, so skipping 33.5\% of sims can still increase wall time (here $\sim$20 vs.\ $\sim$7~min). Write wall cost per proposal as $(1-s)\,t_{\mathrm{sim}}+t_{\mathrm{MLP}}$ with skip rate $s$. Filter wins on wall only if $t_{\mathrm{MLP}}<s\,t_{\mathrm{sim}}$. On the primary grid ($s{\approx}0.335$) the observed wall ratio implies $t_{\mathrm{MLP}}/t_{\mathrm{sim}}\approx 2.2$, so the simulator needs to be roughly $\mathbf{7\times}$ slower before a 33.5\% skip saves wall clock.
+
+Maze micro-timings ($t_{\mathrm{BFS}}{\approx}0.34$~ms, $t_{\mathrm{MLP}}{\approx}0.95$~ms) with $t_{\mathrm{sim}}=t_{\mathrm{BFS}}+\delta$ give
 \[
-\delta^{\star}=\frac{t_{\mathrm{MLP}}-s\,t_{\mathrm{BFS}}}{s}.
+\delta^{\star}=\frac{t_{\mathrm{MLP}}-s\,t_{\mathrm{BFS}}}{s}\approx 2.3~\mathrm{ms}
 \]
-Under the observed skip rate of this wall study ($s{=}36.5\%\pm1.7\%$ at $2{,}500$ proposals; higher than the $27.3\%$ full-budget maze CPU operating point because early-trajectory proposals are easier for the gate to reject), $\delta^{\star}{\approx}2.3$~ms (${\approx}7.7\times$ bare BFS). A supplementary injected-delay run at $\delta{=}10$~ms ($n{=}10$; same maze domain and checkpoint; fitness labels unchanged) is a \emph{sanity check} of that cost model, not an independent expensive-domain replication: genetic $28.3\pm 1.1$~s vs.\ genetic\_filter $22.1\pm 3.6$~s (mean $\Delta{=}{+}6.3$~s; filter faster on $9/10$ seeds; Wilcoxon one-sided $p{=}0.002$). It shows internal consistency of the break-even inequality under an artificially thickened evaluator; it does not demonstrate a wall-clock win on a naturally expensive simulator. The package is descriptive and does not amend maze H5 Holm.
-
-A literature Sphere transfer of the same after-generation rule is appendix~\S\ref{sec:sphere-h2-appendix} (not required for the primary H2 claim).
+at the wall-study skip rate ($s{=}36.5\%\pm1.7\%$ @ $2{,}500$ proposals). An injected-delay run at $\delta{=}10$~ms ($n{=}10$) is only a \emph{sanity check} of that inequality (genetic $28.3\pm 1.1$~s vs.\ filter $22.1\pm 3.6$~s; filter faster on $9/10$; $p{=}0.002$)---not a naturally expensive domain. Descriptive; does not amend maze H5 Holm. Sphere transfer of the gate rule: appendix~\S\ref{sec:sphere-h2-appendix}.
 
 \subsection{Why the after-generation surrogate wins (mechanism)}
 \label{sec:why-filter}
@@ -594,7 +602,7 @@ Stacking the after-generation gate on the LLM$+$hint arm is \emph{not} a simple 
 \subsection{H4 --- Continuous-relaxation pyribs reference (CMA-ME / CMA-MAE)}
 \label{sec:h4}
 
-Pyribs baselines (five homogeneous CMA-ES emitters, $n=10$) provide a continuous-relaxation reference under the same warm-start and evaluation budget as other primary-grid arms. CMA searches $\mathbb{R}^{21}$ with \texttt{rint} decode (\S\ref{sec:pyribs}), so this is an upper-bound-style reference for continuous-friendly representations. Mean levels: cma\_me $73.37 \pm 3.65$\%, fitness $0.576 \pm 0.028$; cma\_mae $60.56 \pm 2.16$\%, fitness $0.489 \pm 0.007$; hints $60.41 \pm 0.82$\%, fitness $0.539 \pm 0.008$.
+Pyribs baselines (five homogeneous CMA-ES emitters, $n=10$) provide a continuous-relaxation reference under the same warm-start and evaluation budget as other primary-grid arms. CMA searches $\mathbb{R}^{21}$ with \texttt{rint} decode (\S\ref{sec:pyribs}), so this is an upper-bound-style reference for continuous-friendly representations. Mean levels: cma\_me $73.37 \pm 3.65$\%, fitness $0.576 \pm 0.028$; cma\_mae $60.56 \pm 2.16$\%, fitness $0.489 \pm 0.007$; hints $60.41 \pm 0.82$\%, fitness $0.499 \pm 0.005$ (same frozen \texttt{q1-full/hints} arm as Table~\ref{tab:rq1}).
 
 Decode / discrete-search controls (Bernoulli, native bit-flip, pbCMA) are appendix~\S\ref{sec:encoding-appendix}---not required to read H4 as a continuous-relaxation ceiling.
 
@@ -726,30 +734,25 @@ At matched real evaluations (22{,}860 evals; Table~\ref{tab:b5-holm}), genetic\_
 
 \subsection{Synthesis}
 
-Canonical magnitudes and outcome board: Contributions and Table~\ref{tab:h-status}. In short: hard after-generation control moves evaluation-indexed coverage (Figure~\ref{fig:acquisition}); soft before-generation advice stays flat; stacking / CMA / maze are bounds. Soft-channel threat: \S\ref{sec:h1-impl-threat}. Scope: \S\ref{sec:limitations}.
+Canonical magnitudes and outcome board: Contributions and Table~\ref{tab:h-status}. In short: within the non-LLM H2 stack, hard after-generation control moves evaluation-indexed coverage (Figure~\ref{fig:acquisition}); within the LLM H1 stack, the tested parent-level scalar fields stay flat at terminal coverage---a scoped interface null, not a general soft-channel impossibility (\S\ref{sec:h1-impl-threat}). Stacking / CMA / maze are bounds. Not interchangeable attach-role cells (\S\ref{sec:cross-stack}). Scope: \S\ref{sec:limitations}.
 
 \subsection{Mechanistic reading}
 \label{sec:why-discussion}
 
-Skip logs explain the H2 eval-axis gain (\S\ref{sec:why-filter}; Table~\ref{tab:skip-mech}): discarded proposals have low predicted fitness / high extinction / low diversity; uncertainty does not separate classes. The same checkpoint feeds flat H1, so attach role matters more than headline hold-out $R^2$. Warm-start ($\sim$2{,}614 elites) means mid-budget H2 gains arise in an already seeded archive; cold-start before-generation value remains open (\S\ref{sec:bootstrap-hyp}). Threshold $\tau$ trades mid-budget fill against terminal coverage (Table~\ref{tab:h2-tau-sweep}). In Jin's terms (Table~\ref{tab:jin-map}): individual-based gating reallocates sims; soft advice does not; generation-based control untested.
-\subsection{Is flat H1 an implementation failure?}
+Skip logs explain the H2 eval-axis gain (\S\ref{sec:why-filter}; Table~\ref{tab:skip-mech}): discarded proposals have low predicted fitness / high extinction / low diversity; uncertainty does not separate classes. Warm-start ($\sim$2{,}614 elites) means mid-budget H2 gains arise in an already seeded archive; cold-start before-generation value remains open (\S\ref{sec:bootstrap-hyp}). Threshold $\tau$ trades mid-budget fill against terminal coverage (Table~\ref{tab:h2-tau-sweep}). In Jin's terms (Table~\ref{tab:jin-map}): individual-based gating reallocates sims; soft advice as tested does not; generation-based control untested. Whether the LLM \emph{used} the H1 scalars is a separate question (\S\ref{sec:h1-impl-threat}).
+
+\subsection{Scope of the flat H1 result}
 \label{sec:h1-impl-threat}
 
-The most serious threat to the soft/hard reading is not that H2 is wrong, but that H1 is an \emph{implementation} miss: perhaps live scalars never reached the model, the prompt format was uniquely bad, or a different soft interface would have moved coverage. We take that threat explicitly.
+\textbf{Admissible conclusion.} Adding the tested parent-level scalar fields (\texttt{\{surrogate\_mean\}}, \texttt{\{surrogate\_uncertainty\}}) to this prompt did not change terminal coverage under matched \texttt{uniform\_frontier}. That is \emph{not} a claim that before-generation surrogates have no value.
 
-\paragraph{What the evidence already rules out.}
-\begin{enumerate}
-  \item \textbf{Dead surrogate.} The same checkpoint that feeds H1 drives the after-generation gate: hold-out NMAE$=0.112$ (runtime gate~$0.95$) and live skip logs separate skipped vs.\ evaluated proposals by predicted fitness / extinction (Table~\ref{tab:skip-mech}; \S\ref{sec:h2}). Flat H1 is therefore not explained by a useless predictor.
-  \item \textbf{Design blind to large effects.} At matched seeds, changing archive \texttt{target\_selection} alone recovers ${\approx}{+}14.8$~pp of the historical stub$\rightarrow$hints gap, while live vs.\ stub scalars move only $+0.26$~pp (\S\ref{sec:decomposition}). The measurement stack detects large terminal-coverage shifts when they exist.
-  \item \textbf{One bad prompt template.} Beyond two scalar placeholders, enriched component text, observed-parent metrics, and finite-difference direction hints all stayed within the pilot $|\Delta\mathrm{cov}|<2$~pp stop gate (Table~\ref{tab:hint-pilots}; $n{=}1$ each). A weak-model moderation check ($n{=}3$) was likewise null. These pilots are underpowered for equivalence, but they are not a single overlooked YAML typo.
-  \item \textbf{One API quirk.} Matched-policy H1 remains inside the $\pm 2$~pp TOST band on \texttt{gpt-4o-mini} and DeepSeek V4 Pro as well as \texttt{qwen-turbo} (Table~\ref{tab:h1-matched-providers}).
-\end{enumerate}
+\textbf{Why a null is expected under this interface.} The confirmatory user prompt already includes the parent elite's \emph{true} simulated fitness inside \texttt{current\_elite\_json}, plus neighbour elites with true fitness (appendix~\S\ref{sec:h1-prompt-appendix}). Live H1 only appends a surrogate estimate of fitness/uncertainty on that same parent genotype---a noisy re-statement of information the archive already holds---not a predicted child improvement or a rewrite instruction. Advice touches only ${\approx}10/50$ batch slots. We have no evidence that the LLM uses those two numbers. A constant stub is not a mechanistic placebo with the same scalar distribution (no shuffled / permutation control). Terminal coverage after a large warm-start (${\sim}2{,}614$ elites) can hide early differences; confirmatory H1 lacks anytime / cold-start curves on the frozen LLM arms (a mixed-stack re-run with \texttt{archive\_trace} is in progress; \S\ref{sec:cross-stack}). Stopping-rule pilots at $n{\le}3$ (Table~\ref{tab:hint-pilots}) do not add evidential weight.
 
-\paragraph{What remains open (interface / phase, not ``prompt advice is impossible'').}
-The residual threat is that soft advice is \emph{ignorable under this emitter contract}: JSON-patch replies, parent-level (not child-level) surrogate conditioning, warm-start mid-band saturation ($\sim$58--60\% coverage), and no obligation for the model to use the scalars (no chain-of-thought, tool call, or hard constraint). We did not run a shuffled/placebo-scalar null, cold-start matched H1, or anytime first-fill curves for hints vs.\ stub\_uniform. Post-hoc TOST supports flatness within $\pm 2$~pp on terminal coverage; it is not a pre-registered proof that every soft channel is inert.
+\textbf{Missing controls (required for stronger soft-channel claims).}
+(1)~shuffled-scalar or permutation placebo with the same number distribution; (2)~exact parent-archive statistics as an explicit advice block without redundant surrogate scalars; (3)~LLM-candidate quality on true fitness, insertion rate, cell-improvement rate, edit magnitude, and predicted vs.\ realized child$-$parent $\Delta$; (4)~cold-start or anytime H1; (5)~stronger actuators (local counterfactual directions, candidate rewriting, structured target discrepancy). Edit-anatomy on accepted elites (appendix~\S\ref{sec:edit-anatomy}) is descriptive only and does not close (3).
 
-\paragraph{Scoped claim.}
-We therefore claim an \emph{attach-role asymmetry on this stack}: controlling after-generation gating and non-controlling before-generation prompt advice are not interchangeable uses of the same checkpoint. We do \emph{not} claim that no soft before-generation mechanism can ever help---only that the soft mechanisms tested here did not move terminal coverage while the hard gate did reallocate evaluations. Stronger before-generation actuators---child-level or mandatory prompt use, tool-mediated surrogate queries, surrogate-guided candidate rewriting, RL-style emitter guidance, or pre-evaluation constraint/repair---remain open; several of those blur into hard control or a new variation operator and would answer a different question than matched soft advice vs.\ hard skip (\S\ref{sec:bootstrap-hyp}, Future work).
+\paragraph{Contribution framing.}
+H1 is a within-stack case study of one weak, possibly redundant soft interface under one checkpoint---not a general before-generation impossibility result, and not an isolated soft-vs-hard attach-point theorem. Mixed-stack $2\times2$ and the controls above remain open (Future work; \S\ref{sec:cross-stack}).
 
 \subsection{Boundary conditions}
 
@@ -758,21 +761,49 @@ Bounds already in Table~\ref{tab:h-status} / Results: H4 is an expected miss aga
 \subsection{Implications for LLM emitters}
 \label{sec:when-llm}
 
-The LLM is one emitter inside a Jin-style attach-point question (Table~\ref{tab:jin-map}), not the product under test. On coverage/wall here it is mostly not the metrics winner (CMA-ME; genetic ME; Figure~\ref{fig:ladder}). Niche: structured, human-readable edits (appendix~\S\ref{sec:edit-anatomy}). Practical SWEVO reading: genetic$+$after-generation (or CMA) for archive metrics; LLM when editable genotypes matter; attach any shared surrogate primarily after generation.
+The LLM is one emitter in the H1 stack, not the product under test, and not the stack on which H2 was isolated (Table~\ref{tab:jin-map}; \S\ref{sec:cross-stack}). On coverage/wall here it is mostly not the metrics winner (CMA-ME; genetic ME; Figure~\ref{fig:ladder}). Niche: structured, human-readable edits (appendix~\S\ref{sec:edit-anatomy}). Practical SWEVO reading from the present case studies: genetic$+$after-generation (or CMA) for archive metrics on this testbed; LLM when editable genotypes matter; do not treat H2's genetic-ME gate as already proven under LLM variation.
 
 \subsection{Hypothesis: stage-dependent integration}
 \label{sec:bootstrap-hyp}
 
-Untested scheduling hypothesis (not a claim of this paper): before-generation advice may matter mainly in archive bootstrap; after-generation gating may help across the evaluation trajectory. Consistent with, but not testing, that reading: H2 leads from early/mid budgets on anytime curves (Figure~\ref{fig:acquisition}) with high skip rates across terciles; terminal H1 is flat, so any soft value would have to be phase-local and is not yet instrumented (frozen LLM arms lack \texttt{archive\_trace.jsonl}). Follow-ons: first-fill curves, phase-gated filter, LLM-then-genetic schedules.
+Untested scheduling hypothesis (not a claim of this paper): stronger before-generation advice may matter mainly in archive bootstrap; after-generation gating may help across the evaluation trajectory. Consistent with, but not testing, that reading: H2 leads from early/mid budgets on anytime curves (Figure~\ref{fig:acquisition}); terminal H1 is flat on a weak/redundant scalar interface, so early soft value---if any---would need anytime instrumentation (frozen confirmatory LLM arms lack \texttt{archive\_trace.jsonl}; a mixed-stack re-run with traces is underway). Follow-ons: first-fill curves, phase-gated filter, LLM-then-genetic schedules.
 
 \subsection{Limitations}
 \label{sec:limitations}
 
+\subsubsection{H1 and H2 are not an isolated attach-point factorial}
+\label{sec:cross-stack}
+
+Comparing H1 to H2 as if only the attach role changed would be incorrect. The confirmatory contrasts fix different factors (Table~\ref{tab:cross-stack}). A shared checkpoint removes model swap, not the remaining design differences. In H1 the surrogate scores a \emph{parent} (or archive state) before a child exists; in H2 it scores an already-generated \emph{child} genotype---different input distributions and prediction tasks. H2's positive axis is mid-budget coverage per real simulation; H1 is reported mainly as a terminal null, and frozen LLM arms lack full \texttt{archive\_trace.jsonl}, so a transient early H1 effect on the evaluation-indexed axis cannot be ruled out (\S\ref{sec:bootstrap-hyp}). Primary H2 evidence is on the non-LLM genetic branch; wording such as ``under LLM variation'' would overclaim.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Cross-stack factors that co-vary with the soft/hard mechanism in the confirmatory H1 vs.\ H2 contrasts. Cells are matched \emph{within} row, not across rows.}
+  \label{tab:cross-stack}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}lp{5.2cm}p{5.2cm}@{}}
+    \toprule
+    Factor & H1 (LLM stack) & H2 (genetic ME) \\
+    \midrule
+    Mechanism & Soft prompt scalars & Hard skip gate \\
+    Surrogate input & Parent / pre-child & Child genotype \\
+    Emitters & $20$R+$20$G+$10$L & $20$R+$30$G (no LLM) \\
+    Slots touched by treatment & ${\approx}10/50$ LLM & up to ${\approx}50/50$ proposals \\
+    Primary reported axis & Terminal coverage & Mid-budget eval-indexed coverage \\
+    Budget accounting & All proposals simulated & Fraction skipped \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\noindent\textbf{Required isolation experiment (not claimed here).} A mixed-emitter $2\times2$ on one stack---stub / live hints $\times$ $\pm$filter---with matched \texttt{target\_selection}, warm-start, proposal schedule, and seeds; coverage/QD vs.\ proposals, real sims, and wall; optional per-emitter slot analyses. The missing cell is stub$+$filter with live gating but stub prompt scalars (repository YAML sketch \texttt{map\_elites\_scheduler\_nightly\_llm\_filter\_stub\_pilot.yaml}; needs a prompt/gate split flag). Until that grid exists, title and claims stay at two case studies.
+
 \subsubsection{Threats to validity}
 
-The central soft-channel threat---flat H1 as emitter-interface miss rather than attach-role difference---is discussed in \S\ref{sec:h1-impl-threat}; residual gaps include underpowered format pilots, post-hoc TOST, no shuffled-scalar null, and no cold-start / CoT / tool-mediated H1. Confirmatory H1 also uses only ignorable prompt scalars, not candidate rewriting, RL guidance, or constraint repair (\S\ref{sec:surrogate-method}). Regressor-family choice is similarly scoped: MLP vs.\ GP is an offline lineage ablation (\S\ref{sec:surrogate-method}); XGBoost-style boosting was not a confirmatory factor, so we do not claim uniqueness among tabular regressors.
+Flat H1 is scoped to the tested parent-level scalar fields in this prompt (\S\ref{sec:h1-impl-threat}): not a proof that before-generation guidance is useless. True parent fitness is already in the JSON; shuffled placebos, LLM-candidate quality metrics, and cold-start/anytime remain open. Regressor-family choice is scoped: MLP vs.\ GP is an offline lineage ablation; boosting was not a confirmatory factor.
 
-Primary evidence uses a cheap evaluator where MLP inference dominates wall time, so H2's evaluation-indexed gain is not a wall-clock win on the unmodified primary or maze BFS evaluators (\S\ref{sec:cost}). An injected-delay maze run is only a sanity check of the break-even cost model (\S\ref{sec:h2}); transfer to a naturally expensive simulator remains untested. The pyribs coverage contrast searches a continuous relaxation of a mixed discrete/continuous genome; decode ablations still propose in $\mathbb{R}^{21}$ before rounding, and the CMA comparison is a pipeline reference rather than a factorial emitter decomposition (\S\ref{sec:h4}). Matched evaluation budget is not matched dollar cost.
+H2 saves simulations, which is the relevant benefit for expensive evaluators, but is not a wall-clock win on this cheap testbed (\S\ref{sec:h2-breakeven}, \S\ref{sec:cost}). Injected-delay maze is only a break-even sanity check; naturally expensive transfer remains open. The pyribs coverage contrast searches a continuous relaxation of a mixed discrete/continuous genome; decode ablations still propose in $\mathbb{R}^{21}$ before rounding, and the CMA comparison is a pipeline reference rather than a factorial emitter decomposition (\S\ref{sec:h4}). Matched evaluation budget is not matched dollar cost.
 
 H3 remains not confirmatory on production filter and not superior after gray-zone repair (mean $\Delta$cov $-0.60$~pp; Table~\ref{tab:h-status}). Hold-out gate alignment is appendix~\S\ref{sec:checkpoint-appendix}.
 
@@ -788,14 +819,14 @@ Per-family protocol freezes (not whole-paper OSF prereg): appendix~\S\ref{sec:am
 
 \subsection{Future work}
 
-What remains open for the soft channel (\S\ref{sec:h1-impl-threat}) is less about swapping LLMs than about stronger tests of whether advice is used: (1)~\textbf{shuffled/placebo scalars} as a mechanistic null; (2)~\textbf{phase analysis} / cold-start matched H1 with anytime first-fill curves; (3)~\textbf{harder soft interfaces} (child-level advice, chain-of-thought, tool-mediated surrogate queries) and prompt micro-ablations; (4)~\textbf{stronger before-generation actuators} that change the intervention class---surrogate-guided candidate rewriting, RL-style emitter guidance, or pre-evaluation constraint/repair---as separate designs, not as drop-in replacements for matched prompt scalars. H2 threshold sensitivity at $\tau\in\{0.35,0.45,0.55\}$ ($n{=}10$) is reported in Table~\ref{tab:h2-tau-sweep}; a wider $\tau$ grid remains optional.
+Priority follow-ons for the soft channel (\S\ref{sec:h1-impl-threat}): mixed-stack $2\times2$ with anytime (\S\ref{sec:cross-stack}); shuffled/permutation scalar placebo; exact parent-archive statistics without redundant surrogate scalars; LLM-candidate quality (true fitness, insertion / cell-improvement rates, edit magnitude, predicted vs.\ realized child$-$parent $\Delta$); cold-start; stronger actuators (counterfactual directions, candidate rewriting, structured target discrepancy). H2 $\tau$ sensitivity at $\{0.35,0.45,0.55\}$ is Table~\ref{tab:h2-tau-sweep}.
 
-The fixed attach-role contrasts (Table~\ref{tab:h-status}) leave open a follow-on question: when should before- vs.\ after-generation be active, and when to call LLM vs.\ genetic emitters (\S\ref{sec:bootstrap-hyp})? That is future work, not a claim of this paper. Planned journal extensions: (i)~a recognized LLM+QD domain with a \emph{naturally} expensive evaluator (DSA-ME-style deckbuilding~\cite{grillotti2022dsame} or equivalent) to test whether the flat H1 result and eval-indexed H2 result replicate and whether wall-clock gains appear above the break-even regime without injected delay; (ii)~full-budget LLM dungeon, maze $\tau$ ablations, and fuller treatment of the appendix dungeon / Sphere / encoding packages; (iii)~optional expert preference pilot on the same parent$\rightarrow$child pairs used in the edit-anatomy case study (\S\ref{sec:edit-anatomy}). Claim-driving protocols and artifacts for this revision are archived at Zenodo (DOI~\texttt{\ZenodoArtifactsDOI}); that record is an integrity snapshot, not a pre-run stamp for past families. As supplementary integrity material we will also ship dated \texttt{git} diffs / commit logs of the protocol files (\texttt{EXPERIMENT\_PROTOCOL\_Q1\_v\{2--5\}.md}) alongside Table~\ref{tab:timeline}, so freeze text can be inspected without reconstructing history from the live branch alone.
+Scheduling LLM vs.\ genetic emitters by archive phase (\S\ref{sec:bootstrap-hyp}) is likewise future work. Other planned extensions: (i)~a naturally expensive LLM+QD evaluator (e.g.\ DSA-ME-style deckbuilding~\cite{grillotti2022dsame}) for wall-clock above break-even; (ii)~full-budget LLM dungeon / maze $\tau$ packages; (iii)~optional expert preference on edit-anatomy pairs (\S\ref{sec:edit-anatomy}). Zenodo pin DOI~\texttt{\ZenodoArtifactsDOI} is an integrity snapshot; protocol \texttt{git} diffs accompany Table~\ref{tab:timeline} as supplementary material.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-We compared soft vs.\ hard uses of one shared surrogate under matched controls. The reading is the Contributions / Table~\ref{tab:h-status} pattern: mostly null or negative free-superiority claims, one conditional eval-indexed after-generation gain, maze transfer only for non-LLM filter AUC. Not a broad LLM-QD win. Code/artifacts: tag~\texttt{\SubmissionGitTag} / \texttt{\SubmissionGitShort}. Scope: \S\ref{sec:limitations}.
+We reported two matched within-stack case studies under one shared checkpoint---not a fully isolated attach-point decomposition. H1 supports only that the tested parent-level scalar fields in this prompt did not change terminal coverage (true parent fitness was already in the JSON; \S\ref{sec:h1-impl-threat}). H2 supports a conditional eval-indexed gain on the non-LLM genetic filter branch. Maze transfer only for non-LLM filter AUC. Not a broad LLM-QD win and not a general before-generation null. Code/artifacts: tag~\texttt{\SubmissionGitTag} / \texttt{\SubmissionGitShort}. Confounds / $2\times2$: \S\ref{sec:cross-stack}.
 
 \section*{Data and code availability}
 
@@ -833,12 +864,12 @@ Classic Vargha--Delaney $A_{12}$ is defined for independent samples~\cite{vargha
 where $\Delta_i$ is treatment $-$ control on seed $i$ (for ``less,'' count $\Delta_i < 0$). $\mathrm{PPS}{=}0.5$ is chance under no systematic paired advantage, and (with ties as half) $\mathrm{PPS}$ coincides with the Sign column rate when there are no ties. We use it only as a descriptive companion next to Wilcoxon tests. We do \emph{not} import independent-sample $A_{12}$ magnitude cutoffs (e.g.\ 0.56/0.64/0.71), and $\mathrm{PPS}$ is \emph{not} a confirmatory gate (Holm / protocol $d_z$ decide pass/fail).
 
 \paragraph{H1 TOST and MDE; retrospective MDEs elsewhere.}
-Matched-policy H1 uses a post-hoc TOST equivalence check at $|\Delta\mathrm{cov}|\le 2$~pp (outside confirmatory Holm sets). Approximate minimum detectable effect for a paired $t$-test at $n$ seeds, two-sided $\alpha{=}0.05$, 80\% power is
+Matched-policy H1 uses a post-hoc TOST equivalence check at $|\Delta\mathrm{cov}|\le 2$~pp (outside confirmatory Holm sets). The primary \texttt{qwen-turbo} and \texttt{gpt-4o-mini} matched rows report \emph{paired-$t$} mean-TOST (90\% CI on the mean). When the paired mean CI fails the band (DeepSeek V4 Pro), we disclose that failure and do not substitute a bootstrap-median accept as the same claim. Approximate minimum detectable effect for a paired $t$-test at $n$ seeds, two-sided $\alpha{=}0.05$, 80\% power is
 \begin{equation}
-  \mathrm{MDE} \;=\; \bigl(t_{1-\alpha/2,\,n-1} + t_{0.80,\,n-1}\bigr)\,\frac{s_{\Delta}}{\sqrt{n}},
+  \mathrm{MDE} \;=\; \bigl(t_{1-\alpha/2,\,n-1} + t_{0.80,\,n-1}\bigr)\,\frac{\mathrm{SD}_{\Delta}}{\sqrt{n}},
   \label{eq:mde}
 \end{equation}
-with $s_{\Delta}$ the observed paired-difference SD (descriptive when used retrospectively). For H1, $\mathrm{MDE}{\approx}1.2$~pp at $n{=}10$; accept/reject and CIs appear in \S\ref{sec:decomposition}. Elsewhere we quote only the resulting MDE numbers under the same convention (e.g.\ dungeon hints$-$stub coverage AUC ${\approx}1.2$~pp at $n{=}10$; maze genetic\_filter coverage AUC ${\approx}2.1$~pp at $n{=}10$ before Holm $m{=}8$)---not a second formula statement. These bound what $n$ can detect; they do not re-open locked Holm families or convert non-rejects into equivalence claims.
+with $\mathrm{SD}_{\Delta}$ the observed paired-difference standard deviation (descriptive when used retrospectively). For H1, $\mathrm{MDE}{\approx}1.2$~pp at $n{=}10$; accept/reject and CIs appear in \S\ref{sec:decomposition}. Elsewhere we quote only the resulting MDE numbers under the same convention (e.g.\ dungeon hints$-$stub coverage AUC ${\approx}1.2$~pp at $n{=}10$; maze genetic\_filter coverage AUC ${\approx}2.1$~pp at $n{=}10$ before Holm $m{=}8$)---not a second formula statement. These bound what $n$ can detect; they do not re-open locked Holm families or convert non-rejects into equivalence claims.
 
 \paragraph{Other descriptive metrics.}
 QD-score (Eq.~\eqref{eq:qd}), evaluation count, wall-clock time, LLM fallback rate, anytime curves, and bootstrap 95\% CIs on median $\Delta$ are reported for interpretation. QD-score and eval-to-threshold curves are \emph{not} used for confirmatory rejection. Hold-out surrogate CIs use $B{=}10{,}000$ row resamples; cross-gate comparisons prefer NMAE when the fitness target distribution changes (appendix~\S\ref{sec:checkpoint-appendix}).
@@ -874,7 +905,7 @@ Offline acquisition replay: replacing the MLP with the GP under the \emph{same} 
     \toprule
     Provider & Hints cov.\ (\%) & $\Delta$cov (pp) & $\Delta$fit & Sign (cov) & Outcome \\
     \midrule
-    qwen-turbo (v2 reference, $n{=}10$) & $60.41$ & $+15.09$ & $+0.053$ & 10/10 & passes \\
+    qwen-turbo (v2 reference, $n{=}10$) & $60.41$ & $+15.09$ & $+0.047$ & 10/10 & passes \\
     DeepSeek V4 Pro ($n{=}10$) & $61.93$ & $+16.95 \pm 2.12$ & $+0.052 \pm 0.013$ & 10/10 & passes \\
     OpenAI gpt-4o-mini ($n{=}10$) & $55.34$ & $+9.66 \pm 2.41$ & $+0.018 \pm 0.013$ & 10/10 & passes \\
     \bottomrule
@@ -1032,17 +1063,17 @@ At a matched real-evaluation checkpoint (2{,}991 evals), genetic\_filter beats g
 
 \begin{table}[!htbp]
   \centering
-  \caption{H3-gray: gray-zone filter $-$ hints ($n{=}10$; not superior; Holm $m{=}3$).}
+  \caption{H3-gray: gray-zone filter $-$ hints ($n{=}10$; not superior; Holm $m{=}3$). Eval uses exact one-sided Wilcoxon; NI rows use the protocol's one-sided non-inferiority tests (not Wilcoxon---those $p$-values can fall below $1/2^{n}=9.8\times10^{-4}$). $\mathrm{PPS}$ as in Eq.~\eqref{eq:pps}, not independent-sample $A_{12}$.}
   \label{tab:h3-gray-holm}
   \small
   \fitcenter{%
   \begin{tabular}{@{}llrrcc@{}}
     \toprule
-    Test & Mean $\Delta$ & Raw $p$ & A$_{12}$ & Holm & Detail \\
+    Test & Mean $\Delta$ & Raw $p$ (method) & $\mathrm{PPS}$ & Holm & Detail \\
     \midrule
-    Eval $\downarrow$ & $-3{,}867$ sims & $9.8\times10^{-4}$ & 1.00 & Yes & 10/10 fewer \\
-    Cov NI ($>-3$ pp) & $-0.60$ pp & $1.0\times10^{-4}$ & 0.20 & Yes & 10/10 per-seed \\
-    Fit NI ($>-5\%$ rel.) & $-0.36\%$ & $1.6\times10^{-5}$ & 0.40 & Yes & NI accept \\
+    Eval $\downarrow$ & $-3{,}867$ sims & $9.8\times10^{-4}$ (Wilcoxon) & 1.00 & Yes & 10/10 fewer \\
+    Cov NI ($>-3$ pp) & $-0.60$ pp & $1.0\times10^{-4}$ (bootstrap NI) & 0.20 & Yes & 10/10 per-seed $>-3$ \\
+    Fit NI ($>-5\%$ rel.) & $-0.36\%$ & $1.6\times10^{-5}$ (one-sided $t$ NI) & 0.40 & Yes & NI accept \\
     \bottomrule
   \end{tabular}%
   }
@@ -1140,6 +1171,57 @@ On the primary \texttt{hints} arm (seeds~0--9) we compare parent$\rightarrow$chi
   \label{fig:elites}
 \end{figure}
 
+\section{H1 prompt I/O (stub vs.\ live scalars)}
+\label{sec:h1-prompt-appendix}
+
+Main-text \S\ref{sec:surrogate-method} / \S\ref{sec:h1-impl-threat} state that confirmatory H1 only swaps two parent-level scalars. This appendix prints the templates and a filled stub vs.\ live example so the redundancy with true parent fitness is inspectable without repository hashes alone.
+
+\paragraph{System prompt (shared; grid).}
+Repository file \texttt{prompts/map\_elites\_llm\_emitter\_system.txt} (abbreviated structure; fitness formula matches Eq.~\eqref{eq:fitness}):
+\begin{quote}
+\small\ttfamily
+You are an expert in Artificial Life and Quality-Diversity (MAP-Elites).\\
+You act as an LLM emitter.\\
+Fixed rules \ldots fitness = 0.45*diversity + \ldots\\
+Generate a WorldSpec \ldots Reply with strictly valid JSON only \ldots
+\end{quote}
+
+\paragraph{User prompt template (confirmatory H1).}
+Repository file \texttt{prompts/map\_elites\_llm\_emitter\_user.txt}:
+\begin{quote}
+\small\ttfamily
+Target niche: stability ≈ \{target\_stability:.2f\} (±0.03), diversity ≈ \{target\_diversity:.2f\} (±0.03)\\
+Surrogate predicts fitness ≈ \{surrogate\_mean:.3f\}, uncertainty = \{surrogate\_uncertainty:.3f\}\\[0.4em]
+Current best elite in this cell:\\
+\{current\_elite\_json\}\\[0.4em]
+Examples of successful elites from nearby niches (with fitness):\\
+\{few\_shot\_examples\}\\[0.4em]
+Generate a new WorldSpec that:\\
+1. Lands in the target niche \ldots\\
+2. Maximizes fitness \ldots\\
+3. Differs from existing elites.\\
+4. Accounts for high surrogate uncertainty.\\[0.4em]
+Constraints for world\_spec:\\
+\{constraints\}\\[0.4em]
+Return JSON only: \{\{"world\_spec": \{ \ldots \}\}\}
+\end{quote}
+The H1 contrast changes \emph{only} the second line. Both arms share the same \texttt{current\_elite\_json}, which already includes true simulated \texttt{fitness}, \texttt{measures}, and \texttt{world\_spec} for the parent elite (and few-shot neighbours likewise carry true fitness).
+
+\paragraph{Filled example (illustrative parent).}
+Suppose the target niche is $(0.60,0.40)$ and the parent elite has true fitness $0.498$. Then the differing line is:
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Arm & Surrogate line \\
+\midrule
+\texttt{stub\_uniform} & \texttt{Surrogate predicts fitness ≈ 0.500, uncertainty = 1.000} \\
+\texttt{hints} (live) & \texttt{Surrogate predicts fitness ≈ 0.491, uncertainty = 0.162} \\
+\bottomrule
+\end{tabular}
+\end{center}
+(Live numbers are typical parent-level MLP outputs; exact values vary by seed/slot.) The parent JSON block below that line is identical across arms and already reports \texttt{"fitness": 0.498}. Component-rich / parent-metrics / direction user prompts (\texttt{hints\_rich}, \texttt{hints\_parent}, \texttt{hints\_direction}) are stopping-rule pilots only (Table~\ref{tab:hint-pilots}) and are not the confirmatory H1 template.
+
 \section{Condition label map}
 \label{sec:arm-map}
 
@@ -1184,13 +1266,13 @@ Main-text H1--H5 outcomes are Table~\ref{tab:h-status}. Table~\ref{tab:families}
     \toprule
     Label & Locked contrast & $m$ & Outcome \\
     \midrule
-    H1 & \texttt{stub\_uniform} vs.\ \texttt{hints} & --- & flat ($\pm 2$~pp) \\
-    H2 & \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} & --- & supported (eval-indexed) \\
-    H3-prod & \texttt{hints} vs.\ production \texttt{filter} & --- & not confirmatory \\
-    H3-gray & \texttt{hints} vs.\ gray-zone filter & 3 & not superior \\
-    H4 & hints $>$ cma\_me \textbf{and} cma\_mae & 4 & not supported \\
-    H5 (main) & maze AUC family & 8 & mixed \\
-    H5-dungeon$^\ddagger$ & dungeon AUC family & 8 & mixed (appendix) \\
+    H1 & \texttt{stub\_uniform} vs.\ \texttt{hints} & --- & Flat \\
+    H2 & \texttt{genetic\_me\_uniform} vs.\ \texttt{genetic\_me\_filter} & --- & Conditional positive \\
+    H3-prod & \texttt{hints} vs.\ production \texttt{filter} & --- & Bound \\
+    H3-gray & \texttt{hints} vs.\ gray-zone filter & 3 & Bound \\
+    H4 & hints $>$ cma\_me \textbf{and} cma\_mae & 4 & Bound \\
+    H5 (main) & maze AUC family & 8 & Bound (partial) \\
+    H5-dungeon$^\ddagger$ & dungeon AUC family & 8 & Bound (partial; appendix) \\
     Shared-checkpoint & Hold-out NMAE/MAE/$R^2$ & --- & validity gate OK \\
     Bundled confound$^\dagger$ & hints $>$ stub & 2 & supported$^\dagger$ (not H1) \\
     Bundled floor$^\dagger$ & hints $>$ vanilla & 2 & supported$^\dagger$ \\

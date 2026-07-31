@@ -144,6 +144,9 @@ class SchedulerConfig:
     target_selection: TargetSelectionStrategy = DEFAULT_TARGET_SELECTION
     llm_system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
     llm_user_prompt_path: str | None = None
+    # When True, LLM prompts use stub_mean/stub_uncertainty even if the live
+    # surrogate facade is loaded for acquisition filtering (mixed-stack 2×2 cell C).
+    llm_stub_hints_only: bool = False
 
     @property
     def n_cells(self) -> int:
@@ -265,6 +268,7 @@ def load_scheduler(
         llm_enabled=doc.llm.enabled,
         llm_system_prompt_kind=doc.llm.system_prompt_kind,
         llm_user_prompt_path=doc.llm.user_prompt_path,
+        llm_stub_hints_only=doc.llm.stub_hints_only,
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_model_type=doc.surrogate.model_type,
         surrogate_checkpoint=doc.surrogate.checkpoint,
@@ -436,6 +440,8 @@ class _LlmSchedulerBlock(BaseModel):
     # auto = match archive.type; grid/cvt force that system prompt (prompt ablation).
     system_prompt_kind: Literal["auto", "grid", "cvt"] = "auto"
     user_prompt_path: str | None = None
+    # Prompt-side stubs while surrogate.enabled remains true for acquisition.
+    stub_hints_only: bool = False
 
 
 class _AcquisitionYamlBlock(BaseModel):

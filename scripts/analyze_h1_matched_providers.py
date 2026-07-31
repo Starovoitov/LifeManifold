@@ -16,7 +16,7 @@ from scipy import stats as sp
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.analyze_q1_statistics import bootstrap_ci, tost
+from scripts.analyze_q1_statistics import bootstrap_ci, param_tost, tost
 
 PROVIDERS: dict[str, dict[str, str]] = {
     "gpt-4o-mini": {
@@ -103,7 +103,8 @@ def analyze_provider(slug: str, seeds: list[int]) -> dict[str, Any]:
     su_cov = np.asarray([r["stub_uniform_pct"] for r in rows], dtype=float)
     hi_cov = np.asarray([r["hints_pct"] for r in rows], dtype=float)
     eq_margin_pp = 2.0
-    tost_cov = tost(d_cov, eq_margin_pp)
+    tost_auto = tost(d_cov, eq_margin_pp)
+    tost_mean = param_tost(d_cov, eq_margin_pp)
     ci95 = bootstrap_ci(d_cov, stat="mean", level=0.95)
 
     return {
@@ -125,11 +126,15 @@ def analyze_provider(slug: str, seeds: list[int]) -> dict[str, Any]:
         "wins_cov": int(np.sum(d_cov > 0)),
         "wilcoxon_two_sided_p": _wilcoxon_two_sided(d_cov),
         "bootstrap_ci95_mean_delta_pp": [round(ci95[0], 4), round(ci95[1], 4)],
-        "tost_2pp": tost_cov,
+        "tost_2pp_mean": tost_mean,
+        "tost_2pp_auto": tost_auto,
+        # Keep legacy key = mean-TOST (matches primary qwen paired-t reporting).
+        "tost_2pp": tost_mean,
         "per_seed": rows,
         "note": (
             "Exploratory matched-policy H1 on additional provider; reuses frozen "
-            "bundled hints runs. Post-hoc TOST |Δcov|≤2 pp — not confirmatory Holm."
+            "bundled hints runs. Manuscript claims use paired-t mean-TOST |Δcov|≤2 pp "
+            "(not auto bootstrap-median). Outside confirmatory Holm."
         ),
     }
 
@@ -157,14 +162,16 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         "",
         "## Paired contrast (hints − stub_uniform)",
         "",
-        "| Metric | Mean Δ | SD | Wins | Wilcoxon (2-sided) | TOST |Δ|≤2 pp |",
+        "| Metric | Mean Δ | SD | Wins | Wilcoxon (2-sided) | Mean-TOST |Δ|≤2 pp |",
         "|--------|-------:|---:|-----:|-------------------:|----------------|",
         (
             f"| Coverage (pp) | {payload['mean_delta_cov_pp']:+.2f} | "
             f"{payload['sd_delta_cov_pp']:.2f} | {payload['wins_cov']}/{payload['n']} | "
             f"{payload['wilcoxon_two_sided_p']:.4g} | "
-            f"{'accept' if payload['tost_2pp']['accepted'] else 'reject'} "
-            f"(p={payload['tost_2pp']['p_tost']:.4g}) |"
+            f"{'accept' if payload['tost_2pp_mean']['accepted'] else 'reject'} "
+            f"(p={payload['tost_2pp_mean']['p_tost']:.4g}; "
+            f"90% CI [{payload['tost_2pp_mean']['ci90'][0]:+.2f}, "
+            f"{payload['tost_2pp_mean']['ci90'][1]:+.2f}]) |"
         ),
         (
             f"| Fitness | {payload['mean_delta_fit']:+.4f} | "
@@ -174,7 +181,9 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         (
             f"Bootstrap 95% CI on mean Δcov: "
             f"[{payload['bootstrap_ci95_mean_delta_pp'][0]:+.2f}, "
-            f"{payload['bootstrap_ci95_mean_delta_pp'][1]:+.2f}] pp."
+            f"{payload['bootstrap_ci95_mean_delta_pp'][1]:+.2f}] pp. "
+            f"Auto selector TOST ({payload['tost_2pp_auto']['level']}): "
+            f"{'accept' if payload['tost_2pp_auto']['accepted'] else 'reject'}."
         ),
         "",
         "## Per-seed Δcov (pp)",
@@ -187,15 +196,23 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
             f"| {row['seed']} | {row['stub_uniform_pct']:.2f} | "
             f"{row['hints_pct']:.2f} | {row['delta_cov_pp']:+.2f} |"
         )
+    mean_ok = payload["tost_2pp_mean"]["accepted"]
+    reading = (
+        "Flat matched H1 under paired-t mean-TOST ±2 pp "
+        "(same procedure as primary qwen-turbo)."
+        if mean_ok
+        else (
+            "Mean-TOST ±2 pp rejects (paired-t 90% CI not inside band). "
+            "Do not co-claim with primary qwen paired-t TOST; "
+            "bootstrap-median may still accept as a different estimand."
+        )
+    )
     lines.extend(
         [
             "",
             "## Reading",
             "",
-            (
-                "Flat matched H1: live prompt scalars vs stub constants stay within "
-                "±2 pp TOST band (same epistemic slot as qwen-turbo Table decomposition)."
-            ),
+            reading,
             "",
             f"Artifact: `{path.with_suffix('.json').name}`",
         ]

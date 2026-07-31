@@ -1,7 +1,13 @@
 schema_version: "1.2"
-# Alias / historical sketch — prefer map_elites_scheduler_nightly_llm_filter_stub.yaml.
+# Mixed-stack 2×2 cell C: acquisition filter ON + stub prompt scalars.
 # Protocol: artifacts/Q1_H1H2_MIXED_STACK_2X2.md
-# llm.stub_hints_only is implemented (prompt stubs + live gate).
+# Contrast vs:
+#   - map_elites_scheduler_nightly_llm_stub_uniform.yaml (A: stub, no filter)
+#   - map_elites_scheduler_nightly_llm.yaml (B: live hints, no filter)
+#   - map_elites_scheduler_nightly_llm_filter.yaml (D: live hints + filter)
+#
+# llm.stub_hints_only keeps prompt at stub_mean/stub_uncertainty while
+# surrogate.enabled=true loads the live facade for threshold_gate on children.
 
 iterations: 650
 batch_size: 50
@@ -80,6 +86,7 @@ surrogate:
   stub_uncertainty: 1.0
   extinction_gate_threshold: 0.95
   calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive_filter_stub.jsonl
   acquisition:
     mode: filter
     policy: threshold_gate

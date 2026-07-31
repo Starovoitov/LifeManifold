@@ -198,17 +198,17 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"**Family pass ({tier_label.lower()}):** `{payload['family_pass']}`. "
         "Does not rehabilitate historical production `filter`.",
         "",
-        "| Test | Mean Δ | Raw p | Holm @0.05 | A₁₂ | Pass detail |",
-        "|------|--------|-------|------------|-----|-------------|",
+        "| Test | Mean Δ | Raw p (method) | Holm @0.05 | PPS | Pass detail |",
+        "|------|--------|----------------|------------|-----|-------------|",
         (
             f"| eval ↓ (gray − hints) | {t['eval_less_hints']['mean_delta_eval']:.0f} sims | "
-            f"{t['eval_less_hints']['raw_p']:.4g} | "
+            f"{t['eval_less_hints']['raw_p']:.4g} (Wilcoxon) | "
             f"{'**Yes**' if t['eval_less_hints']['holm_reject'] else 'No'} | "
             f"{t['eval_less_hints']['a12']:.2f} | {t['eval_less_hints']['wins']}/{payload['n']} fewer evals |"
         ),
         (
             f"| cov NI (Δ > −3 pp) | {t['cov_ni_minus3pp']['mean_delta_pp']:+.2f} pp | "
-            f"{t['cov_ni_minus3pp']['raw_p']:.4g} | "
+            f"{t['cov_ni_minus3pp']['raw_p']:.4g} (bootstrap/t NI) | "
             f"{'**Yes**' if t['cov_ni_minus3pp']['holm_reject'] else 'No'} | "
             f"{t['cov_ni_minus3pp']['a12']:.2f} | "
             f"NI accept={t['cov_ni_minus3pp']['ni_accepted']}; "
@@ -216,11 +216,16 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         ),
         (
             f"| fit NI (Δ_rel > −5%) | {100*t['fit_ni_minus5pct']['mean_delta_rel']:+.2f}% | "
-            f"{t['fit_ni_minus5pct']['raw_p']:.4g} | "
+            f"{t['fit_ni_minus5pct']['raw_p']:.4g} (bootstrap/t NI) | "
             f"{'**Yes**' if t['fit_ni_minus5pct']['holm_reject'] else 'No'} | "
             f"{t['fit_ni_minus5pct']['a12']:.2f} | "
             f"NI accept={t['fit_ni_minus5pct']['ni_accepted']} |"
         ),
+        "",
+        "Note: NI raw p-values are one-sided t or bootstrap-median NI "
+        "(protocol `noninferiority`), not exact Wilcoxon; they may be "
+        f"< 1/2^n ≈ {1/2**payload['n']:.4g}. PPS = paired favorable-pair rate "
+        "(JSON key `a12` kept for frozen-artifact compatibility).",
         "",
     ]
     path.write_text("\n".join(lines))
