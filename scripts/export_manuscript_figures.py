@@ -273,10 +273,16 @@ def fig05_ladder(out: Path) -> None:
             f"fig05_ladder: inconsistent n across arms: {dict(zip(labels, ns))}"
         )
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    # Tick labels: mark H2/H3 after-generation arms; bars remain terminal coverage.
+    tick_labels = {
+        "genetic_me_filter": "genetic_me_filter\n(H2, terminal)",
+        "filter": "LLM+filter\n(H3, terminal)",
+    }
+    display = [tick_labels.get(lab, lab) for lab in labels]
+    fig, ax = plt.subplots(figsize=(8.4, 4.8))
     x = np.arange(len(labels))
     bar_colors = plt.get_cmap("tab10")(np.linspace(0, 0.7, len(labels)))
-    ax.bar(
+    bars = ax.bar(
         x,
         means,
         yerr=cis,
@@ -284,9 +290,36 @@ def fig05_ladder(out: Path) -> None:
         color=bar_colors,
         error_kw={"elinewidth": 1.0, "capthick": 1.0},
     )
-    ax.set_xticks(x, labels, rotation=25, ha="right")
-    ax.set_ylabel("Mean coverage (%)")
-    ax.set_title(f"Primary-grid coverage ladder (mean ± 95% CI; n={ns[0]})")
+    # Hatch after-generation arms so they are not read as a simple ranking pair.
+    for lab, bar in zip(labels, bars):
+        if lab == "genetic_me_filter":
+            bar.set_hatch("//")
+            bar.set_edgecolor("0.2")
+        elif lab == "filter":
+            bar.set_hatch("\\\\")
+            bar.set_edgecolor("0.2")
+    ax.set_xticks(x, display, rotation=25, ha="right")
+    ax.set_ylabel("Mean terminal coverage (%)")
+    ax.set_title(
+        f"Primary-grid coverage ladder (terminal @ fixed iterations; "
+        f"mean ± 95% CI; n={ns[0]})"
+    )
+    ax.text(
+        0.02,
+        0.98,
+        "H2 claim = eval-indexed (per sim), not bar height\n"
+        "H3 = LLM+filter stack (descriptive / blocked prod.)",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=8,
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "white",
+            "edgecolor": "0.6",
+            "alpha": 0.92,
+        },
+    )
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
