@@ -8,7 +8,7 @@ from typing import Literal
 from worldspace.surrogate.evaluation import PRODUCTION_EXTINCTION_GATE_THRESHOLD
 
 AcquisitionMode = Literal["off", "shadow", "filter"]
-AcquisitionPolicyName = Literal["threshold_gate", "ucb_promote"]
+AcquisitionPolicyName = Literal["threshold_gate", "ucb_promote", "random_skip"]
 
 DEFAULT_EXTINCTION_GRAY_ZONE_LO = 0.5
 DEFAULT_SURROGATE_ARCHIVE_PATH = "artifacts/surrogate/surrogate_archive.jsonl"
@@ -36,6 +36,9 @@ class AcquisitionConfig:
     force_eval_extinction_gray_zone: bool = False
     extinction_gray_zone_lo: float = DEFAULT_EXTINCTION_GRAY_ZONE_LO
     extinction_gray_zone_hi: float = PRODUCTION_EXTINCTION_GATE_THRESHOLD
+    # Rate-matched random skip control (H2 ranking isolation); used when
+    # policy == "random_skip". Default matches primary genetic_me_filter skip.
+    random_skip_rate: float = 0.335
 
 
 @dataclass(frozen=True)

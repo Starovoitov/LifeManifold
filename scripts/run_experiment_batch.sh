@@ -20,6 +20,7 @@
 # C4 discrete: q1-v3-pyribs-discrete-cma (Bernoulli-decode CMA-ME; package C4)
 # Native discrete: q1-v3-pyribs-native-discrete-cma (bit-flip DiscreteCMAEmitter)
 # H2 threshold: q1-h2-threshold-sensitivity (genetic_me_filter @ τ∈{0.35,0.45,0.55}; seeds 0–2 default)
+# H2 ranking:  q1-h2-ranking-controls (random_skip + shadow + filter_eval_matched; after mixed-2x2)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
 # RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
@@ -90,6 +91,9 @@ SCHEDULER_GENETIC_ME_UNIFORM_NIGHTLY="$ROOT/worldspace/specs/map_elites_schedule
 SCHEDULER_GENETIC_ME_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter.yaml"
 SCHEDULER_GENETIC_ME_FILTER_TAU035="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau035.yaml"
 SCHEDULER_GENETIC_ME_FILTER_TAU055="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau055.yaml"
+SCHEDULER_GENETIC_ME_RANDOM_SKIP="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_random_skip.yaml"
+SCHEDULER_GENETIC_ME_SHADOW="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_shadow.yaml"
+SCHEDULER_GENETIC_ME_FILTER_EVAL_MATCHED="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_eval_matched.yaml"
 
 SCHEDULER_STUB_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_stub_cvt.yaml"
 SCHEDULER_HINTS_CVT="$ROOT/worldspace/specs/map_elites_scheduler_nightly_llm_cvt.yaml"
@@ -117,6 +121,7 @@ RUN_CMA_DISCRETE=false
 RUN_CMA_NATIVE_DISCRETE=false
 RUN_CMA_PBCMA=false
 RUN_H2_THRESHOLD_SWEEP=false
+RUN_H2_RANKING_CONTROLS=false
 RUN_GRAY_ZONE_ONLY=false
 RUN_MIXED_2X2=false
 case "$TIER" in
@@ -403,6 +408,17 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_H2_THRESHOLD_SWEEP=true
     ;;
+  q1-h2-ranking-controls)
+    # H2 ranking/skip-volume controls (CPU): random_skip + shadow + filter_eval_matched.
+    # Launch only after q1-v3-mixed-2x2 finishes. See artifacts/Q1_H2_RANKING_CONTROLS.md.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-h2-ranking-controls"
+    ARCHIVE_TYPE=grid
+    BASELINE_ARCHIVE="$GRID_BASELINE_ARCHIVE"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_H2_RANKING_CONTROLS=true
+    ;;
   q1-hints-rich-pilot)
     # RQ1b: component-rich surrogate hints; 1-seed pilot default (seed 0).
     ITERATIONS=650
@@ -471,7 +487,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
     exit 1
     ;;
 esac
@@ -586,6 +602,11 @@ if [[ "$REQUESTED_TIER" == "q1-h2-threshold-sensitivity" && $# -lt 2 ]]; then
   SEED_END=2
   echo "NOTE: q1-h2-threshold-sensitivity default seeds 0–2 (H2 τ pilot); full: $0 q1-h2-threshold-sensitivity 0 9" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-h2-ranking-controls" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-h2-ranking-controls default seeds 0–9 (random_skip + shadow + filter_eval_matched); launch after mixed-2x2" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-v3-pyribs-pbcma" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=9
@@ -649,7 +670,7 @@ case "$TIER" in
   q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
     apply_long_run_llm_defaults
     ;;
-  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity)
+  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity|q1-h2-ranking-controls)
     apply_vanilla_run_defaults
     ;;
   q1-anytime-ladder)
@@ -1105,6 +1126,16 @@ elif [[ "$RUN_H2_THRESHOLD_SWEEP" == true ]]; then
       run_h2_threshold_one "$tau_tag" "$scheduler" "$condition" "$seed"
     done
   done
+elif [[ "$RUN_H2_RANKING_CONTROLS" == true ]]; then
+  # random_skip + shadow @ 650 iters; filter_eval_matched @ 980 (~32.5k real evals).
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    ITERATIONS=650
+    run_one genetic_me_random_skip "$SCHEDULER_GENETIC_ME_RANDOM_SKIP" "$seed"
+    run_one genetic_me_shadow "$SCHEDULER_GENETIC_ME_SHADOW" "$seed"
+    ITERATIONS=980
+    run_one genetic_me_filter_eval_matched "$SCHEDULER_GENETIC_ME_FILTER_EVAL_MATCHED" "$seed"
+  done
+  ITERATIONS=650
 else
   for seed in $(seq "$SEED_START" "$SEED_END"); do
     for rep in $(seq 0 $((REPLICATE_COUNT - 1))); do

@@ -209,6 +209,7 @@ def run_iteration(
             surrogate_archive=surrogate_archive,
             acquisition_active=acquisition_active,
             eval_pool=eval_pool,
+            rng=rng,
         )
     else:
         stats, outcomes = _process_iteration_sequential(
@@ -223,6 +224,7 @@ def run_iteration(
             surrogate=surrogate,
             surrogate_archive=surrogate_archive,
             acquisition_active=acquisition_active,
+            rng=rng,
         )
     eval_seconds = perf_counter() - eval_started
     counters.emit_llm_seconds += emit_seconds
@@ -261,6 +263,7 @@ def _process_iteration_sequential(
     surrogate: SurrogateProtocol | None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
     acquisition_active: bool,
+    rng: np.random.Generator,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     outcomes: list[SlotOutcome] = []
     evaluated = 0
@@ -279,7 +282,11 @@ def _process_iteration_sequential(
             assert prediction is not None
             if acquisition_active:
                 decision = decide(
-                    config.acquisition, prediction, draft.target_bin, archive
+                    config.acquisition,
+                    prediction,
+                    draft.target_bin,
+                    archive,
+                    rng=rng,
                 )
                 runtime_action = effective_action(
                     config.acquisition.mode,
@@ -418,6 +425,7 @@ def _process_iteration_parallel(
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
     acquisition_active: bool,
     eval_pool: ParallelEvalPool | None,
+    rng: np.random.Generator,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
     outcomes: list[SlotOutcome] = []
     evaluated = 0
@@ -433,6 +441,7 @@ def _process_iteration_parallel(
         config=config,
         archive=archive,
         acquisition_active=acquisition_active,
+        rng=rng,
     )
     for item in work_items:
         if (
@@ -572,6 +581,7 @@ def _classify_iteration_slots(
     config: SchedulerConfig,
     archive: ArchiveProtocol,
     acquisition_active: bool,
+    rng: np.random.Generator,
 ) -> list[_SlotWorkItem]:
     work_items: list[_SlotWorkItem] = []
     for draft, prediction in zip(drafts, predictions):
@@ -580,7 +590,11 @@ def _classify_iteration_slots(
         if config.surrogate_enabled and prediction is not None:
             if acquisition_active:
                 decision = decide(
-                    config.acquisition, prediction, draft.target_bin, archive
+                    config.acquisition,
+                    prediction,
+                    draft.target_bin,
+                    archive,
+                    rng=rng,
                 )
                 runtime_action = effective_action(
                     config.acquisition.mode,

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
+
+import numpy as np
 
 from worldspace.illuminators.archive_protocol import ArchiveProtocol
 from worldspace.illuminators.scheduler import TargetBin
@@ -23,6 +27,7 @@ REASON_BELOW_UCB_THRESHOLD = "below_ucb_threshold"
 REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL = "extinction_gray_zone_force_eval"
 REASON_HIGH_UNCERTAINTY_FORCE_EVAL = "high_uncertainty_force_eval"
 REASON_EMPTY_BIN_EXPLORE = "empty_bin_explore"
+REASON_RANDOM_SKIP = "random_skip"
 REASON_POLICY_UNSUPPORTED = "policy_unsupported"
 REASON_ACQUISITION_DISABLED = "acquisition_disabled"
 
@@ -31,6 +36,7 @@ UNSUPPORTED_POLICY_VERSION = "unsupported_v1"
 THRESHOLD_GATE_POLICY_VERSION = "threshold_gate_v1"
 THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION = "threshold_gate_gray_zone_v1"
 UCB_PROMOTE_POLICY_VERSION = "ucb_promote_v1"
+RANDOM_SKIP_POLICY_VERSION = "random_skip_v1"
 
 __all__ = [
     "OFF_POLICY_VERSION",
@@ -41,10 +47,12 @@ __all__ = [
     "REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL",
     "REASON_EMPTY_BIN_EXPLORE",
     "REASON_HIGH_UNCERTAINTY_FORCE_EVAL",
+    "REASON_RANDOM_SKIP",
     "REASON_POLICY_UNSUPPORTED",
     "THRESHOLD_GATE_GRAY_ZONE_POLICY_VERSION",
     "THRESHOLD_GATE_POLICY_VERSION",
     "UCB_PROMOTE_POLICY_VERSION",
+    "RANDOM_SKIP_POLICY_VERSION",
     "UNSUPPORTED_POLICY_VERSION",
     "AcquisitionAction",
     "AcquisitionDecision",
@@ -74,10 +82,15 @@ def decide(
     prediction: SurrogatePrediction,
     target: TargetBin,
     archive: ArchiveProtocol,
+    *,
+    rng: np.random.Generator | None = None,
 ) -> AcquisitionDecision:
     """Return the policy-layer recommendation for one candidate slot."""
     if config.mode == "off":
         return _eval_decision(REASON_ACQUISITION_DISABLED, OFF_POLICY_VERSION)
+
+    if config.policy == "random_skip":
+        return _decide_random_skip(config, prediction, target, archive, rng=rng)
 
     policy_fn = _POLICY_REGISTRY.get(config.policy)
     if policy_fn is None:
@@ -145,6 +158,58 @@ def _in_extinction_gray_zone(
 ) -> bool:
     p_ext = float(prediction.components.get("early_extinction_prob", 0.0))
     return lo <= p_ext < hi
+
+
+def _decide_random_skip(
+    config: AcquisitionConfig,
+    prediction: SurrogatePrediction,
+    target: TargetBin,
+    archive: ArchiveProtocol,
+    *,
+    rng: np.random.Generator | None = None,
+) -> AcquisitionDecision:
+    """Rate-matched Bernoulli skip with the same empty-bin / gray-zone force-eval.
+
+    Isolates skip *volume* from surrogate ranking: MLP still runs (fair wall),
+    but the skip coin-flip ignores predicted fitness.
+    """
+    cell_id = archive.cell_id_from_bin(target.bin)
+    if config.never_skip_empty_bin and archive.is_empty_cell(cell_id):
+        return _eval_decision(REASON_EMPTY_BIN_EXPLORE, RANDOM_SKIP_POLICY_VERSION)
+
+    if config.force_eval_extinction_gray_zone and _in_extinction_gray_zone(
+        prediction,
+        lo=config.extinction_gray_zone_lo,
+        hi=config.extinction_gray_zone_hi,
+    ):
+        return _eval_decision(
+            REASON_EXTINCTION_GRAY_ZONE_FORCE_EVAL,
+            RANDOM_SKIP_POLICY_VERSION,
+        )
+
+    rate = float(config.random_skip_rate)
+    if rate <= 0.0:
+        return _eval_decision(REASON_ACCEPTED_FOR_EVAL, RANDOM_SKIP_POLICY_VERSION)
+    if rate >= 1.0:
+        return _skip_decision(REASON_RANDOM_SKIP, RANDOM_SKIP_POLICY_VERSION)
+
+    if rng is not None:
+        draw = float(rng.random())
+    else:
+        # Deterministic fallback when callers omit rng (tests / offline replay).
+        payload = struct.pack(
+            "<ii dd",
+            int(target.bin[0]),
+            int(target.bin[1]),
+            float(prediction.fitness),
+            float(prediction.uncertainty),
+        )
+        digest = hashlib.blake2b(payload, digest_size=8).digest()
+        draw = int.from_bytes(digest, "little") / float(2**64)
+
+    if draw < rate:
+        return _skip_decision(REASON_RANDOM_SKIP, RANDOM_SKIP_POLICY_VERSION)
+    return _eval_decision(REASON_ACCEPTED_FOR_EVAL, RANDOM_SKIP_POLICY_VERSION)
 
 
 def _decide_ucb_promote(

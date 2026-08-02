@@ -6,13 +6,17 @@ import unittest
 
 from worldspace.illuminators.archive import ArchiveElite, GridArchive
 from worldspace.illuminators.scheduler import TargetBin
+import numpy as np
+
 from worldspace.surrogate.acquisition import (
     OFF_POLICY_VERSION,
+    RANDOM_SKIP_POLICY_VERSION,
     REASON_ACCEPTED_FOR_EVAL,
     REASON_ACQUISITION_DISABLED,
     REASON_BELOW_FITNESS_THRESHOLD,
     REASON_EMPTY_BIN_EXPLORE,
     REASON_HIGH_UNCERTAINTY_FORCE_EVAL,
+    REASON_RANDOM_SKIP,
     THRESHOLD_GATE_POLICY_VERSION,
     AcquisitionDecision,
     decide,
@@ -272,6 +276,63 @@ class TestSurrogateAcquisitionCvt(unittest.TestCase):
         first = decide(config, prediction, target, archive)
         second = decide(config, prediction, target, archive)
         self.assertEqual(first, second)
+
+    def test_random_skip_respects_empty_bin_force_eval(self) -> None:
+        config = AcquisitionConfig(
+            mode="filter",
+            policy="random_skip",
+            random_skip_rate=1.0,
+            never_skip_empty_bin=True,
+        )
+        decision = decide(
+            config,
+            _prediction(0.0, 0.0),
+            _target((2, 2)),
+            GridArchive(resolution=5),
+            rng=np.random.default_rng(0),
+        )
+        self.assertEqual(decision.action, "eval")
+        self.assertEqual(decision.reason, REASON_EMPTY_BIN_EXPLORE)
+
+    def test_random_skip_rate_one_always_skips_filled(self) -> None:
+        bin_ij = (0, 0)
+        config = AcquisitionConfig(
+            mode="filter",
+            policy="random_skip",
+            random_skip_rate=1.0,
+            never_skip_empty_bin=True,
+        )
+        decision = decide(
+            config,
+            _prediction(0.9, 0.0),
+            _target(bin_ij),
+            _archive_filled_at(bin_ij),
+            rng=np.random.default_rng(0),
+        )
+        self.assertEqual(decision.action, "skip")
+        self.assertEqual(decision.reason, REASON_RANDOM_SKIP)
+        self.assertEqual(decision.policy_version, RANDOM_SKIP_POLICY_VERSION)
+
+    def test_random_skip_empirical_rate_near_target(self) -> None:
+        bin_ij = (0, 0)
+        config = AcquisitionConfig(
+            mode="filter",
+            policy="random_skip",
+            random_skip_rate=0.335,
+            never_skip_empty_bin=True,
+        )
+        archive = _archive_filled_at(bin_ij)
+        target = _target(bin_ij)
+        pred = _prediction(0.9, 0.0)
+        rng = np.random.default_rng(123)
+        skips = sum(
+            1
+            for _ in range(4000)
+            if decide(config, pred, target, archive, rng=rng).action == "skip"
+        )
+        rate = skips / 4000.0
+        self.assertGreater(rate, 0.30)
+        self.assertLess(rate, 0.37)
 
 
 if __name__ == "__main__":

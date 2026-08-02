@@ -47,7 +47,7 @@ cp -a artifacts/EXPERIMENT_PROTOCOL_Q1.md \
       artifacts/EXPERIMENT_PROTOCOL_Q1_v5.md \
       "${STAGE}/protocols/" 2>/dev/null || true
 # Task lists that lock amended confirmatory paths
-for f in artifacts/Q1_H3_GRAY_ZONE_CONFIRMATORY.md; do
+for f in artifacts/Q1_H3_GRAY_ZONE_CONFIRMATORY.md artifacts/Q1_H2_RANKING_CONTROLS.md; do
   if [[ -f "${f}" ]]; then
     cp -a "${f}" "${STAGE}/protocols/"
   fi
@@ -71,6 +71,10 @@ TIERS=(
   q1-v4-dungeon-rerun
   q1-v3-sphere-h2
   edit-anatomy
+  h1-llm-candidate-quality
+  h2-gate-diagnostics
+  h1-qd-cost
+  q1-h2-ranking-controls
   # Appendix / descriptive packages cited in the manuscript
   q1-v4-dungeon-full-cpu
   q1-anytime-ladder
@@ -171,6 +175,10 @@ prospective OSF/Zenodo pre-registration of runs that already completed.
 | Maze cost-scaled wall H2 | supplementary | \`q1-v5-maze-cost-h2\` + \`mazes/walltime\` |
 | H3-gray (F-RQ3-gray) | path 2026-07-28 | \`q1-v3-h3-gray-zone\` (+ pilot) |
 | Matched H1 TOST | reporting / post-hoc | \`q1-stub-uniform-sensitivity\` + \`q1-v3-llm\` |
+| H1 LLM quality (accepted elites) | descriptive package A | \`h1-llm-candidate-quality\` |
+| H1 QD / cost companions | descriptive | \`h1-qd-cost\` |
+| H2 gate diagnostics | descriptive package A | \`h2-gate-diagnostics\` |
+| H2 ranking controls | after mixed-2x2 | \`q1-h2-ranking-controls\` |
 | Encoding appendix | descriptive | \`q1-cma-encoding-ablation\`, \`*-pbcma\`, \`*-discrete-cma\` |
 | Sphere H2 transfer | supplementary | \`q1-v3-sphere-h2\` + \`checkpoints/sphere_h2_mlp.joblib\` |
 | CVT sensitivity | descriptive | \`q1-cvt\` |

@@ -448,7 +448,7 @@ class _AcquisitionYamlBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["off", "shadow", "filter"] = "off"
-    policy: Literal["threshold_gate", "ucb_promote"] = "threshold_gate"
+    policy: Literal["threshold_gate", "ucb_promote", "random_skip"] = "threshold_gate"
     min_predicted_fitness: float = Field(default=0.25, ge=0.0, le=1.0)
     max_uncertainty_to_skip: float = Field(default=0.40, ge=0.0)
     never_skip_empty_bin: bool = True
@@ -456,6 +456,7 @@ class _AcquisitionYamlBlock(BaseModel):
     force_eval_extinction_gray_zone: bool = False
     extinction_gray_zone_lo: float = Field(default=0.5, ge=0.0, le=1.0)
     extinction_gray_zone_hi: float = Field(default=0.95, ge=0.0, le=1.0)
+    random_skip_rate: float = Field(default=0.335, ge=0.0, le=1.0)
 
 
 class _RetrainYamlBlock(BaseModel):
@@ -647,6 +648,7 @@ def _acquisition_config_from_yaml(
         force_eval_extinction_gray_zone=block.force_eval_extinction_gray_zone,
         extinction_gray_zone_lo=block.extinction_gray_zone_lo,
         extinction_gray_zone_hi=block.extinction_gray_zone_hi,
+        random_skip_rate=block.random_skip_rate,
     )
 
 
