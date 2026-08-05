@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Mixed-stack 2×2 worker: runs assigned seeds (seed % 4 == WORKER_ID) × 4 arms.
-# Usage: ./scripts/run_mixed_2x2_worker.sh WORKER_ID   # WORKER_ID ∈ {0,1,2,3}
+# Mixed-stack 2×2 worker: runs assigned seeds (seed % N_WORKERS == WORKER_ID) × 4 arms.
+# Usage: MIXED_2X2_WORKERS=2 ./scripts/run_mixed_2x2_worker.sh WORKER_ID
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-WORKER="${1:?worker id 0-3 required}"
-if [[ ! "$WORKER" =~ ^[0-3]$ ]]; then
-  echo "WORKER must be 0, 1, 2, or 3 (got: $WORKER)" >&2
+N_WORKERS="${MIXED_2X2_WORKERS:-4}"
+WORKER="${1:?worker id required}"
+if [[ ! "$N_WORKERS" =~ ^[0-9]+$ ]] || (( N_WORKERS < 1 )); then
+  echo "MIXED_2X2_WORKERS must be a positive integer (got: $N_WORKERS)" >&2
+  exit 1
+fi
+if [[ ! "$WORKER" =~ ^[0-9]+$ ]] || (( WORKER < 0 || WORKER >= N_WORKERS )); then
+  echo "WORKER must be 0..$((N_WORKERS - 1)) (got: $WORKER, MIXED_2X2_WORKERS=$N_WORKERS)" >&2
   exit 1
 fi
 
@@ -22,10 +27,10 @@ mkdir -p "$EXP_ROOT" "$LOG_DIR"
 
 echo "=== mixed-2x2 worker $WORKER start $(date -Is) ==="
 echo "ROOT=$ROOT"
-echo "seeds: $(for s in $(seq 0 9); do (( s % 4 == WORKER )) && echo -n "$s "; done)"
+echo "N_WORKERS=$N_WORKERS seeds: $(for s in $(seq 0 9); do (( s % N_WORKERS == WORKER )) && echo -n "$s "; done)"
 
 for seed in $(seq 0 9); do
-  if (( seed % 4 != WORKER )); then
+  if (( seed % N_WORKERS != WORKER )); then
     continue
   fi
   echo "--- worker $WORKER seed $seed $(date -Is) ---"

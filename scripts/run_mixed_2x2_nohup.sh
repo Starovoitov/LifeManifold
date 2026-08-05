@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Launch 4 parallel nohup workers for mixed-stack 2×2 re-run (archive_trace).
-# Seeds round-robin: worker w runs seeds where (seed % 4 == w).
+# Launch parallel nohup workers for mixed-stack 2×2 re-run (archive_trace).
+# Seeds round-robin: worker w runs seeds where (seed % MIXED_2X2_WORKERS == w).
+# Default MIXED_2X2_WORKERS=2 (override: MIXED_2X2_WORKERS=4 ./scripts/run_mixed_2x2_nohup.sh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env"
+  set +a
+fi
 
 EXP_ROOT="$ROOT/artifacts/experiments/q1-v3-mixed-2x2"
 LOG_DIR="$EXP_ROOT/logs"
@@ -17,12 +25,18 @@ fi
 
 export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
 export LIFEMANIFOLD_LLM_PARALLEL_WORKERS="${LIFEMANIFOLD_LLM_PARALLEL_WORKERS:-4}"
+export MIXED_2X2_WORKERS="${MIXED_2X2_WORKERS:-2}"
+if [[ ! "$MIXED_2X2_WORKERS" =~ ^[0-9]+$ ]] || (( MIXED_2X2_WORKERS < 1 )); then
+  echo "MIXED_2X2_WORKERS must be a positive integer (got: $MIXED_2X2_WORKERS)" >&2
+  exit 1
+fi
 
 echo "=== mixed-2x2 nohup launch $(date -Is) ==="
 echo "EXP_ROOT=$EXP_ROOT"
 echo "LOG_DIR=$LOG_DIR"
+echo "MIXED_2X2_WORKERS=$MIXED_2X2_WORKERS"
 
-for w in 0 1 2 3; do
+for w in $(seq 0 $((MIXED_2X2_WORKERS - 1))); do
   log="$LOG_DIR/worker_${w}.log"
   pidfile="$LOG_DIR/worker_${w}.pid"
   if [[ -f "$pidfile" ]]; then
@@ -32,13 +46,14 @@ for w in 0 1 2 3; do
       continue
     fi
   fi
-  nohup "$ROOT/scripts/run_mixed_2x2_worker.sh" "$w" >>"$log" 2>&1 &
+  nohup env MIXED_2X2_WORKERS="$MIXED_2X2_WORKERS" "$ROOT/scripts/run_mixed_2x2_worker.sh" "$w" >>"$log" 2>&1 &
   echo $! >"$pidfile"
-  echo "Started worker $w pid $(cat "$pidfile") log=$log seeds=$(for s in $(seq 0 9); do (( s % 4 == w )) && echo -n "$s "; done)"
+  echo "Started worker $w pid $(cat "$pidfile") log=$log seeds=$(for s in $(seq 0 9); do (( s % MIXED_2X2_WORKERS == w )) && echo -n "$s "; done)"
 done
 
 cat >"$LOG_DIR/README.txt" <<EOF
 Mixed-stack 2×2 parallel workers (archive_trace tier: q1-v3-mixed-2x2)
+MIXED_2X2_WORKERS=$MIXED_2X2_WORKERS
 
 Monitor:
   tail -f $LOG_DIR/worker_*.log
