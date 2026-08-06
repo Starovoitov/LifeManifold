@@ -64,6 +64,7 @@ artifacts/**
 !artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md
 !artifacts/EXPERIMENT_PROTOCOL_Q1_v4.md
 !artifacts/Q1_H1_PLACEBO_LOCK.md
+!artifacts/Q1_H1_CHILD_REWRITE.md
 !artifacts/manuscript/draft_v0.tex
 !artifacts/manuscript/references.bib
 !artifacts/manuscript/figures/fig01_pipeline.pdf
