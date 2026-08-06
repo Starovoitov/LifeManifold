@@ -19,6 +19,10 @@ from worldspace.dungeons.runner import (
 )
 from worldspace.dungeons.llm_emitter import DungeonLlmEmitter
 from worldspace.dungeons.surrogate import DungeonSurrogate
+from worldspace.generators.llm_call_log import (
+    configure_llm_call_log,
+    resolve_llm_call_log_path,
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -66,6 +70,7 @@ def main(argv: list[str] | None = None) -> None:
         if "llm" in config.emitters
         else None
     )
+    configure_llm_call_log(resolve_llm_call_log_path(output_dir=args.output_dir))
     result = run_dungeon_qd(
         config,
         seed=args.seed,

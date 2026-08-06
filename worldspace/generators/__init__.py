@@ -30,6 +30,7 @@ from ..specs.world_param_bounds import (
     RESOURCE_REGEN_MIN,
     clip_scalar,
 )
+from .llm_call_log import append_llm_call_record, messages_for_log
 from .llm_config import (
     LLMGeneratorConfig,
     load_llm_config,
@@ -805,14 +806,47 @@ def llm_retry_backoff_seconds(attempt: int) -> float:
     return _llm_http_retry_backoff_seconds(attempt)
 
 
-def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
-    """POST once with up to three attempts on transient network/API failures."""
+def _fetch_llm_response_body(
+    req: request.Request,
+    *,
+    api_base: str,
+    transport_out: dict[str, Any] | None = None,
+) -> str:
+    """POST with retries; optionally fill ``transport_out`` with attempt metadata."""
     last_error: BaseException | None = None
+    attempt_errors: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    attempts_done = 0
+
+    def _commit_transport(attempts: int) -> None:
+        if transport_out is None:
+            return
+        transport_out.update(
+            {
+                "attempts": attempts,
+                "attempt_errors": list(attempt_errors),
+                "latency_ms": (time.perf_counter() - started) * 1000.0,
+                "timeout_seconds": _LLM_HTTP_TIMEOUT_SECONDS,
+                "max_attempts": _LLM_HTTP_MAX_ATTEMPTS,
+            }
+        )
+
     for attempt in range(1, _LLM_HTTP_MAX_ATTEMPTS + 1):
+        attempts_done = attempt
         try:
             with request.urlopen(req, timeout=_LLM_HTTP_TIMEOUT_SECONDS) as resp:
-                return resp.read().decode("utf-8")
+                body = resp.read().decode("utf-8")
+                _commit_transport(attempt)
+                return body
         except error.HTTPError as exc:
+            attempt_errors.append(
+                {
+                    "attempt": attempt,
+                    "error_type": type(exc).__name__,
+                    "message": f"HTTP {exc.code}: {exc.reason}",
+                    "http_status": int(exc.code),
+                }
+            )
             if (
                 _retryable_llm_http_status(exc.code)
                 and attempt < _LLM_HTTP_MAX_ATTEMPTS
@@ -820,6 +854,7 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
                 last_error = exc
                 time.sleep(_llm_http_retry_backoff_seconds(attempt))
                 continue
+            _commit_transport(attempt)
             raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
         except (
             error.URLError,
@@ -829,15 +864,24 @@ def _fetch_llm_response_body(req: request.Request, *, api_base: str) -> str:
             http.client.IncompleteRead,
             ssl.SSLError,
         ) as exc:
+            attempt_errors.append(
+                {
+                    "attempt": attempt,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
             if attempt < _LLM_HTTP_MAX_ATTEMPTS:
                 last_error = exc
                 time.sleep(_llm_http_retry_backoff_seconds(attempt))
                 continue
+            _commit_transport(attempt)
             if isinstance(exc, error.URLError):
                 r = exc.reason
                 hint = _llm_url_error_hint(r, api_base)
                 raise RuntimeError(f"LLM request failed: {r}.{hint}") from exc
             raise RuntimeError(f"LLM request failed: {exc}") from exc
+    _commit_transport(attempts_done)
     msg = f"LLM request failed after {_LLM_HTTP_MAX_ATTEMPTS} attempts"
     if last_error is not None:
         raise RuntimeError(msg) from last_error
@@ -899,27 +943,77 @@ def call_llm_messages(
     elif mode != "local":
         raise ValueError("llm.mode must be either 'local' or 'remote'")
 
-    raw = _fetch_llm_response_body(req, api_base=api_base)
+    base_record: dict[str, Any] = {
+        "provider_name": provider_name,
+        "mode": mode,
+        "api_base": api_base,
+        "requested_model": model,
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_tokens": max_tokens,
+        "messages": messages_for_log(messages),
+        "request_extras": {
+            key: payload[key]
+            for key in ("enable_thinking", "thinking")
+            if key in payload
+        },
+    }
 
+    transport: dict[str, Any] = {
+        "attempts": 0,
+        "attempt_errors": [],
+        "latency_ms": None,
+        "timeout_seconds": _LLM_HTTP_TIMEOUT_SECONDS,
+        "max_attempts": _LLM_HTTP_MAX_ATTEMPTS,
+    }
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("LLM response is not valid JSON") from exc
-    choices = data.get("choices")
-    if not choices:
-        raise RuntimeError("LLM response missing choices")
-    message = choices[0].get("message", {})
-    content = message.get("content")
-    if not isinstance(content, str) or not content.strip():
-        # Some thinking-mode responses leave content empty; surface a clear error.
-        reasoning = message.get("reasoning_content")
-        if isinstance(reasoning, str) and reasoning.strip():
-            raise RuntimeError(
-                "LLM response has reasoning_content but empty message.content; "
-                "disable thinking mode (enable_thinking: false) for MAP-Elites emits"
-            )
-        raise RuntimeError("LLM response missing message.content")
-    return content
+        raw = _fetch_llm_response_body(req, api_base=api_base, transport_out=transport)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("LLM response is not valid JSON") from exc
+        choices = data.get("choices")
+        if not choices:
+            raise RuntimeError("LLM response missing choices")
+        message = choices[0].get("message", {})
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            # Some thinking-mode responses leave content empty; surface a clear error.
+            reasoning = message.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning.strip():
+                raise RuntimeError(
+                    "LLM response has reasoning_content but empty message.content; "
+                    "disable thinking mode (enable_thinking: false) for MAP-Elites emits"
+                )
+            raise RuntimeError("LLM response missing message.content")
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+        append_llm_call_record(
+            {
+                **base_record,
+                **transport,
+                "ok": True,
+                "error": None,
+                "response_content": content,
+                "response_model": data.get("model"),
+                "response_id": data.get("id"),
+                "usage": usage,
+            }
+        )
+        return content
+    except Exception as exc:
+        append_llm_call_record(
+            {
+                **base_record,
+                **transport,
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "response_content": None,
+                "response_model": None,
+                "response_id": None,
+                "usage": None,
+            }
+        )
+        raise
 
 
 def load_hybrid_generator_yaml(path: str | Path) -> dict[str, Any]:

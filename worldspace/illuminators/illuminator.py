@@ -10,6 +10,10 @@ from typing import Literal
 
 import numpy as np
 
+from worldspace.generators.llm_call_log import (
+    configure_llm_call_log,
+    resolve_llm_call_log_path,
+)
 from worldspace.illuminators.archive import load_and_collapse_jsonl
 from worldspace.illuminators.archive_trace import ARCHIVE_TRACE_FILENAME
 from worldspace.illuminators.archive_factory import (
@@ -85,6 +89,8 @@ class MapElitesIlluminator:
         effective_steps = normalize_illuminator_steps(steps, min_steps=config.min_steps)
         out_dir = Path(output_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
+        # Per-call LLM I/O archive for future runs (disable with LIFEMANIFOLD_LLM_CALL_LOG=0).
+        configure_llm_call_log(resolve_llm_call_log_path(output_dir=out_dir))
         jsonl_path = archive_jsonl_path(out_dir)
         _clear_stale_run_artifacts(
             out_dir,

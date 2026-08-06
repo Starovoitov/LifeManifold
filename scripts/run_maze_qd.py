@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from worldspace.generators.llm_call_log import (
+    configure_llm_call_log,
+    resolve_llm_call_log_path,
+)
 from worldspace.mazes.llm_emitter import MazeLlmEmitter
 from worldspace.mazes.mock_llm_emitter import MockMazeLlmEmitter
 from worldspace.mazes.runner import load_maze_scheduler, run_maze_qd
@@ -80,6 +84,7 @@ def main(argv: list[str] | None = None) -> None:
                 prompt_mode=config.llm_prompt_mode,
                 llm_spec_path=args.llm_spec,
             )
+    configure_llm_call_log(resolve_llm_call_log_path(output_dir=args.output_dir))
     result = run_maze_qd(
         config,
         seed=args.seed,
