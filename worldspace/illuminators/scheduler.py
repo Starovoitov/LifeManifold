@@ -164,6 +164,9 @@ class SchedulerConfig:
     # When True, LLM prompts use stub_mean/stub_uncertainty even if the live
     # surrogate facade is loaded for acquisition filtering (mixed-stack 2×2 cell C).
     llm_stub_hints_only: bool = False
+    # off | shuffle_batch: permute intact (mean, unc) pairs across LLM slots
+    # after prepare_emit (distribution-matched placebo; requires parallel LLM emit).
+    llm_hint_placebo: Literal["off", "shuffle_batch"] = "off"
     llm_child_rewrite: ChildRewriteConfig = field(default_factory=ChildRewriteConfig)
 
     @property
@@ -287,6 +290,7 @@ def load_scheduler(
         llm_system_prompt_kind=doc.llm.system_prompt_kind,
         llm_user_prompt_path=doc.llm.user_prompt_path,
         llm_stub_hints_only=doc.llm.stub_hints_only,
+        llm_hint_placebo=doc.llm.hint_placebo,
         llm_child_rewrite=(
             ChildRewriteConfig(
                 enabled=doc.llm.child_rewrite.enabled,
@@ -317,6 +321,19 @@ def load_scheduler(
         lloyd_iterations=archive_settings.lloyd_iterations,
         performance=performance,
     )
+    if config.llm_hint_placebo == "shuffle_batch":
+        if config.llm_stub_hints_only:
+            raise ValueError(
+                "llm.hint_placebo=shuffle_batch is incompatible with llm.stub_hints_only"
+            )
+        if not config.surrogate_enabled:
+            raise ValueError(
+                "llm.hint_placebo=shuffle_batch requires surrogate.enabled=true"
+            )
+        if not config.performance.llm_parallel_emit:
+            raise ValueError(
+                "llm.hint_placebo=shuffle_batch requires performance.llm_parallel_emit"
+            )
     return _normalize_acquisition_config(config)
 
 
@@ -481,6 +498,8 @@ class _LlmSchedulerBlock(BaseModel):
     user_prompt_path: str | None = None
     # Prompt-side stubs while surrogate.enabled remains true for acquisition.
     stub_hints_only: bool = False
+    # off | shuffle_batch: permute live surrogate pairs across LLM slots in-batch.
+    hint_placebo: Literal["off", "shuffle_batch"] = "off"
     child_rewrite: _ChildRewriteYamlBlock | None = None
 
 

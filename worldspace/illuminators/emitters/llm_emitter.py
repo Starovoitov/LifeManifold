@@ -58,10 +58,12 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "LlmEmitter",
     "LlmPreparedSlot",
+    "apply_batch_hint_placebo",
     "build_rewrite_user_prompt",
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
+    "remap_prepared_slot_prediction",
     "should_rewrite_child",
 ]
 
@@ -79,6 +81,63 @@ class LlmPreparedSlot:
     grid_size: int
     steps: int
     surrogate_prediction: SurrogatePrediction | None = None
+
+
+def _surrogate_line(prediction: SurrogatePrediction) -> str:
+    return (
+        f"Surrogate predicts fitness ≈ {prediction.fitness:.3f}, "
+        f"uncertainty = {prediction.uncertainty:.3f}"
+    )
+
+
+def remap_prepared_slot_prediction(
+    slot: LlmPreparedSlot,
+    prediction: SurrogatePrediction,
+) -> LlmPreparedSlot:
+    """Swap the surrogate scalars in a prepared slot without re-sampling few-shot."""
+    old = slot.surrogate_prediction
+    if old is None:
+        msg = "cannot remap placebo prediction onto a slot without surrogate_prediction"
+        raise ValueError(msg)
+    old_line = _surrogate_line(old)
+    new_line = _surrogate_line(prediction)
+    if old_line not in slot.user_prompt:
+        msg = (
+            "prepared user_prompt is missing the expected surrogate line; "
+            "hint_placebo=shuffle_batch requires the default fitness/uncertainty template"
+        )
+        raise ValueError(msg)
+    return replace(
+        slot,
+        user_prompt=slot.user_prompt.replace(old_line, new_line, 1),
+        surrogate_prediction=prediction,
+    )
+
+
+def apply_batch_hint_placebo(
+    prepared_slots: list[LlmPreparedSlot],
+    rng: np.random.Generator,
+) -> list[LlmPreparedSlot]:
+    """Permute intact SurrogatePrediction objects across LLM slots in one batch.
+
+    Parent JSON / few-shot text stay with the slot; only the (fitness, uncertainty)
+    pair (and attached prediction payload) is reassigned. The multiset of pairs is
+    preserved so the control is distribution-matched to live MLP hints.
+    """
+    n = len(prepared_slots)
+    if n <= 1:
+        return list(prepared_slots)
+    predictions = [slot.surrogate_prediction for slot in prepared_slots]
+    if any(pred is None for pred in predictions):
+        msg = (
+            "hint_placebo=shuffle_batch requires surrogate_prediction on every LLM slot"
+        )
+        raise ValueError(msg)
+    order = rng.permutation(n)
+    return [
+        remap_prepared_slot_prediction(slot, predictions[int(order[i])])  # type: ignore[arg-type]
+        for i, slot in enumerate(prepared_slots)
+    ]
 
 
 class LlmEmitter:

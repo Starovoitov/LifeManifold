@@ -30,7 +30,10 @@ from worldspace.illuminators.emitters.base import (
     EmitterOutput,
     MapElitesEmitter,
 )
-from worldspace.illuminators.emitters.llm_emitter import LlmPreparedSlot
+from worldspace.illuminators.emitters.llm_emitter import (
+    LlmPreparedSlot,
+    apply_batch_hint_placebo,
+)
 from worldspace.illuminators.evaluation import (
     ILLUMINATOR_MIN_STEPS,
     EvalResult,
@@ -715,6 +718,12 @@ def _emit_iteration_drafts_sequential(
     steps: int,
     counters: RunCounters,
 ) -> list[_SlotDraft]:
+    if config.llm_hint_placebo != "off":
+        msg = (
+            f"llm.hint_placebo={config.llm_hint_placebo!r} requires parallel LLM emit "
+            "(batch prepare_emit before HTTP)"
+        )
+        raise ValueError(msg)
     return [
         _emit_one_slot_draft(
             config,
@@ -791,7 +800,11 @@ def _emit_iteration_drafts_parallel_llm(
             )
 
     if pending:
+        slot_ids = [candidate_id for candidate_id, _ in pending]
         prepared_slots = [slot for _, slot in pending]
+        if config.llm_hint_placebo == "shuffle_batch":
+            prepared_slots = apply_batch_hint_placebo(prepared_slots, rng)
+            pending = list(zip(slot_ids, prepared_slots, strict=True))
         results = request_llm_batch(
             llm,
             prepared_slots,
