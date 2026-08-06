@@ -556,9 +556,11 @@ def fig07_archive_heatmaps(
 
     fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.8), layout="constrained")
     im = _draw_heatmap_row(axes, seed=seed, left=left, right=right, cmap=cmap)
-    fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85, label="Fitness")
+    cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85)
+    cbar.set_label("Elite fitness (unitless)")
+    cbar.set_ticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     fig.suptitle(
-        "Archive fitness in behaviour space (collapsed warm-start archives)",
+        "Archive fitness in behaviour space (collapsed warm-start; gray = empty niche)",
         fontsize=12,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -596,9 +598,11 @@ def fig07_archive_heatmaps_panel(
     for row, seed in enumerate(seeds):
         im = _draw_heatmap_row(axes[row], seed=seed, left=left, right=right, cmap=cmap)
     assert im is not None
-    fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.55, label="Fitness")
+    cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.55)
+    cbar.set_label("Elite fitness (unitless)")
+    cbar.set_ticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     fig.suptitle(
-        "Archive fitness across paired seeds (collapsed warm-start; gray = empty)",
+        "Archive fitness across paired seeds (collapsed warm-start; gray = empty niche)",
         fontsize=12,
     )
     out.parent.mkdir(parents=True, exist_ok=True)

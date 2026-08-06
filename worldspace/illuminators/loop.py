@@ -798,15 +798,53 @@ def _emit_iteration_drafts_parallel_llm(
             max_workers=llm_workers,
             llm_pool=llm_pool,
         )
+        draft_outputs: dict[int, EmitterOutput] = {}
+        rewrite_pending: list[
+            tuple[int, LlmPreparedSlot, EmitterOutput, LlmPreparedSlot]
+        ] = []
         for (candidate_id, prepared), http_result in zip(pending, results, strict=True):
-            target_cell = prepared.target
-            target_bin = TargetBin.from_target_cell(target_cell)
             output = llm.finalize_emit(
                 prepared,
                 response=http_result.response,
                 rng=rng,
                 request_error=http_result.request_error,
             )
+            rewrite_prepared = llm.prepare_child_rewrite(
+                prepared, output, archive=archive, rng=rng
+            )
+            if rewrite_prepared is None:
+                draft_outputs[candidate_id] = output
+            else:
+                rewrite_pending.append(
+                    (candidate_id, prepared, output, rewrite_prepared)
+                )
+
+        if rewrite_pending:
+            rewrite_slots = [slot for *_, slot in rewrite_pending]
+            rewrite_results = request_llm_batch(
+                llm,
+                rewrite_slots,
+                max_workers=llm_workers,
+                llm_pool=llm_pool,
+            )
+            for (
+                candidate_id,
+                _prepared,
+                draft_out,
+                rewrite_prepared,
+            ), http_result in zip(rewrite_pending, rewrite_results, strict=True):
+                draft_outputs[candidate_id] = llm.commit_child_rewrite(
+                    draft=draft_out,
+                    rewrite_prepared=rewrite_prepared,
+                    rewrite_response=http_result.response,
+                    rng=rng,
+                    request_error=http_result.request_error,
+                )
+
+        for candidate_id, prepared in pending:
+            target_cell = prepared.target
+            target_bin = TargetBin.from_target_cell(target_cell)
+            output = draft_outputs[candidate_id]
             drafts[candidate_id] = _slot_draft_from_output(
                 candidate_id=candidate_id,
                 emitter_kind="llm",

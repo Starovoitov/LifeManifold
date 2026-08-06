@@ -27,6 +27,7 @@ from worldspace.illuminators.emitters.llm_prompts import (
 )
 from worldspace.illuminators.emitters.random_emitter import RandomEmitter
 from worldspace.illuminators.scheduler import (
+    ChildRewriteConfig,
     SchedulerConfig,
     TargetCell,
     resolve_surrogate_prediction,
@@ -48,16 +49,20 @@ _DEFAULT_LLM_SPEC = (
 )
 _EMITTER_TYPE_LLM = "llm"
 _EMITTER_TYPE_LLM_FALLBACK = "llm_fallback"
+_EMITTER_TYPE_LLM_REWRITE = "llm_rewrite"
 _LLM_RESPONSE_PREVIEW_CHARS = 160
+_MISSING_PARENT_TRUE = float("nan")
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "LlmEmitter",
     "LlmPreparedSlot",
+    "build_rewrite_user_prompt",
     "build_user_prompt",
     "format_current_elite_json",
     "format_few_shot_block",
+    "should_rewrite_child",
 ]
 
 
@@ -120,7 +125,7 @@ class LlmEmitter:
         grid_size: int,
         steps: int,
     ) -> EmitterOutput:
-        """Prepare prompts, call the LLM once, and parse or random-walk fallback."""
+        """Prepare prompts, call the LLM, optionally rewrite draft child, parse."""
         prepared = self.prepare_emit(
             target=target,
             archive=archive,
@@ -137,7 +142,13 @@ class LlmEmitter:
                 rng=rng,
                 request_error=exc,
             )
-        return self.finalize_emit(prepared, response=response, rng=rng)
+        draft = self.finalize_emit(prepared, response=response, rng=rng)
+        return self.maybe_apply_child_rewrite(
+            prepared,
+            draft,
+            archive=archive,
+            rng=rng,
+        )
 
     def prepare_emit(
         self,
@@ -331,6 +342,130 @@ class LlmEmitter:
             return archive_type
         return kind
 
+    def child_rewrite_config(self) -> ChildRewriteConfig:
+        """Return child-rewrite settings (disabled when scheduler absent)."""
+        if self._scheduler is None:
+            return ChildRewriteConfig()
+        return self._scheduler.llm_child_rewrite
+
+    def prepare_child_rewrite(
+        self,
+        prepared: LlmPreparedSlot,
+        draft: EmitterOutput,
+        *,
+        archive: ArchiveProtocol,
+        rng: np.random.Generator,
+    ) -> LlmPreparedSlot | None:
+        """Build a rewrite prompt slot, or None if rewrite is not triggered."""
+        cfg = self.child_rewrite_config()
+        if not cfg.enabled:
+            return None
+        if draft.metadata.emitter_type != _EMITTER_TYPE_LLM:
+            return None
+
+        child_pred = self._resolve_surrogate_prediction(draft.world_spec)
+        parent_true = _parent_true_fitness(archive, prepared.target.cell_id)
+        parent_pred = prepared.surrogate_prediction
+        if not should_rewrite_child(
+            cfg,
+            child_pred_fitness=float(child_pred.fitness),
+            parent_true_fitness=parent_true,
+            parent_pred_fitness=(
+                float(parent_pred.fitness) if parent_pred is not None else None
+            ),
+        ):
+            return None
+
+        rewrite_prompt = build_rewrite_user_prompt(
+            target=prepared.target,
+            archive=archive,
+            rng=rng,
+            draft_spec=draft.world_spec,
+            child_prediction=child_pred,
+            parent_true_fitness=parent_true,
+            user_prompt_path=cfg.user_prompt_path,
+        )
+        return LlmPreparedSlot(
+            target=prepared.target,
+            parent_spec=prepared.parent_spec,
+            parent_id=prepared.parent_id,
+            system_prompt=prepared.system_prompt,
+            user_prompt=rewrite_prompt,
+            prompt_version=prepared.prompt_version,
+            grid_size=prepared.grid_size,
+            steps=prepared.steps,
+            surrogate_prediction=child_pred,
+        )
+
+    def commit_child_rewrite(
+        self,
+        *,
+        draft: EmitterOutput,
+        rewrite_prepared: LlmPreparedSlot,
+        rewrite_response: str,
+        rng: np.random.Generator,
+        request_error: BaseException | None = None,
+    ) -> EmitterOutput:
+        """Parse rewrite response; keep draft on failure when configured."""
+        cfg = self.child_rewrite_config()
+        if request_error is not None:
+            logger.warning(
+                "LLM child rewrite request failed cell_id=%s reason=%s:%s",
+                rewrite_prepared.target.cell_id,
+                type(request_error).__name__,
+                request_error,
+            )
+            return draft
+        rewritten = self.finalize_emit(
+            rewrite_prepared,
+            response=rewrite_response,
+            rng=rng,
+        )
+        if rewritten.metadata.emitter_type == _EMITTER_TYPE_LLM:
+            return EmitterOutput(
+                world_spec=rewritten.world_spec,
+                metadata=new_elite_metadata(
+                    generated_by="llm",
+                    emitter_type=_EMITTER_TYPE_LLM_REWRITE,
+                    parent_id=rewrite_prepared.parent_id,
+                    prompt_version=rewrite_prepared.prompt_version,
+                ),
+            )
+        if cfg.keep_draft_on_rewrite_fail:
+            return draft
+        return rewritten
+
+    def maybe_apply_child_rewrite(
+        self,
+        prepared: LlmPreparedSlot,
+        draft: EmitterOutput,
+        *,
+        archive: ArchiveProtocol,
+        rng: np.random.Generator,
+    ) -> EmitterOutput:
+        """Optionally second-pass rewrite a parsed draft using predict(child)."""
+        rewrite_prepared = self.prepare_child_rewrite(
+            prepared, draft, archive=archive, rng=rng
+        )
+        if rewrite_prepared is None:
+            return draft
+        try:
+            rewrite_response = self.request_llm(rewrite_prepared)
+        except (RuntimeError, ValueError, OSError, http.client.HTTPException) as exc:
+            return self.commit_child_rewrite(
+                draft=draft,
+                rewrite_prepared=rewrite_prepared,
+                rewrite_response="",
+                rng=rng,
+                request_error=exc,
+            )
+        return self.commit_child_rewrite(
+            draft=draft,
+            rewrite_prepared=rewrite_prepared,
+            rewrite_response=rewrite_response,
+            rng=rng,
+        )
+
     def _resolve_surrogate_prediction(
         self, world_spec: WorldSpec
     ) -> SurrogatePrediction:
@@ -437,6 +572,77 @@ _PROMPT_STUB_WORLD_SPEC = WorldSpec(
     steps=200,
     seed=0,
 )
+
+
+def should_rewrite_child(
+    cfg: ChildRewriteConfig,
+    *,
+    child_pred_fitness: float,
+    parent_true_fitness: float,
+    parent_pred_fitness: float | None = None,
+) -> bool:
+    """Return whether a draft child should receive a rewrite LLM call."""
+    if not cfg.enabled:
+        return False
+    if cfg.trigger == "always":
+        return True
+    if cfg.trigger == "below_tau":
+        return child_pred_fitness < float(cfg.min_predicted_fitness)
+    if cfg.trigger == "below_parent_pred":
+        if parent_pred_fitness is None:
+            return True
+        return child_pred_fitness < float(parent_pred_fitness)
+    # below_parent_true (default): empty niche → always rewrite parsed drafts
+    if parent_true_fitness != parent_true_fitness:  # NaN
+        return True
+    return child_pred_fitness < float(parent_true_fitness)
+
+
+def _parent_true_fitness(archive: ArchiveProtocol, cell_id: int) -> float:
+    elite = archive.get_cell(cell_id)
+    if elite is None:
+        return _MISSING_PARENT_TRUE
+    return float(elite.fitness)
+
+
+def build_rewrite_user_prompt(
+    *,
+    target: TargetCell,
+    archive: ArchiveProtocol,
+    rng: np.random.Generator,
+    draft_spec: WorldSpec,
+    child_prediction: SurrogatePrediction,
+    parent_true_fitness: float,
+    user_prompt_path: str | None,
+    max_few_shot: int = _DEFAULT_FEW_SHOT,
+) -> str:
+    """Build the second-pass rewrite user prompt for a draft child."""
+    template = load_user_prompt_template(user_prompt_path)
+    neighbors = neighbor_elites(
+        archive,
+        target.cell_id,
+        rng=rng,
+        max_count=max_few_shot,
+    )
+    current = archive.get_cell(target.cell_id)
+    parent_fit = (
+        parent_true_fitness if parent_true_fitness == parent_true_fitness else 0.0
+    )
+    return template.format(
+        target_stability=target.target_stability,
+        target_diversity=target.target_diversity,
+        parent_true_fitness=parent_fit,
+        child_surrogate_mean=float(child_prediction.fitness),
+        child_surrogate_uncertainty=float(child_prediction.uncertainty),
+        draft_world_spec_json=json.dumps(
+            strip_seed(draft_spec).to_json_dict(),
+            ensure_ascii=True,
+            indent=2,
+        ),
+        current_elite_json=format_current_elite_json(current),
+        few_shot_examples=format_few_shot_block(neighbors),
+        constraints=format_world_spec_constraints(),
+    )
 
 
 def format_current_elite_json(elite: ArchiveElite | None) -> str:

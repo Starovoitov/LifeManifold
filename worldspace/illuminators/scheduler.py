@@ -45,7 +45,24 @@ logger = logging.getLogger(__name__)
 EmitterKind = Literal["random", "genetic", "llm"]
 ArchiveType = Literal["grid", "cvt"]
 TargetSelectionStrategy = Literal["min_fitness_frontier", "uniform_frontier"]
+ChildRewriteTrigger = Literal[
+    "always", "below_parent_true", "below_tau", "below_parent_pred"
+]
 DEFAULT_TARGET_SELECTION: TargetSelectionStrategy = "min_fitness_frontier"
+DEFAULT_CHILD_REWRITE_PROMPT = "prompts/map_elites_llm_emitter_user_rewrite.txt"
+
+
+@dataclass(frozen=True)
+class ChildRewriteConfig:
+    """Optional second LLM pass after surrogate-scoring a draft child."""
+
+    enabled: bool = False
+    trigger: ChildRewriteTrigger = "below_parent_true"
+    min_predicted_fitness: float = 0.45
+    keep_draft_on_rewrite_fail: bool = True
+    user_prompt_path: str | None = DEFAULT_CHILD_REWRITE_PROMPT
+
+
 _SCHEDULER_SCHEMA_VERSION = "1.2"
 _SCHEDULER_SCHEMA_VERSIONS = ("1.2", "1.3")
 _DEFAULT_SPECS_DIR = Path(__file__).resolve().parent.parent / "specs"
@@ -147,6 +164,7 @@ class SchedulerConfig:
     # When True, LLM prompts use stub_mean/stub_uncertainty even if the live
     # surrogate facade is loaded for acquisition filtering (mixed-stack 2×2 cell C).
     llm_stub_hints_only: bool = False
+    llm_child_rewrite: ChildRewriteConfig = field(default_factory=ChildRewriteConfig)
 
     @property
     def n_cells(self) -> int:
@@ -269,6 +287,17 @@ def load_scheduler(
         llm_system_prompt_kind=doc.llm.system_prompt_kind,
         llm_user_prompt_path=doc.llm.user_prompt_path,
         llm_stub_hints_only=doc.llm.stub_hints_only,
+        llm_child_rewrite=(
+            ChildRewriteConfig(
+                enabled=doc.llm.child_rewrite.enabled,
+                trigger=doc.llm.child_rewrite.trigger,
+                min_predicted_fitness=doc.llm.child_rewrite.min_predicted_fitness,
+                keep_draft_on_rewrite_fail=doc.llm.child_rewrite.keep_draft_on_rewrite_fail,
+                user_prompt_path=doc.llm.child_rewrite.user_prompt_path,
+            )
+            if doc.llm.child_rewrite is not None
+            else ChildRewriteConfig()
+        ),
         surrogate_enabled=doc.surrogate.enabled,
         surrogate_model_type=doc.surrogate.model_type,
         surrogate_checkpoint=doc.surrogate.checkpoint,
@@ -433,6 +462,16 @@ def resolve_emitter_for_slot(
     )
 
 
+class _ChildRewriteYamlBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    trigger: ChildRewriteTrigger = "below_parent_true"
+    min_predicted_fitness: float = Field(default=0.45, ge=0.0, le=1.0)
+    keep_draft_on_rewrite_fail: bool = True
+    user_prompt_path: str | None = DEFAULT_CHILD_REWRITE_PROMPT
+
+
 class _LlmSchedulerBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -442,6 +481,7 @@ class _LlmSchedulerBlock(BaseModel):
     user_prompt_path: str | None = None
     # Prompt-side stubs while surrogate.enabled remains true for acquisition.
     stub_hints_only: bool = False
+    child_rewrite: _ChildRewriteYamlBlock | None = None
 
 
 class _AcquisitionYamlBlock(BaseModel):

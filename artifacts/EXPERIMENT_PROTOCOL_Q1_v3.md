@@ -108,7 +108,7 @@ Lock this order before spending budget:
 ./scripts/run_experiment_batch.sh q1-v3-vanilla
 ```
 
-**Result (n=10, paired vs v2 `q1-full` hints):** mean Δcov(hints−vanilla) **+18.05 pp**, Δfit **+0.166**, sign **10/10**; Wilcoxon p≈0.001; Holm m=2 PASS → **F-RQ0 PASS**. Details: [`q1-v3-vanilla/ANALYSIS.md`](experiments/q1-v3-vanilla/ANALYSIS.md).
+**Result (n=10, paired vs v2 `q1-full` hints):** mean Δcov(hints−vanilla) **+18.05 pp**, Δfit **+0.067** (occupied-bin mean; CSV `mean_best_fitness`), sign **10/10**; Wilcoxon p≈0.001; Holm m=2 PASS → **F-RQ0 PASS**. Details: [`q1-v3-vanilla/ANALYSIS.md`](experiments/q1-v3-vanilla/ANALYSIS.md). (Supersedes an early note that listed Δfit +0.166 / hints fit 0.539 from a mis-read fitness column.)
 
 **Metrics:** coverage, mean_best_fitness, evaluations (= full budget), wall time. Compare paired Δ vs v2 `stub` and `hints`.
 

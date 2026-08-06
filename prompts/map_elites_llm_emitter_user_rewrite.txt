@@ -1,0 +1,31 @@
+Target niche: stability ≈ {target_stability:.2f} (±0.03), diversity ≈ {target_diversity:.2f} (±0.03)
+
+You previously proposed a draft WorldSpec for this niche. A surrogate scored that draft
+(not the parent). Rewrite the draft to improve predicted fitness while staying in-niche.
+
+Parent true fitness (archive, already simulated): {parent_true_fitness:.3f}
+Draft predicted fitness ≈ {child_surrogate_mean:.3f}, uncertainty = {child_surrogate_uncertainty:.3f}
+
+Draft WorldSpec to rewrite:
+{draft_world_spec_json}
+
+Current best elite in this cell (context; do not copy blindly):
+{current_elite_json}
+
+Examples of successful elites from nearby niches (with fitness):
+{few_shot_examples}
+
+Rewrite rules:
+1. Start from the draft above; make compact named-field edits (rules/scalars).
+2. Prefer changes that raise predicted fitness above the parent true fitness when possible.
+3. Must land in the target stability/diversity niche.
+4. If uncertainty is high (>= 0.7), change at most 1–2 fields.
+5. Do not return the identical draft unless no safe improvement exists.
+
+Constraints for world_spec:
+{constraints}
+
+Return JSON only:
+{{
+  "world_spec": {{ ... full WorldSpec without the seed field ... }}
+}}

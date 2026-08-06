@@ -110,6 +110,44 @@ def main() -> int:
         failures,
     )
 
+    # --- Bundled floor: vanilla vs hints (must arithmetically match hints 0.499) ---
+    print("\n--- Bundled floor vanilla − hints ---")
+    van_rows = _load_summary(ROOT / "artifacts/experiments/q1-v3-vanilla/summary.csv")
+    van = _by_cond(van_rows, "vanilla")
+    v_fit = [float(van[s]["mean_best_fitness"]) for s in seeds]
+    v_fit_m, v_fit_s = _mean_sd(v_fit)
+    d_fit_v = np.array(
+        [
+            float(hints[s]["mean_best_fitness"]) - float(van[s]["mean_best_fitness"])
+            for s in seeds
+        ]
+    )
+    d_cov_v = np.array(
+        [float(hints[s]["coverage_pct"]) - float(van[s]["coverage_pct"]) for s in seeds]
+    )
+    print(
+        f"  vanilla fit {v_fit_m:.6f} ± {v_fit_s:.6f}; "
+        f"hints−van Δfit {d_fit_v.mean():+.6f}; Δcov {d_cov_v.mean():+.4f}"
+    )
+    check(
+        "vanilla_fit_not_0.373",
+        abs(v_fit_m - 0.432) < 0.002,
+        f"mean={v_fit_m:.6f} (must be ~0.432 from summary.csv, not 0.373)",
+        failures,
+    )
+    check(
+        "vanilla_delta_fit_not_0.166",
+        abs(d_fit_v.mean() - 0.067) < 0.002,
+        f"mean Δfit={d_fit_v.mean():+.6f} → report +0.067 not +0.166",
+        failures,
+    )
+    check(
+        "vanilla_plus_delta_equals_hints",
+        abs(v_fit_m + d_fit_v.mean() - h_fit_m) < EPS["fit"],
+        f"0.432+Δ implies hints={v_fit_m + d_fit_v.mean():.6f}",
+        failures,
+    )
+
     # --- H4 levels ---
     print("\n--- H4 pyribs levels vs frozen hints ---")
     py = _load_summary(ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv")

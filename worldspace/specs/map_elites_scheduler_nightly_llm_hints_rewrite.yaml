@@ -1,0 +1,94 @@
+schema_version: "1.2"
+# H1 Path A: single-pass hints draft + child-level surrogate rewrite.
+# Protocol: artifacts/Q1_H1_CHILD_REWRITE.md
+# Matched to map_elites_scheduler_nightly_llm.yaml except llm.child_rewrite.
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: uniform_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+  child_rewrite:
+    enabled: true
+    trigger: below_parent_true
+    min_predicted_fitness: 0.45
+    keep_draft_on_rewrite_fail: true
+    user_prompt_path: prompts/map_elites_llm_emitter_user_rewrite.txt
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_hints_rewrite.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+  surrogate_archive_path: artifacts/surrogate/surrogate_archive_experiment_hints_rewrite.jsonl
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true
