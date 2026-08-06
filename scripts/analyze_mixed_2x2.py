@@ -7,7 +7,6 @@ Safe to run on partial seed sets (marks n and incomplete).
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,7 @@ ARMS = ("stub_uniform", "hints", "filter_stub", "filter")
 OUT = EXP
 
 
-def _mean_sd(xs: list[float]) -> dict[str, float]:
+def _mean_sd(xs: list[float]) -> dict[str, float | int]:
     arr = np.asarray(xs, dtype=float)
     if arr.size == 0:
         return {"mean": float("nan"), "sd": float("nan"), "n": 0}
@@ -135,8 +134,12 @@ def load_seed(arm: str, seed: int) -> dict[str, Any] | None:
 
 def paired_delta(a: dict[int, dict], b: dict[int, dict], key: str) -> dict[str, Any]:
     seeds = sorted(set(a) & set(b))
-    diffs = [float(b[s][key]) - float(a[s][key]) for s in seeds if a[s].get(key) is not None and b[s].get(key) is not None]
-    stats = _mean_sd(diffs)
+    diffs = [
+        float(b[s][key]) - float(a[s][key])
+        for s in seeds
+        if a[s].get(key) is not None and b[s].get(key) is not None
+    ]
+    stats: dict[str, Any] = dict(_mean_sd(diffs))
     stats["n_positive"] = int(sum(1 for d in diffs if d > 0))
     stats["seeds"] = seeds
     return stats
@@ -150,9 +153,7 @@ def main() -> int:
             if row is not None:
                 by_arm[arm][seed] = row
 
-    complete_seeds = sorted(
-        set.intersection(*(set(by_arm[a]) for a in ARMS))
-    )
+    complete_seeds = sorted(set.intersection(*(set(by_arm[a]) for a in ARMS)))
     levels: dict[str, Any] = {}
     for arm in ARMS:
         rows = [by_arm[arm][s] for s in complete_seeds]
@@ -174,15 +175,27 @@ def main() -> int:
 
     contrasts = {
         "soft_filter_off_hints_minus_stub": {
-            "cov": paired_delta(by_arm["stub_uniform"], by_arm["hints"], "coverage_pct"),
+            "cov": paired_delta(
+                by_arm["stub_uniform"], by_arm["hints"], "coverage_pct"
+            ),
             "qd": paired_delta(by_arm["stub_uniform"], by_arm["hints"], "qd_score"),
-            "cov20k": paired_delta(by_arm["stub_uniform"], by_arm["hints"], "cov_at_20000"),
+            "cov20k": paired_delta(
+                by_arm["stub_uniform"], by_arm["hints"], "cov_at_20000"
+            ),
         },
         "hard_at_stub_filter_stub_minus_stub": {
-            "cov": paired_delta(by_arm["stub_uniform"], by_arm["filter_stub"], "coverage_pct"),
-            "qd": paired_delta(by_arm["stub_uniform"], by_arm["filter_stub"], "qd_score"),
-            "cov20k": paired_delta(by_arm["stub_uniform"], by_arm["filter_stub"], "cov_at_20000"),
-            "evals": paired_delta(by_arm["stub_uniform"], by_arm["filter_stub"], "evaluations"),
+            "cov": paired_delta(
+                by_arm["stub_uniform"], by_arm["filter_stub"], "coverage_pct"
+            ),
+            "qd": paired_delta(
+                by_arm["stub_uniform"], by_arm["filter_stub"], "qd_score"
+            ),
+            "cov20k": paired_delta(
+                by_arm["stub_uniform"], by_arm["filter_stub"], "cov_at_20000"
+            ),
+            "evals": paired_delta(
+                by_arm["stub_uniform"], by_arm["filter_stub"], "evaluations"
+            ),
         },
         "hard_at_hints_filter_minus_hints": {
             "cov": paired_delta(by_arm["hints"], by_arm["filter"], "coverage_pct"),
@@ -191,9 +204,13 @@ def main() -> int:
             "evals": paired_delta(by_arm["hints"], by_arm["filter"], "evaluations"),
         },
         "soft_at_filter_filter_minus_filter_stub": {
-            "cov": paired_delta(by_arm["filter_stub"], by_arm["filter"], "coverage_pct"),
+            "cov": paired_delta(
+                by_arm["filter_stub"], by_arm["filter"], "coverage_pct"
+            ),
             "qd": paired_delta(by_arm["filter_stub"], by_arm["filter"], "qd_score"),
-            "cov20k": paired_delta(by_arm["filter_stub"], by_arm["filter"], "cov_at_20000"),
+            "cov20k": paired_delta(
+                by_arm["filter_stub"], by_arm["filter"], "cov_at_20000"
+            ),
         },
     }
 
@@ -203,7 +220,9 @@ def main() -> int:
         "n_complete": len(complete_seeds),
         "n_target": 10,
         "status": (
-            "complete" if len(complete_seeds) >= 10 else f"partial_n={len(complete_seeds)}"
+            "complete"
+            if len(complete_seeds) >= 10
+            else f"partial_n={len(complete_seeds)}"
         ),
         "levels": levels,
         "contrasts": contrasts,
@@ -234,16 +253,22 @@ def main() -> int:
         )
     lines += [
         "",
-        "## Paired contrasts (descriptive until n=10)",
+        "## Paired contrasts (descriptive, n=10)",
         "",
         "| Contrast | Δcov term (pp) | Δcov@20k (pp) | ΔQD |",
         "|----------|---------------:|--------------:|----:|",
     ]
     labels = [
         ("soft_filter_off_hints_minus_stub", "soft @ filter off: hints−stub_uniform"),
-        ("hard_at_stub_filter_stub_minus_stub", "hard @ stub: filter_stub−stub_uniform"),
+        (
+            "hard_at_stub_filter_stub_minus_stub",
+            "hard @ stub: filter_stub−stub_uniform",
+        ),
         ("hard_at_hints_filter_minus_hints", "hard @ hints: filter−hints"),
-        ("soft_at_filter_filter_minus_filter_stub", "soft @ filter on: filter−filter_stub"),
+        (
+            "soft_at_filter_filter_minus_filter_stub",
+            "soft @ filter on: filter−filter_stub",
+        ),
     ]
     for key, label in labels:
         c = contrasts[key]
@@ -257,15 +282,24 @@ def main() -> int:
             f"({c20.get('n_positive',0)}/{c20.get('n',0)}) | "
             f"{qd['mean']:+.1f}±{qd['sd']:.1f} |"
         )
+    status_note = (
+        "Confirmatory read (n=10, descriptive paired contrasts)."
+        if payload["status"] == "complete"
+        else "Partial n — descriptive only; relaunch remaining seeds."
+    )
     lines += [
         "",
         "## Reading notes",
         "",
+        status_note,
+        "",
         "- Soft factor: hints vs stub_uniform (and filter vs filter_stub).",
         "- Hard factor: filter_stub vs stub_uniform; filter vs hints.",
         "- Eval-indexed @20k uses archive_trace; filter arms skip ~33% sims.",
-        "- Do not treat partial n as confirmatory; relaunch remaining seeds.",
+        "- Hard gate: terminal coverage down, cov@20k eval up (10/10 seeds).",
+        "- Soft channel: terminal and @20k deltas stay small vs stub.",
         "",
+        "Artifacts: `mixed_2x2_analysis.json`, `summary.csv`.",
         "Script: `scripts/analyze_mixed_2x2.py`",
         "",
     ]
