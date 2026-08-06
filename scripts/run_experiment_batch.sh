@@ -702,11 +702,11 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
     apply_long_run_llm_defaults
     ;;
-  q1-h1-placebo-pilot)
-    # Lock default: 2 HTTP workers (thermal). Export LIFEMANIFOLD_LLM_PARALLEL_WORKERS to override.
+  q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot)
+    # H1 pilot tiers: 2 HTTP workers default (thermal). Export LIFEMANIFOLD_LLM_PARALLEL_WORKERS to override.
     if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
       export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
     fi

@@ -88,11 +88,11 @@ If pilot fails both gates → **do not** full n=10; report as negative pilot (li
 ## Launch
 
 ```bash
-# Pilot (default seeds 0–2)
+# Pilot (default seeds 0–2; tier default LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2)
 ./scripts/run_experiment_batch.sh q1-h1-child-rewrite-pilot
 
 # Or explicit
-./scripts/run_experiment_batch.sh q1-h1-child-rewrite-pilot 0 2
+LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2 ./scripts/run_experiment_batch.sh q1-h1-child-rewrite-pilot 0 2
 
 # Analyze
 .venv/bin/python scripts/analyze_h1_child_rewrite.py

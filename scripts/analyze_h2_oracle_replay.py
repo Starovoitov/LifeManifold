@@ -284,7 +284,7 @@ def main() -> int:
             cur: Any = row
             for key in path:
                 cur = cur[key]
-            if cur is None or (isinstance(cur, float) and np.isnan(cur)):
+            if not _finite(cur):
                 continue
             out.append(float(cur))
         return out
