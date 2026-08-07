@@ -1,6 +1,6 @@
 # H1 shuffled / permutation placebo (lock)
 
-**Status:** locked for seed-0 pilot  
+**Status:** extend gate passed (seed-0); **full $n{=}10$ in progress** (not claimed in current manuscript revision)  
 **Tier:** `q1-h1-placebo-pilot` → `artifacts/experiments/q1-h1-placebo-pilot/`  
 **Stack:** LLM mixed emitters (`20R+20G+10L`), `uniform_frontier`, warm-start baseline, checkpoint `nightly_v3_mc_d005`, primary `qwen-turbo`  
 **Why:** confirmatory H1 contrasts live parent MLP scalars vs YAML constants `0.5`/`1.0`. That stub is not distribution-matched. This package permutes intact `(fitness, uncertainty)` pairs across the LLM slots in each batch so the scalar multiset matches live hints while parent genotype / few-shot stay with the slot.
@@ -64,7 +64,7 @@ Workers for this pilot: `LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2` (thermal).
 |-------|------:|------|
 | Pilot | **0 only** | Descriptive readout vs frozen seed-0 `hints` and `stub_uniform` |
 | Extend | 0–2 | Only if seed-0 \|Δcov\| (`hints_placebo`−`hints`) ≥ **2 pp** terminal **or** @20k eval (same soft-pilot bar as prior H1 resource screens) |
-| Full | 0–9 | Only if extend gate passes; do **not** invent confirmatory TOST mid-flight |
+| Full | 0–9 | Extend gate passed (seed-0); **full $n{=}10$ authorized / in progress**; do **not** invent confirmatory TOST mid-flight |
 
 Companion: also note Δfit and QD; do not extend on fitness alone if coverage is flat.
 

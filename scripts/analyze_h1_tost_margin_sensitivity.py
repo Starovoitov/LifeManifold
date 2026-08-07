@@ -52,13 +52,9 @@ def _series() -> dict[str, dict[str, Any]]:
             "deltas": deltas,
             "role": "matched_provider",
         }
-    ds = np.asarray(out["deepseek-v4-pro"]["deltas"], dtype=float)
-    out["deepseek-v4-pro_drop_seed8"] = {
-        "label": "DeepSeek V4 Pro (drop seed 8)",
-        "n": 9,
-        "deltas": [float(x) for x in np.delete(ds, 8)],
-        "role": "loo_sensitivity",
-    }
+    # Seed-8 leave-one-out / Cook's D lives only in
+    # artifacts/experiments/q1-v3-llm/deepseek-v4-pro/DEEPSEEK_OUTLIER_DIAG.md
+    # (and the manuscript note to tab:h1-matched-providers)—not here.
     return out
 
 
@@ -94,8 +90,9 @@ def main() -> int:
         "margins_pp": list(MARGINS_PP),
         "note": (
             "Offline sensitivity of post-hoc paired-t mean-TOST to the equivalence "
-            "margin. Primary claim remains ±2 pp on qwen-turbo. DeepSeek drop-seed-8 "
-            "row is leave-one-out influence only—not a co-claimed provider result."
+            "margin. Primary claim remains ±2 pp on qwen-turbo. DeepSeek seed-8 "
+            "influence (Cook's D / LOO) is reported only in DEEPSEEK_OUTLIER_DIAG.md "
+            "and the note to tab:h1-matched-providers."
         ),
         "rows": rows,
     }
