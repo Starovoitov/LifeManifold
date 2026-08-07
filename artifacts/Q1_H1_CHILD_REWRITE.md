@@ -1,6 +1,6 @@
 # H1 stronger soft actuator: child-level rewrite (Path A)
 
-**Status:** designed; **pilot not launched**  
+**Status:** seed-0 paired readout done (Δterm +1.16 pp / Δ@20k −1.20 pp vs gate); **full $n{=}10$ authorized / in progress** (investigator override of stop gate — same package cadence as placebo; not claimed in current manuscript revision)  
 **Tier:** `q1-h1-child-rewrite-pilot` → `artifacts/experiments/q1-h1-child-rewrite-pilot/`  
 **Stack:** LLM mixed emitters (`20R+20G+10L`), `uniform_frontier`, warm-start baseline, checkpoint `nightly_v3_mc_d005`, primary `qwen-turbo`  
 **Why:** confirmatory H1 only swaps parent-level surrogate scalars that restate archive-true fitness. Path A tests a **non-redundant** soft channel: generate a draft child → `predict(child)` → optional second LLM rewrite using that child-level prediction.
@@ -67,10 +67,10 @@ Metadata: successful rewrite → `emitter_type=llm_rewrite`; draft kept → `llm
 | Stage | Seeds | Gate |
 |-------|------:|------|
 | Pilot | 0–2 | Extend if mean \|Δcov\| (`hints_rewrite`−`hints`) ≥ **2 pp** terminal **or** @20k eval |
-| Full | 0–9 | Only if pilot gate passes |
+| Full | 0–9 | **Authorized 2026-08-07** (override): seed-0 alone failed the ≥2 pp bar; full $n{=}10$ still run for a matched descriptive package alongside placebo. Do **not** invent confirmatory Holm/TOST mid-flight. |
 
-Pilot Δfit companion: extend also if mean Δfit ≥ +0.02 (same as prior soft pilots).  
-If pilot fails both gates → **do not** full n=10; report as negative pilot (like `hints_direction`).
+Pilot Δfit companion (historical): extend also if mean Δfit ≥ +0.02.  
+Original stop rule kept above for audit trail; the override does not re-label a null pilot as confirmatory.
 
 ## Endpoints (descriptive)
 
