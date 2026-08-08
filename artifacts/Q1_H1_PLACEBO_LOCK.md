@@ -125,6 +125,8 @@ Compare offline to frozen `artifacts/experiments/q1-v3-mixed-2x2/{hints,stub_uni
 
 Reading: distribution-matched shuffle is **not** ≈ live hints; stub alone understates channel structure. Direction (shuffle > aligned) is paradoxical for “correct numbers help” — report as threat/bound, not as soft-channel win. Cross-tier caveat: placebo ran later at 2 LLM workers vs frozen hints at 4.
 
+**Matched follow-up:** `artifacts/Q1_H1_PLACEBO_INTERLEAVED.md` / tier `q1-h1-placebo-interleaved` re-runs `hints` + `hints_placebo` under one calendar and one worker setting to test whether the +1.65 pp gap survives that confound.
+
 ## Manuscript
 
 Wired into `\S\ref{sec:h1-impl-threat}` / Limitations / Future work as **descriptive**; not a confirmatory family.

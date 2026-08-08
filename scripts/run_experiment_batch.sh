@@ -23,6 +23,7 @@
 # H2 ranking:  q1-h2-ranking-controls (random_skip + shadow + filter_eval_matched; after mixed-2x2)
 # H1 Path A:   q1-h1-child-rewrite-pilot (hints vs hints_rewrite; default seeds 0–2)
 # H1 placebo:  q1-h1-placebo-pilot (hints_placebo shuffle_batch; default seed 0; lock Q1_H1_PLACEBO_LOCK.md)
+# H1 placebo IL: q1-h1-placebo-interleaved (hints + hints_placebo same calendar/workers; Q1_H1_PLACEBO_INTERLEAVED.md)
 # RQ1b pilot: q1-hints-rich-pilot (hints_rich only; component user prompt)
 # RQ1d pilot: q1-hints-parent-pilot (hints_parent only; parent metrics in hint block)
 # RQ1e pilot: q1-hints-direction-pilot (hints_direction only; FD direction hints)
@@ -120,6 +121,7 @@ RUN_HINTS_PARENT_ONLY=false
 RUN_HINTS_DIRECTION_ONLY=false
 RUN_CHILD_REWRITE_PILOT=false
 RUN_PLACEBO_PILOT=false
+RUN_PLACEBO_INTERLEAVED=false
 RUN_WEAK_HINTS_PILOT=false
 RUN_ANYTIME_LADDER=false
 RUN_CMA_ENCODING_ABLATION=false
@@ -510,9 +512,19 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_PLACEBO_PILOT=true
     ;;
+  q1-h1-placebo-interleaved)
+    # Matched calendar/workers: hints + hints_placebo (Q1_H1_PLACEBO_INTERLEAVED.md).
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-h1-placebo-interleaved"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    SCHEDULER_HINTS_PLACEBO="$SCHEDULER_HINTS_PLACEBO_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_PLACEBO_INTERLEAVED=true
+    ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
     exit 1
     ;;
 esac
@@ -662,6 +674,11 @@ if [[ "$REQUESTED_TIER" == "q1-h1-placebo-pilot" && $# -lt 2 ]]; then
   SEED_END=0
   echo "NOTE: q1-h1-placebo-pilot default seed 0 only (lock Q1_H1_PLACEBO_LOCK.md); extend: $0 q1-h1-placebo-pilot 0 2" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-h1-placebo-interleaved" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=0
+  echo "NOTE: q1-h1-placebo-interleaved default seed 0 only (Q1_H1_PLACEBO_INTERLEAVED.md); extend: $0 q1-h1-placebo-interleaved 0 2" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-v3-mixed-2x2" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=9
@@ -705,7 +722,7 @@ case "$TIER" in
   q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
     apply_long_run_llm_defaults
     ;;
-  q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot)
+  q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved)
     # H1 pilot tiers: 2 HTTP workers default (thermal). Export LIFEMANIFOLD_LLM_PARALLEL_WORKERS to override.
     if [[ -z "${LIFEMANIFOLD_LOG_ITERATION_TIMING:-}" ]]; then
       export LIFEMANIFOLD_LOG_ITERATION_TIMING=1
@@ -1134,6 +1151,11 @@ elif [[ "$RUN_CHILD_REWRITE_PILOT" == true ]]; then
   done
 elif [[ "$RUN_PLACEBO_PILOT" == true ]]; then
   for seed in $(seq "$SEED_START" "$SEED_END"); do
+    run_one hints_placebo "$SCHEDULER_HINTS_PLACEBO" "$seed"
+  done
+elif [[ "$RUN_PLACEBO_INTERLEAVED" == true ]]; then
+  for seed in $(seq "$SEED_START" "$SEED_END"); do
+    run_one hints "$SCHEDULER_HINTS" "$seed"
     run_one hints_placebo "$SCHEDULER_HINTS_PLACEBO" "$seed"
   done
 elif [[ "$RUN_ANYTIME_LADDER" == true ]]; then
