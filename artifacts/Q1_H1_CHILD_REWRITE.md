@@ -1,7 +1,8 @@
 # H1 stronger soft actuator: child-level rewrite (Path A)
 
-**Status:** seed-0 paired readout done (Δterm +1.16 pp / Δ@20k −1.20 pp vs gate); **full $n{=}10$ authorized / in progress** (investigator override of stop gate — same package cadence as placebo; not claimed in current manuscript revision)  
+**Status:** **full $n{=}10$ complete** — **negative package** (descriptive; not confirmatory)  
 **Tier:** `q1-h1-child-rewrite-pilot` → `artifacts/experiments/q1-h1-child-rewrite-pilot/`  
+**Readout:** `ANALYSIS.md` / `h1_child_rewrite_analysis.json` — rewrite − hints **+0.35±1.46 pp** terminal (6/10; Wilcoxon p≈0.49); @20k **+0.16±1.37**; TOST ±2 rewrite≡hints **accept**; ~+35% wall / ~39% extra rewrite calls  
 **Stack:** LLM mixed emitters (`20R+20G+10L`), `uniform_frontier`, warm-start baseline, checkpoint `nightly_v3_mc_d005`, primary `qwen-turbo`  
 **Why:** confirmatory H1 only swaps parent-level surrogate scalars that restate archive-true fitness. Path A tests a **non-redundant** soft channel: generate a draft child → `predict(child)` → optional second LLM rewrite using that child-level prediction.
 
@@ -67,10 +68,18 @@ Metadata: successful rewrite → `emitter_type=llm_rewrite`; draft kept → `llm
 | Stage | Seeds | Gate |
 |-------|------:|------|
 | Pilot | 0–2 | Extend if mean \|Δcov\| (`hints_rewrite`−`hints`) ≥ **2 pp** terminal **or** @20k eval |
-| Full | 0–9 | **Authorized 2026-08-07** (override): seed-0 alone failed the ≥2 pp bar; full $n{=}10$ still run for a matched descriptive package alongside placebo. Do **not** invent confirmatory Holm/TOST mid-flight. |
+| Full | 0–9 | **Complete** (override 2026-08-07). Descriptive only — do **not** invent confirmatory Holm/TOST. |
 
-Pilot Δfit companion (historical): extend also if mean Δfit ≥ +0.02.  
-Original stop rule kept above for audit trail; the override does not re-label a null pilot as confirmatory.
+### n=10 headline (descriptive)
+
+| Contrast | Mean Δ | Wins | Note |
+|----------|-------:|-----:|------|
+| rewrite − hints (terminal cov) | +0.35 ± 1.46 pp | 6/10 | below 2 pp bar; Wilcoxon n.s. |
+| rewrite − hints (@20k) | +0.16 ± 1.37 pp | 6/10 | anytime also flat |
+| Δfit | −0.0008 ± 0.008 | — | companion gate fail |
+| Cost | +~35% wall; ~2545 rewrite calls/seed (~39% of drafts) | — | 2-pass bundle without coverage lift |
+
+Reading: Path A child-level rewrite **does not** beat single-pass `hints` on this stack. Stronger soft actuator unproven. Bundle still confounds rewrite-pass / instruction / child-scalars / 2× budget (no rewrite-stub arm). Matched H1 near-null unchanged.
 
 ## Endpoints (descriptive)
 

@@ -1,7 +1,8 @@
 # H1 shuffled / permutation placebo (lock)
 
-**Status:** extend gate passed (seed-0); **full $n{=}10$ in progress** (not claimed in current manuscript revision)  
+**Status:** **full $n{=}10$ complete** (descriptive offline vs frozen mixed-2x2; not confirmatory Holm/TOST)  
 **Tier:** `q1-h1-placebo-pilot` → `artifacts/experiments/q1-h1-placebo-pilot/`  
+**Readout:** `ANALYSIS.md` / `h1_placebo_analysis.json` — placebo − hints **+1.65±1.73 pp** terminal (8/10; Wilcoxon p≈0.020); cov@20k **+0.42 pp**; TOST ±2 pp placebo≡hints **reject**  
 **Stack:** LLM mixed emitters (`20R+20G+10L`), `uniform_frontier`, warm-start baseline, checkpoint `nightly_v3_mc_d005`, primary `qwen-turbo`  
 **Why:** confirmatory H1 contrasts live parent MLP scalars vs YAML constants `0.5`/`1.0`. That stub is not distribution-matched. This package permutes intact `(fitness, uncertainty)` pairs across the LLM slots in each batch so the scalar multiset matches live hints while parent genotype / few-shot stay with the slot.
 
@@ -64,7 +65,7 @@ Workers for this pilot: `LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2` (thermal).
 |-------|------:|------|
 | Pilot | **0 only** | Descriptive readout vs frozen seed-0 `hints` and `stub_uniform` |
 | Extend | 0–2 | Only if seed-0 \|Δcov\| (`hints_placebo`−`hints`) ≥ **2 pp** terminal **or** @20k eval (same soft-pilot bar as prior H1 resource screens) |
-| Full | 0–9 | Extend gate passed (seed-0); **full $n{=}10$ authorized / in progress**; do **not** invent confirmatory TOST mid-flight |
+| Full | 0–9 | **Complete**; do **not** invent confirmatory TOST — report descriptively only |
 
 Companion: also note Δfit and QD; do not extend on fitness alone if coverage is flat.
 
@@ -103,17 +104,27 @@ print('ok', c.llm_hint_placebo, c.surrogate_checkpoint)
 uv run python -m unittest tests.test_h1_hint_placebo -q
 ```
 
-## Analysis artifacts (expected)
+## Analysis artifacts
 
 ```
 artifacts/experiments/q1-h1-placebo-pilot/
-  hints_placebo/seed_0/
-  summary.csv          # after aggregate
-  ANALYSIS.md          # after human/script readout
+  hints_placebo/seed_{0..9}/
+  ANALYSIS.md
+  h1_placebo_analysis.json
 ```
 
-Compare offline to `artifacts/experiments/q1-v3-mixed-2x2/{hints,stub_uniform}/seed_0/`.
+Compare offline to frozen `artifacts/experiments/q1-v3-mixed-2x2/{hints,stub_uniform}/` (all seeds).
+
+### n=10 headline (descriptive)
+
+| Contrast | Mean Δcov (pp) | Wins | Note |
+|----------|---------------:|-----:|------|
+| placebo − hints | +1.65 ± 1.73 | 8/10 | late terminal; @20k +0.42 |
+| placebo − stub | +1.96 ± 1.68 | 9/10 | TOST ±2 reject |
+| hints − stub (ref) | +0.31 ± 0.29 | 8/10 | matched H1 residual unchanged |
+
+Reading: distribution-matched shuffle is **not** ≈ live hints; stub alone understates channel structure. Direction (shuffle > aligned) is paradoxical for “correct numbers help” — report as threat/bound, not as soft-channel win. Cross-tier caveat: placebo ran later at 2 LLM workers vs frozen hints at 4.
 
 ## Manuscript
 
-Wire after readout into `\S\ref{sec:h1-impl-threat}` / Future work. Until pilot completes: locked, not claimed.
+Wired into `\S\ref{sec:h1-impl-threat}` / Limitations / Future work as **descriptive**; not a confirmatory family.
