@@ -126,6 +126,8 @@ def load_seed(arm: str, seed: int) -> dict[str, Any] | None:
         out["auc_qd_eval"] = _auc(
             trace, horizon=int(out["evaluations"]), key="qd_score"
         )
+        auc20 = _auc(trace, horizon=20000, key="coverage")
+        out["auc_cov_at_20000"] = None if auc20 is None else auc20 * 100.0
         for b in (5000, 10000, 15000, 20000):
             c = _cov_at(trace, b)
             out[f"cov_at_{b}"] = None if c is None else c * 100.0
@@ -142,6 +144,35 @@ def paired_delta(a: dict[int, dict], b: dict[int, dict], key: str) -> dict[str, 
     stats: dict[str, Any] = dict(_mean_sd(diffs))
     stats["n_positive"] = int(sum(1 for d in diffs if d > 0))
     stats["seeds"] = seeds
+    return stats
+
+
+def factorial_interaction(
+    by_arm: dict[str, dict[int, dict]], key: str
+) -> dict[str, Any]:
+    """Paired soft×hard interaction: (filter−hints)−(filter_stub−stub_uniform)."""
+    seeds = sorted(
+        set(by_arm["stub_uniform"])
+        & set(by_arm["hints"])
+        & set(by_arm["filter_stub"])
+        & set(by_arm["filter"])
+    )
+    diffs: list[float] = []
+    kept: list[int] = []
+    for s in seeds:
+        vals = [
+            by_arm[a][s].get(key)
+            for a in ("stub_uniform", "hints", "filter_stub", "filter")
+        ]
+        if any(v is None for v in vals):
+            continue
+        stub, hints, fstub, filt = (float(v) for v in vals)  # type: ignore[arg-type]
+        diffs.append((filt - hints) - (fstub - stub))
+        kept.append(s)
+    stats: dict[str, Any] = dict(_mean_sd(diffs))
+    stats["n_positive"] = int(sum(1 for d in diffs if d > 0))
+    stats["seeds"] = kept
+    stats["formula"] = "(filter-hints)-(filter_stub-stub_uniform)"
     return stats
 
 
@@ -213,6 +244,20 @@ def main() -> int:
             ),
         },
     }
+    # Soft anytime AUC companions (common 20k real-eval horizon).
+    contrasts["soft_filter_off_hints_minus_stub"]["auc20k"] = paired_delta(
+        by_arm["stub_uniform"], by_arm["hints"], "auc_cov_at_20000"
+    )
+    contrasts["soft_at_filter_filter_minus_filter_stub"]["auc20k"] = paired_delta(
+        by_arm["filter_stub"], by_arm["filter"], "auc_cov_at_20000"
+    )
+
+    interaction = {
+        "cov": factorial_interaction(by_arm, "coverage_pct"),
+        "cov20k": factorial_interaction(by_arm, "cov_at_20000"),
+        "auc20k": factorial_interaction(by_arm, "auc_cov_at_20000"),
+        "qd": factorial_interaction(by_arm, "qd_score"),
+    }
 
     payload = {
         "tier": "q1-v3-mixed-2x2",
@@ -226,6 +271,7 @@ def main() -> int:
         ),
         "levels": levels,
         "contrasts": contrasts,
+        "interaction": interaction,
         "per_seed": {a: list(by_arm[a].values()) for a in ARMS},
     }
     OUT.mkdir(parents=True, exist_ok=True)
@@ -283,11 +329,26 @@ def main() -> int:
             f"{qd['mean']:+.1f}±{qd['sd']:.1f} |"
         )
     status_note = (
-        "Confirmatory read (n=10, descriptive paired contrasts)."
+        "Descriptive read (n=10, paired contrasts; not Holm/TOST)."
         if payload["status"] == "complete"
         else "Partial n — descriptive only; relaunch remaining seeds."
     )
+    inter = interaction
     lines += [
+        "",
+        "## Soft×hard interaction (descriptive)",
+        "",
+        "Formula: `(filter − hints) − (filter_stub − stub_uniform)`.",
+        "",
+        f"- Terminal Δcov: "
+        f"{inter['cov']['mean']:+.2f}±{inter['cov']['sd']:.2f} "
+        f"({inter['cov']['n_positive']}/{inter['cov']['n']})",
+        f"- Cov@20k: "
+        f"{inter['cov20k']['mean']:+.2f}±{inter['cov20k']['sd']:.2f} "
+        f"({inter['cov20k']['n_positive']}/{inter['cov20k']['n']})",
+        f"- AUC cov@20k: "
+        f"{inter['auc20k']['mean']:+.2f}±{inter['auc20k']['sd']:.2f} "
+        f"({inter['auc20k']['n_positive']}/{inter['auc20k']['n']})",
         "",
         "## Reading notes",
         "",
@@ -295,9 +356,10 @@ def main() -> int:
         "",
         "- Soft factor: hints vs stub_uniform (and filter vs filter_stub).",
         "- Hard factor: filter_stub vs stub_uniform; filter vs hints.",
-        "- Eval-indexed @20k uses archive_trace; filter arms skip ~33% sims.",
+        "- Eval-indexed @20k / AUC@20k use archive_trace at a common 20k real-eval horizon.",
         "- Hard gate: terminal coverage down, cov@20k eval up (10/10 seeds).",
         "- Soft channel: terminal and @20k deltas stay small vs stub.",
+        "- Interaction near null → hard mid-budget sign does not depend on soft level.",
         "",
         "Artifacts: `mixed_2x2_analysis.json`, `summary.csv`.",
         "Script: `scripts/analyze_mixed_2x2.py`",

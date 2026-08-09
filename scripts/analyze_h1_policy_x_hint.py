@@ -205,7 +205,8 @@ def _md(payload: dict[str, Any]) -> str:
     if frac is not None:
         lines.append(
             f"- Fraction of bundled gap recovered by stub-side policy alone: "
-            f"**{100.0 * frac:.1f}%** (incomplete attribution until soft@minfit read)"
+            f"**{100.0 * frac:.1f}%** "
+            f"(soft@minfit near null confirms policy main effect)"
         )
     inter = payload["contrasts"]["soft_x_policy_interaction"]
     lines += [

@@ -159,10 +159,18 @@ Primary incremental contrasts:
 4. Difference-in-differences of the two acquisition effects.
 
 Endpoints are coverage AUC and QD-score AUC at a common real-evaluation
-budget. Final fixed-proposal coverage, mean fitness, QD-score, evaluations,
-wall time, and fallback/skip rates are secondary. Paired Wilcoxon, paired
-A₁₂, bootstrap intervals, and Holm correction apply only within this v4
-family. LLM-vs-genetic and all CA/B3 comparisons are descriptive.
+budget equal to the **minimum completed evaluation count** across the five
+arms and $n{=}10$ seeds (observed: **2,991**). Per seed, the
+coverage/QD-vs-evaluations series is linearly interpolated onto a step-50
+grid, integrated with the trapezoid rule, and divided by that horizon
+(normalized AUC). Confirmatory tests are paired one-sided Wilcoxon on
+**per-seed ΔAUC**, not AUC of an aggregate median curve. Filter arms are
+not last-observation-carried-forward past their final logged evaluation
+into the Holm integral. Final fixed-proposal coverage, mean fitness,
+QD-score, evaluations, wall time, and fallback/skip rates are secondary.
+Paired Wilcoxon, paired A₁₂, bootstrap intervals, and Holm correction
+apply only within this v4 family. LLM-vs-genetic and all CA/B3
+comparisons are descriptive.
 
 **Outcome (2026-07-18, n=10):** common budget **2,991** real evaluations.
 Holm family **m=8**. Only **`genetic_filter − genetic`** (coverage AUC and
@@ -311,4 +319,5 @@ Re-check before C1: LLM fallback ≤5%, filter skip 25–45%, surrogate replay d
 | 2026-07-22 | **Tier 2 DONE:** `q1-v4-dungeon-full-cpu/` (20 runs @ 32.5k); stats family `v4-dungeon-cpu-full`; supplementary Holm PASS; manuscript Table `tab:b4-fullcpu`; arXiv v1 scope in Limitations. |
 | 2026-07-22 | **§11 DRAFT:** journal extension package C (LLM @ 32.5k + random + τ ablation) — **not frozen**; amend §10 before first C-run. |
 | 2026-07-22 | **§11 C4 DRAFT:** discrete Bernoulli/categorical CMA-ME on CA grid (retire continuous-relaxation caveat) — **not frozen**. |
+| 2026-08-09 | **§7 AUC recipe wording + fig B4 no-LOCF (Reporting):** clarifies min-eval horizon / per-seed normalized AUC / no LOCF into Holm; regenerates appendix anytime plots. Locked `v4_dungeon_statistics.json` unchanged. |
 

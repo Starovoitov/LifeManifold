@@ -197,28 +197,72 @@ def fig04_rq1_rq0(out: Path) -> None:
     stub = _load_summary(ROOT / "artifacts/experiments/q1-full/summary.csv", "stub")
     hints = _load_summary(ROOT / "artifacts/experiments/q1-full/summary.csv", "hints")
     seeds = sorted(set(stub) & set(hints))
-    delta_cov = np.array(
-        [hints[s]["coverage_pct"] - stub[s]["coverage_pct"] for s in seeds]
-    )
+    stub_cov = np.array([stub[s]["coverage_pct"] for s in seeds], dtype=float)
+    hints_cov = np.array([hints[s]["coverage_pct"] for s in seeds], dtype=float)
+    delta_cov = hints_cov - stub_cov
     delta_fit = np.array(
-        [hints[s]["mean_best_fitness"] - stub[s]["mean_best_fitness"] for s in seeds]
+        [hints[s]["mean_best_fitness"] - stub[s]["mean_best_fitness"] for s in seeds],
+        dtype=float,
     )
 
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-    axes[0].boxplot(
-        [
-            [stub[s]["coverage_pct"] for s in seeds],
-            [hints[s]["coverage_pct"] for s in seeds],
-        ],
-        tick_labels=["stub", "hints"],
-    )
+    # Paired slope / dot plot of matched seeds (preferable to summary bars at n=10).
+    x_pair = np.array([0.0, 1.0])
+    for s, y0, y1 in zip(seeds, stub_cov, hints_cov):
+        axes[0].plot(
+            x_pair,
+            [y0, y1],
+            color="0.65",
+            linewidth=1.0,
+            alpha=0.85,
+            zorder=1,
+        )
+        axes[0].scatter(
+            [0.0, 1.0],
+            [y0, y1],
+            color=["#0072B2", "#D55E00"],
+            s=36,
+            zorder=2,
+            edgecolors="0.2",
+            linewidths=0.4,
+        )
+        axes[0].annotate(
+            str(s),
+            (1.0, y1),
+            textcoords="offset points",
+            xytext=(5, 0),
+            fontsize=7,
+            color="0.25",
+        )
+    axes[0].set_xticks([0.0, 1.0], ["stub", "hints"])
+    axes[0].set_xlim(-0.25, 1.35)
     axes[0].set_ylabel("Coverage (%)")
-    axes[0].set_title("F-RQ1 levels (n=10)")
-    axes[0].grid(True, alpha=0.3)
+    axes[0].set_title("F-RQ1 paired levels (n=10)")
+    axes[0].grid(True, axis="y", alpha=0.3)
 
     x = np.arange(len(seeds))
-    axes[1].bar(x - 0.2, delta_cov, width=0.4, label="Δcov (pp)")
-    axes[1].bar(x + 0.2, 100 * delta_fit, width=0.4, label="Δfit (×100)")
+    axes[1].axhline(0.0, color="0.5", linewidth=0.8)
+    axes[1].scatter(
+        x - 0.08,
+        delta_cov,
+        s=42,
+        label="Δcov (pp)",
+        color="#0072B2",
+        zorder=2,
+        edgecolors="0.2",
+        linewidths=0.4,
+    )
+    axes[1].scatter(
+        x + 0.08,
+        100 * delta_fit,
+        s=42,
+        marker="s",
+        label="Δfit (×100)",
+        color="#D55E00",
+        zorder=2,
+        edgecolors="0.2",
+        linewidths=0.4,
+    )
     axes[1].set_xticks(x, [str(s) for s in seeds])
     axes[1].set_xlabel("Seed")
     axes[1].set_ylabel("Paired hints − stub")
@@ -252,6 +296,8 @@ def fig05_ladder(out: Path) -> None:
         ("cma_me", ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"),
         ("cma_mae", ROOT / "artifacts/experiments/q1-v3-pyribs/summary.csv"),
     ]
+    from scipy import stats as _stats
+
     labels: list[str] = []
     means: list[float] = []
     cis: list[float] = []
@@ -261,8 +307,8 @@ def fig05_ladder(out: Path) -> None:
         n = len(cov)
         mean = float(np.mean(cov))
         sd = float(np.std(cov, ddof=1)) if n > 1 else 0.0
-        # Half-width of normal approx. 95% CI on the mean (same for every bar).
-        ci = 1.96 * sd / np.sqrt(n) if n > 1 else 0.0
+        # Student-t 95% CI half-width on the mean (same recipe for every bar).
+        ci = float(_stats.t.ppf(0.975, n - 1)) * sd / np.sqrt(n) if n > 1 else 0.0
         labels.append(label)
         means.append(mean)
         cis.append(ci)
@@ -302,7 +348,7 @@ def fig05_ladder(out: Path) -> None:
     ax.set_ylabel("Mean terminal coverage (%)")
     ax.set_title(
         f"Primary-grid coverage ladder (terminal @ fixed iterations; "
-        f"mean ± 95% CI; n={ns[0]})"
+        f"mean ± Student-t 95% CI; n={ns[0]})"
     )
     ax.text(
         0.02,
@@ -351,21 +397,123 @@ def fig05_ladder(out: Path) -> None:
     plt.close(fig)
     print(f"Wrote {out}")
     for label, mean, ci, n in zip(labels, means, cis, ns):
-        print(f"  {label}: {mean:.2f} ± {ci:.2f} (95% CI half-width, n={n})")
+        print(f"  {label}: {mean:.2f} ± {ci:.2f} (t 95% CI half-width, n={n})")
 
 
-def _trace_curve(path: Path, metric: str, grid: np.ndarray) -> np.ndarray:
+def _trace_xy(path: Path, metric: str) -> tuple[np.ndarray, np.ndarray]:
     by_eval: dict[int, float] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         if row.get(metric) is not None:
             by_eval[int(row["evaluations"])] = float(row[metric])
-    xs = np.array(sorted(by_eval))
-    ys = np.array([by_eval[int(item)] for item in xs])
-    y = np.interp(grid, xs, ys)
+    xs = np.asarray(sorted(by_eval), dtype=float)
+    ys = np.asarray([by_eval[int(item)] for item in xs], dtype=float)
     if metric == "coverage":
-        y = 100.0 * y
-    return y
+        ys = 100.0 * ys
+    return xs, ys
+
+
+def _trace_curve(path: Path, metric: str, grid: np.ndarray) -> np.ndarray:
+    xs, ys = _trace_xy(path, metric)
+    return np.interp(grid, xs, ys)
+
+
+def _median_iqr_supported(
+    arm_root: Path,
+    metric: str,
+    seeds: range | list[int],
+    *,
+    step: int = 50,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Median/IQR on a grid truncated to the arm's common real-eval support.
+
+    No last-observation-carried-forward past each seed's final logged evaluation:
+    the shared grid ends at ``min_seed(last_eval)`` so every seed still has data.
+    """
+    series: list[tuple[np.ndarray, np.ndarray]] = []
+    lasts: list[float] = []
+    for seed in seeds:
+        path = arm_root / f"seed_{seed}" / "archive_trace.jsonl"
+        xs, ys = _trace_xy(path, metric)
+        if xs.size == 0:
+            raise FileNotFoundError(f"empty trace metric={metric}: {path}")
+        series.append((xs, ys))
+        lasts.append(float(xs[-1]))
+    support = float(min(lasts))
+    grid = np.arange(0.0, support + 1.0, float(step))
+    if grid.size == 0 or grid[-1] != support:
+        grid = np.append(grid, support)
+    curves = np.vstack([np.interp(grid, xs, ys) for xs, ys in series])
+    med = np.median(curves, axis=0)
+    q25 = np.quantile(curves, 0.25, axis=0)
+    q75 = np.quantile(curves, 0.75, axis=0)
+    return grid, med, q25, q75
+
+
+def fig_b4_dungeon_anytime(out_dir: Path | None = None) -> None:
+    """Appendix dungeon anytime curves without LOCF past filter support."""
+    root = ROOT / "artifacts/experiments/q1-v4-dungeon-rerun"
+    out_dir = out_dir or FIG_DIR
+    # Okabe–Ito-ish colorblind-safe palette + distinct linestyles/markers.
+    arms = (
+        ("genetic", "#009E73", "-", "o"),
+        ("genetic_filter", "#56B4E9", "--", "s"),
+        ("llm_stub", "#E69F00", "-.", "^"),
+        ("llm_hints", "#CC79A7", ":", "D"),
+        ("llm_hints_filter", "#0072B2", (0, (3, 1, 1, 1)), "v"),
+    )
+    stats_path = root / "v4_dungeon_statistics.json"
+    auc_horizon = int(
+        json.loads(stats_path.read_text(encoding="utf-8"))["common_evaluation_budget"]
+    )
+    seeds = range(10)
+    for metric, ylabel, stem in (
+        ("coverage", "Coverage (%)", "fig_b4_anytime_coverage"),
+        ("qd_score", "QD-score", "fig_b4_anytime_qd_score"),
+    ):
+        fig, ax = plt.subplots(figsize=(7.2, 4.4))
+        for label, color, ls, marker in arms:
+            grid, med, q25, q75 = _median_iqr_supported(
+                root / label, metric, seeds, step=50
+            )
+            markevery = max(1, len(grid) // 12)
+            ax.plot(
+                grid,
+                med,
+                label=label,
+                color=color,
+                linewidth=2,
+                linestyle=ls,
+                marker=marker,
+                markevery=markevery,
+                markersize=5,
+            )
+            ax.fill_between(grid, q25, q75, color=color, alpha=0.14)
+        ax.axvline(
+            auc_horizon,
+            color="0.35",
+            linestyle="--",
+            linewidth=1.2,
+            label=f"AUC horizon ({auc_horizon:,})",
+        )
+        ax.set_xlabel("Real evaluations")
+        ax.set_ylabel(ylabel)
+        ax.set_xlim(0, 5000)
+        title_metric = "Coverage (%)" if metric == "coverage" else "QD-score"
+        ax.set_title(
+            f"Dungeon — median {title_metric} (n=10; IQR; no LOCF past support)"
+        )
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8, loc="lower right")
+        fig.tight_layout()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        png = out_dir / f"{stem}.png"
+        pdf = out_dir / f"{stem}.pdf"
+        fig.savefig(png, dpi=200, bbox_inches="tight")
+        fig.savefig(pdf, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Wrote {png}")
+        print(f"Wrote {pdf}")
 
 
 def fig08_anytime_ladder(out: Path) -> None:
@@ -469,8 +617,8 @@ def _load_fitness_pivot(archive_path: Path) -> np.ndarray:
     return bundle.pivots["fitness"]
 
 
-# §3.11 picks: smallest gap (1), largest gap (4), mid-large (6).
-HEATMAP_PROTOCOL_SEEDS = (1, 4, 6)
+# §3.11 picks by |hints−cma_me| Δcov: largest (4), mid (6), smallest (1).
+HEATMAP_PROTOCOL_SEEDS = (4, 6, 1)
 
 
 def _archive_pair_paths(
@@ -585,7 +733,7 @@ def fig07_archive_heatmaps_panel(
     left: str = "hints",
     right: str = "cma_me",
 ) -> None:
-    """Multi-seed side-by-side panel for protocol §3.11 (small / large / mid Δcov)."""
+    """Multi-seed side-by-side panel for protocol §3.11 (|Δcov| large / mid / small)."""
     if not seeds:
         raise ValueError("seeds must be non-empty")
     cmap = plt.get_cmap("viridis").copy()
@@ -625,15 +773,15 @@ def main() -> None:
     parser.add_argument(
         "--fig",
         type=int,
-        choices=(1, 2, 3, 4, 5, 6, 7, 8),
+        choices=(1, 2, 3, 4, 5, 6, 7, 8, 9),
         action="append",
         dest="figs",
-        help="Which figure(s) to export (repeatable)",
+        help="Which figure(s) to export (repeatable; 9 = appendix B4 dungeon anytime)",
     )
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Export Fig. 1–8",
+        help="Export Fig. 1–8 (not appendix B4)",
     )
     parser.add_argument(
         "--seed",
@@ -677,6 +825,7 @@ def main() -> None:
         6: (fig06_acquisition, FIG_DIR / "fig06_acquisition_anytime.pdf"),
         7: (fig07_archive_heatmaps, FIG_DIR / "fig07_archive_heatmaps_seed4.pdf"),
         8: (fig08_anytime_ladder, FIG_DIR / "fig08_anytime_ladder.pdf"),
+        9: (fig_b4_dungeon_anytime, FIG_DIR),
     }
     left, right = (p.strip() for p in args.pair.split(",", 1))
     seeds: tuple[int, ...] = (
@@ -709,6 +858,8 @@ def main() -> None:
         else:
             if number == 2:
                 fig02_elite_worlds(path, seed=args.fig2_seed)
+            elif number == 9:
+                fig_b4_dungeon_anytime(path)
             else:
                 fn(path)
 
