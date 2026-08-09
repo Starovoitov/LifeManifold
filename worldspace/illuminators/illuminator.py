@@ -25,6 +25,12 @@ from worldspace.illuminators.cvt import centroids_path_for_output
 from worldspace.illuminators.emitters.base import CandidateEmitter, MapElitesEmitter
 from worldspace.illuminators.evaluation import ILLUMINATOR_MIN_STEPS
 from worldspace.illuminators.loop import run_scheduler
+from worldspace.illuminators.proposal_log import (
+    DEFAULT_PROPOSAL_LOG_NAME,
+    configure_proposal_log,
+    open_proposal_log,
+    resolve_proposal_log_path,
+)
 from worldspace.illuminators.scheduler import (
     DEFAULT_SCHEDULER_PATH,
     RunCounters,
@@ -44,6 +50,7 @@ class MapElitesRunResult:
     archive_jsonl_path: Path
     counters: RunCounters
     surrogate_archive_jsonl_path: Path | None = None
+    proposal_log_jsonl_path: Path | None = None
 
 
 class MapElitesIlluminator:
@@ -91,6 +98,9 @@ class MapElitesIlluminator:
         out_dir.mkdir(parents=True, exist_ok=True)
         # Per-call LLM I/O archive for future runs (disable with LIFEMANIFOLD_LLM_CALL_LOG=0).
         configure_llm_call_log(resolve_llm_call_log_path(output_dir=out_dir))
+        # All-evaluated LLM proposals (accepts+rejects); disable with LIFEMANIFOLD_PROPOSAL_LOG=0.
+        proposal_log_path = resolve_proposal_log_path(output_dir=out_dir)
+        configure_proposal_log(proposal_log_path)
         jsonl_path = archive_jsonl_path(out_dir)
         _clear_stale_run_artifacts(
             out_dir,
@@ -149,6 +159,11 @@ class MapElitesIlluminator:
             run_id=run_id,
             enabled=archive_logging_enabled,
         )
+        proposal_log = open_proposal_log(
+            proposal_log_path,
+            run_id=run_id,
+            enabled=proposal_log_path is not None,
+        )
         try:
             counters = run_scheduler(
                 config,
@@ -163,9 +178,11 @@ class MapElitesIlluminator:
                 surrogate=surrogate,
                 retrain_state=retrain_state,
                 surrogate_archive=surrogate_archive,
+                proposal_log=proposal_log,
             )
         finally:
             surrogate_archive.close()
+            proposal_log.close()
         if surrogate_buffer is not None:
             surrogate_buffer.flush()
         expected_slots = config.iterations * config.batch_size
@@ -191,6 +208,7 @@ class MapElitesIlluminator:
             surrogate_archive_jsonl_path=(
                 surrogate_archive_path if archive_logging_enabled else None
             ),
+            proposal_log_jsonl_path=proposal_log_path,
             counters=counters,
         )
 
@@ -220,6 +238,7 @@ _ARCHIVE_JSONL_NAME = "map_elites_archive.jsonl"
 _RUN_ARTIFACT_NAMES = (
     _ARCHIVE_JSONL_NAME,
     "surrogate_archive.jsonl",
+    DEFAULT_PROPOSAL_LOG_NAME,
     "iteration_timing.jsonl",
     ARCHIVE_TRACE_FILENAME,
 )

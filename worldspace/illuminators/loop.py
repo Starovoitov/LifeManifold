@@ -77,6 +77,7 @@ from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.types import SurrogatePrediction
 
 if TYPE_CHECKING:
+    from worldspace.illuminators.proposal_log import ProposalLogWriterProtocol
     from worldspace.surrogate.buffer import SurrogateBuffer
     from worldspace.surrogate.retrain import RetrainState
     from worldspace.surrogate.surrogate_archive import SurrogateArchiveWriterProtocol
@@ -160,6 +161,7 @@ def run_iteration(
     surrogate_buffer: SurrogateBuffer | None = None,
     surrogate: SurrogateProtocol | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
+    proposal_log: ProposalLogWriterProtocol | None = None,
     eval_pool: ParallelEvalPool | None = None,
     llm_pool: ParallelLlmPool | None = None,
     iteration_timing_file: TextIO | None = None,
@@ -210,6 +212,7 @@ def run_iteration(
             jsonl_path=jsonl_path,
             surrogate_buffer=surrogate_buffer,
             surrogate_archive=surrogate_archive,
+            proposal_log=proposal_log,
             acquisition_active=acquisition_active,
             eval_pool=eval_pool,
             rng=rng,
@@ -226,6 +229,7 @@ def run_iteration(
             surrogate_buffer=surrogate_buffer,
             surrogate=surrogate,
             surrogate_archive=surrogate_archive,
+            proposal_log=proposal_log,
             acquisition_active=acquisition_active,
             rng=rng,
         )
@@ -253,6 +257,33 @@ def _use_parallel_eval_path(config: SchedulerConfig) -> bool:
     return workers > 1
 
 
+def _append_proposal_log(
+    proposal_log: ProposalLogWriterProtocol | None,
+    *,
+    draft: _SlotDraft,
+    iteration_index: int,
+    eval_result: EvalResult,
+    insert: InsertResult,
+    incumbent_fitness: float | None,
+    prediction: SurrogatePrediction | None,
+) -> None:
+    """Append one evaluated slot to the per-run proposal log (if enabled)."""
+    if proposal_log is None:
+        return
+    proposal_log.append_evaluated(
+        iteration=iteration_index,
+        candidate_id=draft.candidate_id,
+        emitter_type=draft.metadata.emitter_type,
+        target=draft.target_bin,
+        target_cell_id=draft.target_cell.cell_id,
+        eval_result=eval_result,
+        insert=insert,
+        parent_id=draft.metadata.parent_id,
+        incumbent_fitness=incumbent_fitness,
+        prediction=prediction,
+    )
+
+
 def _process_iteration_sequential(
     config: SchedulerConfig,
     archive: ArchiveProtocol,
@@ -265,6 +296,7 @@ def _process_iteration_sequential(
     surrogate_buffer: SurrogateBuffer | None,
     surrogate: SurrogateProtocol | None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
+    proposal_log: ProposalLogWriterProtocol | None,
     acquisition_active: bool,
     rng: np.random.Generator,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
@@ -343,6 +375,8 @@ def _process_iteration_sequential(
                 eval_result,
                 emitter_type=draft.metadata.emitter_type,
             )
+        incumbent = archive.get_cell(archive.cell_id_from_bin(eval_result.bin))
+        incumbent_fitness = float(incumbent.fitness) if incumbent is not None else None
         if jsonl_path is not None:
             insert = insert_and_persist(
                 archive,
@@ -362,6 +396,16 @@ def _process_iteration_sequential(
             improved += 1
         if insert.rejected:
             rejected += 1
+
+        _append_proposal_log(
+            proposal_log,
+            draft=draft,
+            iteration_index=iteration_index,
+            eval_result=eval_result,
+            insert=insert,
+            incumbent_fitness=incumbent_fitness,
+            prediction=prediction,
+        )
 
         if (
             acquisition_active
@@ -426,6 +470,7 @@ def _process_iteration_parallel(
     jsonl_path: str | Path | None,
     surrogate_buffer: SurrogateBuffer | None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
+    proposal_log: ProposalLogWriterProtocol | None,
     acquisition_active: bool,
     eval_pool: ParallelEvalPool | None,
     rng: np.random.Generator,
@@ -505,6 +550,8 @@ def _process_iteration_parallel(
                 eval_result,
                 emitter_type=draft.metadata.emitter_type,
             )
+        incumbent = archive.get_cell(archive.cell_id_from_bin(eval_result.bin))
+        incumbent_fitness = float(incumbent.fitness) if incumbent is not None else None
         if jsonl_path is not None:
             insert = insert_and_persist(
                 archive,
@@ -524,6 +571,16 @@ def _process_iteration_parallel(
             improved += 1
         if insert.rejected:
             rejected += 1
+
+        _append_proposal_log(
+            proposal_log,
+            draft=draft,
+            iteration_index=iteration_index,
+            eval_result=eval_result,
+            insert=insert,
+            incumbent_fitness=incumbent_fitness,
+            prediction=prediction,
+        )
 
         if (
             acquisition_active
@@ -954,6 +1011,7 @@ def run_scheduler(
     surrogate: SurrogateProtocol | None = None,
     retrain_state: RetrainState | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
+    proposal_log: ProposalLogWriterProtocol | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
     if counters is None:
@@ -1005,6 +1063,7 @@ def run_scheduler(
                 surrogate_buffer=surrogate_buffer,
                 surrogate=surrogate,
                 surrogate_archive=surrogate_archive,
+                proposal_log=proposal_log,
                 eval_pool=eval_pool,
                 llm_pool=llm_pool,
                 iteration_timing_file=timing_file,
@@ -1028,6 +1087,8 @@ def run_scheduler(
                 surrogate_buffer.flush()
             if surrogate_archive is not None:
                 surrogate_archive.flush()
+            if proposal_log is not None:
+                proposal_log.flush()
             if (
                 config.retrain.enabled
                 and surrogate is not None
@@ -1055,6 +1116,8 @@ def run_scheduler(
         surrogate_buffer.flush()
     if surrogate_archive is not None:
         surrogate_archive.flush()
+    if proposal_log is not None:
+        proposal_log.flush()
     return counters
 
 

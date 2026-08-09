@@ -568,6 +568,10 @@ Dashboard and resume logic join elites on `cell_id` using this file.
 
 **Collapse on resume:** `load_and_collapse_jsonl` — max fitness per niche (`bin` for grid, `cell_id` for CVT); on tie — first line in file.
 
+### 10.1b `proposal_log.jsonl` (evaluated LLM proposals)
+
+Path: `{output_dir}/proposal_log.jsonl` (schema `1.0`). One line per **evaluated** LLM slot (accepts **and** rejects). Complements §10.1, which omits rejects. Default on for new runs; disable with `LIFEMANIFOLD_PROPOSAL_LOG=0`. LLM-only by default; set `LIFEMANIFOLD_PROPOSAL_LOG_ALL_EMITTERS=1` for random/genetic too. Protocol: `artifacts/PROPOSAL_LOG.md`.
+
 ### 10.2 `EvalResult` (in-process, not a file)
 
 | Field | Type | Description |
