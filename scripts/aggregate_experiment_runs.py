@@ -147,6 +147,7 @@ def _infer_condition(run_dir: Path) -> str:
         "stub_uniform",
         "hints",
         "hints_rich",
+        "hints_minfit",
         "hints_parent",
         "hints_direction",
         "filter",

@@ -1,0 +1,89 @@
+schema_version: "1.2"
+# Live surrogate hints + min_fitness_frontier (missing policy×hint cell).
+# Completes the 2×2 with: stub (minfit) / stub_uniform / hints (uniform) / hints_minfit.
+# Same emitters, warm-start, checkpoint, and LLM budget as map_elites_scheduler_nightly_llm.yaml;
+# only target_selection differs from confirmatory hints.
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: min_fitness_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+  - llm
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: true
+
+surrogate:
+  enabled: true
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+  extinction_gate_threshold: 0.95
+  calibration: artifacts/surrogate/checkpoints/calibration_v3_mc_d005.pkl
+
+# Forkserver pool reused across iterations (numba_simulator must stay false).
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: true
+  llm_parallel_workers: 4
+  log_iteration_timing: true
