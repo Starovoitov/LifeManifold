@@ -11,6 +11,7 @@
 # v3 sensitivity: q1-v3-genetic-me-uniform  (genetic_me + uniform_frontier; no surrogate)
 # v3 factorial: q1-v3-genetic-me-filter    (−LLM + surrogate filter; 2×2 ablation cell)
 # v3 mixed 2×2: q1-v3-mixed-2x2 (stub_uniform / hints / filter_stub / filter; archive_trace)
+# cold smoke:    q1-v3-mixed-2x2-cold-smoke (same 4 arms, empty archive; seed 0 default)
 # v3 G1:       q1-v3-llm-deepseek-v4-pro  (stub+hints; --llm-provider deepseek)
 #              q1-v3-llm-gpt-4o-mini       (stub+hints; --llm-provider openai)
 # Post-arXiv:  q1-stub-uniform-sensitivity (stub_uniform only; target_selection parity)
@@ -506,6 +507,20 @@ case "$TIER" in
     RUN_SHADOW=false
     RUN_MIXED_2X2=true
     ;;
+  q1-v3-mixed-2x2-cold-smoke)
+    # Cold-start smoke of mixed soft×hard 2×2 (empty archive; seed 0 default).
+    # Same schedulers as q1-v3-mixed-2x2; no baseline warm-start.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-mixed-2x2-cold-smoke"
+    SCHEDULER_STUB_UNIFORM="$SCHEDULER_STUB_UNIFORM_NIGHTLY"
+    SCHEDULER_HINTS="$SCHEDULER_HINTS_NIGHTLY"
+    SCHEDULER_FILTER_STUB="$SCHEDULER_FILTER_STUB_NIGHTLY"
+    SCHEDULER_FILTER="$SCHEDULER_FILTER_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_MIXED_2X2=true
+    export LIFEMANIFOLD_NO_WARMSTART=1
+    ;;
   q1-h1-child-rewrite-pilot)
     # H1 Path A: hints vs child-level rewrite (protocol Q1_H1_CHILD_REWRITE.md).
     ITERATIONS=650
@@ -537,7 +552,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2|q1-v3-mixed-2x2-cold-smoke" >&2
     exit 1
     ;;
 esac
@@ -702,6 +717,11 @@ if [[ "$REQUESTED_TIER" == "q1-v3-mixed-2x2" && $# -lt 2 ]]; then
   SEED_END=9
   echo "NOTE: q1-v3-mixed-2x2 default seeds 0–9 (4 arms × archive_trace); parallel: run_mixed_2x2_nohup.sh" >&2
 fi
+if [[ "$REQUESTED_TIER" == "q1-v3-mixed-2x2-cold-smoke" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=0
+  echo "NOTE: q1-v3-mixed-2x2-cold-smoke default seed 0 only (4 arms, empty archive); extend: $0 q1-v3-mixed-2x2-cold-smoke 0 4" >&2
+fi
 if [[ "$REQUESTED_TIER" == "q1-v3-llm-weak-pilot" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=2
@@ -737,7 +757,7 @@ apply_vanilla_run_defaults() {
 }
 
 case "$TIER" in
-  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2)
+  q1-min|q1-full|q1-repeat|shadow|q1-cvt-min|q1-cvt|cvt-shadow|q1-prompt-ablation|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-v3-llm-weak-pilot|q1-v3-mixed-2x2|q1-v3-mixed-2x2-cold-smoke)
     apply_long_run_llm_defaults
     ;;
   q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved)
@@ -846,7 +866,13 @@ run_one() {
   if [[ -n "$replicate" ]]; then
     extra+=(--replicate "$replicate")
   fi
-  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed replicate=${replicate:-none} llm=$LLM_PROVIDER ==="
+  local warm_note=on
+  local archive_args=(--load-archive "$BASELINE_ARCHIVE")
+  if [[ "${LIFEMANIFOLD_NO_WARMSTART:-0}" == "1" ]]; then
+    warm_note=off
+    archive_args=(--no-resume-nightly)
+  fi
+  echo "=== tier=$TIER archive=$ARCHIVE_TYPE condition=$condition seed=$seed replicate=${replicate:-none} llm=$LLM_PROVIDER warmstart=$warm_note ==="
   local lock_file="$out/.run.lock"
   (
     flock -n 9 || {
@@ -858,7 +884,7 @@ run_one() {
       --output-dir "$out" \
       --seed "$seed" \
       --iterations "$ITERATIONS" \
-      --load-archive "$BASELINE_ARCHIVE" \
+      "${archive_args[@]}" \
       --llm-provider "$LLM_PROVIDER" \
       "${extra[@]}"
   ) 9>"$lock_file"
