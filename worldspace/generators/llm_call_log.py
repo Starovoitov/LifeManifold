@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 DEFAULT_LLM_CALL_LOG_NAME = "llm_call_log.jsonl"
-LLM_CALL_LOG_SCHEMA = 1
+LLM_CALL_LOG_SCHEMA = 2
 
 _lock = threading.Lock()
 _configured_path: Path | None = None

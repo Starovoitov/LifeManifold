@@ -41,6 +41,7 @@ class LlmTextCaller(Protocol):
         top_p: float | None = None,
         max_tokens: int = 350,
         system_content: str | None = None,
+        audit_context: dict[str, Any] | None = None,
     ) -> str: ...
 
 

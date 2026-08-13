@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export manuscript figures (Fig. 1–8 + B4 + budget-axes schematic)."""
+"""Export manuscript figures (Fig. 1–8 + B4 + budget-axes + floor-frontier)."""
 
 from __future__ import annotations
 
@@ -425,15 +425,25 @@ def fig05_ladder(out: Path) -> None:
             f"fig05_ladder: inconsistent n across arms: {dict(zip(labels, ns))}"
         )
 
-    # Tick labels: mark H2/H3 after-generation arms; bars remain terminal coverage.
+    # Tick labels: mark H2/H3 after-generation arms; CMA is an H4 reference group.
     tick_labels = {
         "genetic_me_filter": "me_filter (H2)",
         "filter": "LLM+filter (H3)",
+        "cma_me": "cma_me (H4 ref)",
+        "cma_mae": "cma_mae (H4 ref)",
     }
     display = [tick_labels.get(lab, lab) for lab in labels]
-    fig, ax = plt.subplots(figsize=(8.4, 4.8))
-    x = np.arange(len(labels))
-    bar_colors = plt.get_cmap("tab10")(np.linspace(0, 0.7, len(labels)))
+    fig, ax = plt.subplots(figsize=(8.8, 4.8))
+    n_primary = labels.index("cma_me")
+    # Visual gap between primary-grid contrasts and the H4 rint reference.
+    x = np.concatenate(
+        [
+            np.arange(n_primary, dtype=float),
+            np.arange(n_primary, len(labels), dtype=float) + 0.8,
+        ]
+    )
+    bar_colors = list(plt.get_cmap("tab10")(np.linspace(0, 0.7, n_primary)))
+    bar_colors.extend(["0.72", "0.55"])
     bars = ax.bar(
         x,
         means,
@@ -442,7 +452,7 @@ def fig05_ladder(out: Path) -> None:
         color=bar_colors,
         error_kw={"elinewidth": 1.0, "capthick": 1.0},
     )
-    # Hatch after-generation arms so they are not read as a simple ranking pair.
+    # Hatch after-generation arms and the H4 reference so neither is a ranking pair.
     for lab, bar in zip(labels, bars):
         if lab == "genetic_me_filter":
             bar.set_hatch("//")
@@ -450,7 +460,17 @@ def fig05_ladder(out: Path) -> None:
         elif lab == "filter":
             bar.set_hatch("\\\\")
             bar.set_edgecolor("0.2")
+        elif lab in ("cma_me", "cma_mae"):
+            bar.set_hatch("xx")
+            bar.set_edgecolor("0.25")
     ax.set_xticks(x, display, rotation=25, ha="right")
+    ax.axvline(
+        0.5 * (x[n_primary - 1] + x[n_primary]),
+        color="0.55",
+        ls="--",
+        lw=0.9,
+        zorder=0,
+    )
     ax.set_ylabel("Mean terminal coverage (%)")
     ax.set_title(
         f"Primary-grid coverage ladder (terminal @ fixed iterations; "
@@ -460,7 +480,8 @@ def fig05_ladder(out: Path) -> None:
         0.02,
         0.98,
         "H2 claim = eval-indexed (per sim), not bar height\n"
-        "H3 = LLM+filter stack (descriptive / not confirmatory)",
+        "H3 = LLM+filter stack (descriptive / not confirmatory)\n"
+        "Gray H4 bars = rint reference, not a peer discrete contrast",
         transform=ax.transAxes,
         va="top",
         ha="left",
@@ -476,8 +497,8 @@ def fig05_ladder(out: Path) -> None:
     h2_idx = labels.index("genetic_me_filter")
     ax.annotate(
         "H2: read per-sim\ncurves, not this bar",
-        xy=(h2_idx, means[h2_idx]),
-        xytext=(h2_idx + 1.35, means[h2_idx] + 6.5),
+        xy=(x[h2_idx], means[h2_idx]),
+        xytext=(x[h2_idx] + 1.35, means[h2_idx] + 6.5),
         textcoords="data",
         fontsize=7.5,
         ha="left",
@@ -1050,6 +1071,147 @@ def fig07_occupancy_n10(out: Path) -> None:
     print(f"Wrote {png_out}")
 
 
+WARMSTART_JSONL = (
+    ROOT / "artifacts/map_elites_nightly/baseline/map_elites_archive.jsonl"
+)
+
+
+def fig_floor_frontier(out: Path) -> None:
+    """Static floor snapshot: occupied fitness vs policy support (no new QD run)."""
+    from matplotlib.colors import ListedColormap
+
+    from worldspace.illuminators.archive import load_and_collapse_jsonl
+    from worldspace.illuminators.scheduler import _frontier_cell_ids, _min_fitness_cell
+
+    if not WARMSTART_JSONL.is_file():
+        raise FileNotFoundError(WARMSTART_JSONL)
+    archive = load_and_collapse_jsonl(WARMSTART_JSONL)
+    res = archive.resolution
+    frontier = _frontier_cell_ids(archive)
+    if not frontier:
+        raise RuntimeError("warm-start floor has an empty frontier")
+    minfit_id = _min_fitness_cell(frontier, archive)
+    minfit = archive.get_cell(minfit_id)
+    if minfit is None:
+        raise RuntimeError(f"min-fitness frontier cell {minfit_id} is empty")
+    min_d = float((minfit.measures or {}).get("diversity", float("nan")))
+    min_f = float(minfit.fitness)
+    n_occ = archive.filled_count()
+    if n_occ != 971 or len(frontier) != 303:
+        raise RuntimeError(
+            f"floor snapshot drifted: occupied={n_occ} frontier={len(frontier)} "
+            "(expected 971 / 303)"
+        )
+
+    fit = np.full((res, res), np.nan)
+    support = np.zeros((res, res), dtype=float)
+    for cell_id in range(archive.n_cells):
+        elite = archive.get_cell(cell_id)
+        if elite is None:
+            continue
+        i, j = archive.bin_from_cell_id(cell_id)
+        fit[i, j] = elite.fitness
+        support[i, j] = 1.0
+    for cell_id in frontier:
+        i, j = archive.bin_from_cell_id(cell_id)
+        support[i, j] = 2.0
+    mi, mj = archive.bin_from_cell_id(minfit_id)
+    support[mi, mj] = 3.0
+    stab, div = archive.cell_center(minfit_id)
+
+    cmap_fit = plt.get_cmap("viridis").copy()
+    cmap_fit.set_bad("#dddddd")
+    cmap_sup = ListedColormap(["#dddddd", "#b8b8b8", "#0072B2", "#D55E00"])
+    fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.6), layout="constrained")
+    im0 = axes[0].imshow(
+        fit,
+        origin="lower",
+        extent=(0.0, 1.0, 0.0, 1.0),
+        aspect="equal",
+        cmap=cmap_fit,
+        vmin=0.0,
+        vmax=1.0,
+        interpolation="nearest",
+    )
+    axes[0].scatter(
+        [div],
+        [stab],
+        marker="*",
+        s=90,
+        c="#D55E00",
+        edgecolors="0.15",
+        linewidths=0.4,
+        zorder=3,
+    )
+    axes[0].set_title("Elite fitness (collapsed floor)")
+    cbar = fig.colorbar(im0, ax=axes[0], shrink=0.82)
+    cbar.set_label("Elite fitness (unitless)")
+    axes[1].imshow(
+        support,
+        origin="lower",
+        extent=(0.0, 1.0, 0.0, 1.0),
+        aspect="equal",
+        cmap=cmap_sup,
+        vmin=0.0,
+        vmax=3.0,
+        interpolation="nearest",
+    )
+    axes[1].scatter(
+        [div],
+        [stab],
+        marker="*",
+        s=90,
+        c="#D55E00",
+        edgecolors="0.15",
+        linewidths=0.4,
+        zorder=3,
+    )
+    axes[1].set_title(r"Policy support at $t{=}0$")
+    axes[1].legend(
+        handles=[
+            Patch(facecolor="#dddddd", edgecolor="0.5", label="empty"),
+            Patch(
+                facecolor="#b8b8b8", edgecolor="0.5", label="occupied (not frontier)"
+            ),
+            Patch(
+                facecolor="#0072B2",
+                edgecolor="0.5",
+                label=rf"frontier ($n={len(frontier)}$)",
+            ),
+            Patch(
+                facecolor="#D55E00",
+                edgecolor="0.15",
+                label=r"minfit ($D{=}0.0078$, $f{=}0$)",
+            ),
+        ],
+        loc="upper right",
+        fontsize=7.5,
+        framealpha=0.92,
+    )
+    for ax in axes:
+        ax.set_xlabel("Diversity →")
+        ax.set_ylabel("Stability →")
+        ax.set_xticks([0.0, 0.5, 1.0])
+        ax.set_yticks([0.0, 0.5, 1.0])
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+    fig.suptitle(
+        "One warm-start JSONL (971 niches / 38.84%); static support, not a visit process",
+        fontsize=11,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=220, bbox_inches="tight", facecolor="white")
+    png_out = out.with_suffix(".png")
+    fig.savefig(png_out, dpi=220, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Wrote {out}")
+    print(f"Wrote {png_out}")
+    print(
+        f"  occupied={n_occ} frontier={len(frontier)} "
+        f"minfit_id={minfit_id} D={min_d:.4f} f={min_f:.4f}"
+    )
+
+
 def fig_budget_axes(out: Path) -> None:
     """Conceptual three-budget schematic (Methods; not a results ranking)."""
     from matplotlib.patches import FancyBboxPatch
@@ -1159,10 +1321,10 @@ def main() -> None:
     parser.add_argument(
         "--fig",
         type=int,
-        choices=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+        choices=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
         action="append",
         dest="figs",
-        help="Which figure(s) to export (repeatable; 9 = appendix B4; 10 = budget axes)",
+        help="Which figure(s) to export (repeatable; 9 = B4; 10 = budget axes; 11 = floor frontier)",
     )
     parser.add_argument(
         "--all",
@@ -1213,6 +1375,7 @@ def main() -> None:
         8: (fig08_anytime_ladder, FIG_DIR / "fig08_anytime_ladder.pdf"),
         9: (fig_b4_dungeon_anytime, FIG_DIR),
         10: (fig_budget_axes, FIG_DIR / "fig_budget_axes.pdf"),
+        11: (fig_floor_frontier, FIG_DIR / "fig_floor_frontier.pdf"),
     }
     left, right = (p.strip() for p in args.pair.split(",", 1))
     seeds: tuple[int, ...] = (

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -26,7 +27,7 @@ from worldspace.specs.spec import WorldSpec
 from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.types import SurrogatePrediction
 
-PROPOSAL_LOG_SCHEMA_VERSION = "1.0"
+PROPOSAL_LOG_SCHEMA_VERSION = "2.0"
 DEFAULT_PROPOSAL_LOG_NAME = "proposal_log.jsonl"
 DEFAULT_FLUSH_EVERY = 64
 
@@ -123,6 +124,13 @@ class ProposalLogWriterProtocol(Protocol):
         parent_id: str | None = None,
         incumbent_fitness: float | None = None,
         prediction: SurrogatePrediction | None = None,
+        parent_world_spec: WorldSpec | None = None,
+        llm_call_id: str | None = None,
+        llm_parse_outcome: str | None = None,
+        scalar_treatment: str | None = None,
+        prompt_prediction: SurrogatePrediction | None = None,
+        source_prediction: SurrogatePrediction | None = None,
+        target_selection: str | None = None,
     ) -> None: ...
 
     def flush(self) -> None: ...
@@ -160,18 +168,37 @@ def serialize_proposal_record(
     parent_id: str | None,
     incumbent_fitness: float | None,
     prediction: SurrogatePrediction | None,
+    parent_world_spec: WorldSpec | None = None,
+    llm_call_id: str | None = None,
+    llm_parse_outcome: str | None = None,
+    scalar_treatment: str | None = None,
+    prompt_prediction: SurrogatePrediction | None = None,
+    source_prediction: SurrogatePrediction | None = None,
+    target_selection: str | None = None,
 ) -> dict[str, Any]:
-    """Build one schema 1.0 JSON object for the proposal log."""
+    """Build one schema 2.0 JSON object for the proposal log."""
     spec = eval_result.world_spec
     record: dict[str, Any] = {
         "schema_version": PROPOSAL_LOG_SCHEMA_VERSION,
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
         "run_id": run_id,
         "iteration": int(iteration),
         "candidate_id": int(candidate_id),
         "emitter_type": str(emitter_type),
         "parent_id": parent_id,
+        "parent_world_spec_hash": (
+            world_spec_canonical_hash(parent_world_spec)
+            if parent_world_spec is not None
+            else None
+        ),
+        "parent_world_spec": (
+            _world_spec_dict(parent_world_spec)
+            if parent_world_spec is not None
+            else None
+        ),
         "target_bin": [int(target.bin[0]), int(target.bin[1])],
         "target_cell_id": int(target_cell_id),
+        "target_selection": target_selection,
         "realized_bin": [int(eval_result.bin[0]), int(eval_result.bin[1])],
         "world_spec_hash": world_spec_canonical_hash(spec),
         "world_spec": _world_spec_dict(spec),
@@ -185,11 +212,24 @@ def serialize_proposal_record(
         "incumbent_fitness": (
             float(incumbent_fitness) if incumbent_fitness is not None else None
         ),
+        "llm_call_id": llm_call_id,
+        "llm_parse_outcome": llm_parse_outcome,
+        "scalar_treatment": scalar_treatment,
     }
     if prediction is not None:
         record["prediction"] = {
             "fitness": float(prediction.fitness),
             "uncertainty": float(prediction.uncertainty),
+        }
+    if prompt_prediction is not None:
+        record["prompt_prediction"] = {
+            "fitness": float(prompt_prediction.fitness),
+            "uncertainty": float(prompt_prediction.uncertainty),
+        }
+    if source_prediction is not None:
+        record["source_prediction"] = {
+            "fitness": float(source_prediction.fitness),
+            "uncertainty": float(source_prediction.uncertainty),
         }
     return record
 
@@ -220,6 +260,13 @@ class ProposalLogWriter:
         parent_id: str | None = None,
         incumbent_fitness: float | None = None,
         prediction: SurrogatePrediction | None = None,
+        parent_world_spec: WorldSpec | None = None,
+        llm_call_id: str | None = None,
+        llm_parse_outcome: str | None = None,
+        scalar_treatment: str | None = None,
+        prompt_prediction: SurrogatePrediction | None = None,
+        source_prediction: SurrogatePrediction | None = None,
+        target_selection: str | None = None,
     ) -> None:
         """Queue one evaluated-slot record when the emitter filter allows it."""
         if not proposal_log_enabled_for_emitter(emitter_type):
@@ -237,6 +284,13 @@ class ProposalLogWriter:
                 parent_id=parent_id,
                 incumbent_fitness=incumbent_fitness,
                 prediction=prediction,
+                parent_world_spec=parent_world_spec,
+                llm_call_id=llm_call_id,
+                llm_parse_outcome=llm_parse_outcome,
+                scalar_treatment=scalar_treatment,
+                prompt_prediction=prompt_prediction,
+                source_prediction=source_prediction,
+                target_selection=target_selection,
             )
         )
         if len(self._pending) >= self.flush_every:
@@ -275,6 +329,13 @@ class NoOpProposalLogWriter:
         parent_id: str | None = None,
         incumbent_fitness: float | None = None,
         prediction: SurrogatePrediction | None = None,
+        parent_world_spec: WorldSpec | None = None,
+        llm_call_id: str | None = None,
+        llm_parse_outcome: str | None = None,
+        scalar_treatment: str | None = None,
+        prompt_prediction: SurrogatePrediction | None = None,
+        source_prediction: SurrogatePrediction | None = None,
+        target_selection: str | None = None,
     ) -> None:
         del (
             iteration,
@@ -287,6 +348,13 @@ class NoOpProposalLogWriter:
             parent_id,
             incumbent_fitness,
             prediction,
+            parent_world_spec,
+            llm_call_id,
+            llm_parse_outcome,
+            scalar_treatment,
+            prompt_prediction,
+            source_prediction,
+            target_selection,
         )
 
     def flush(self) -> None:

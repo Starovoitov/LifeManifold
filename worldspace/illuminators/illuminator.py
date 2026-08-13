@@ -11,6 +11,7 @@ from typing import Literal
 import numpy as np
 
 from worldspace.generators.llm_call_log import (
+    DEFAULT_LLM_CALL_LOG_NAME,
     configure_llm_call_log,
     resolve_llm_call_log_path,
 )
@@ -72,6 +73,7 @@ class MapElitesIlluminator:
         llm_spec_path: str | Path | None = None,
         require_surrogate_quality_gate: bool = False,
         surrogate_checkpoint_override: str | Path | None = None,
+        surrogate_buffer_path_override: str | Path | None = None,
     ) -> MapElitesRunResult:
         """Run MAP-Elites for ``iterations × batch_size`` candidate slots."""
         config = load_scheduler(
@@ -92,6 +94,11 @@ class MapElitesIlluminator:
             config = replace(
                 config,
                 surrogate_checkpoint=str(surrogate_checkpoint_override),
+            )
+        if surrogate_buffer_path_override is not None:
+            config = replace(
+                config,
+                surrogate_buffer_path=str(surrogate_buffer_path_override),
             )
         effective_steps = normalize_illuminator_steps(steps, min_steps=config.min_steps)
         out_dir = Path(output_dir).expanduser()
@@ -239,6 +246,7 @@ _RUN_ARTIFACT_NAMES = (
     _ARCHIVE_JSONL_NAME,
     "surrogate_archive.jsonl",
     DEFAULT_PROPOSAL_LOG_NAME,
+    DEFAULT_LLM_CALL_LOG_NAME,
     "iteration_timing.jsonl",
     ARCHIVE_TRACE_FILENAME,
 )

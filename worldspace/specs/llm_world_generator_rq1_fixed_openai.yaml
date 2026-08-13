@@ -1,0 +1,25 @@
+version: 1
+
+# RQ1 contemporaneous factorial: immutable dated API snapshot.
+# Protocol: artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md
+# The OpenAI seed is best-effort; response model + system_fingerprint are logged.
+llm:
+  mode: remote
+  active_provider: openai
+  global_search: false
+  temperature: 0.2
+  top_p: 1.0
+  max_tokens: 350
+  fallback_scale: 0.02
+  vision_provider: openai
+  vision_max_tokens: 300
+  vision_temperature: 0.1
+  descriptive_max_side: 128
+  providers:
+    openai:
+      provider: openai
+      model: gpt-4o-mini-2024-07-18
+      api_base: https://api.openai.com/v1/chat/completions
+      api_key_env: OPENAI_API_KEY
+      chat_extra:
+        seed: 20260813

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 import base64
 from collections.abc import Iterator
 from dataclasses import replace
+import hashlib
 import http.client
 import json
 import os
@@ -733,6 +734,7 @@ def call_llm(
     top_p: float | None = None,
     max_tokens: int = 350,
     system_content: str | None = None,
+    audit_context: dict[str, Any] | None = None,
 ) -> str:
     """Call an OpenAI-compatible chat completions endpoint and return message content."""
     effective_system = (
@@ -749,6 +751,7 @@ def call_llm(
         temperature=temperature,
         top_p=top_p,
         max_tokens=max_tokens,
+        audit_context=audit_context,
     )
 
 
@@ -897,6 +900,7 @@ def call_llm_messages(
     temperature: float = 0.2,
     top_p: float | None = None,
     max_tokens: int = 350,
+    audit_context: dict[str, Any] | None = None,
 ) -> str:
     """POST chat completions with a pre-built ``messages`` list."""
     provider = providers.get(provider_name)
@@ -921,9 +925,12 @@ def call_llm_messages(
     if "thinking" in provider:
         payload["thinking"] = provider["thinking"]
     extra = provider.get("chat_extra")
+    chat_extra: dict[str, Any] = {}
     if isinstance(extra, dict):
         for key, value in extra.items():
-            payload[str(key)] = value
+            normalized_key = str(key)
+            payload[normalized_key] = value
+            chat_extra[normalized_key] = value
     body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = request.Request(api_base, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -951,13 +958,21 @@ def call_llm_messages(
         "temperature": temperature,
         "top_p": top_p,
         "max_tokens": max_tokens,
+        "cache": "none",
         "messages": messages_for_log(messages),
+        "request_body_sha256": hashlib.sha256(body).hexdigest(),
         "request_extras": {
-            key: payload[key]
-            for key in ("enable_thinking", "thinking")
-            if key in payload
+            **{
+                key: payload[key]
+                for key in ("enable_thinking", "thinking")
+                if key in payload
+            },
+            **chat_extra,
         },
+        "audit_context": dict(audit_context or {}),
     }
+    if audit_context and audit_context.get("llm_call_id"):
+        base_record["call_id"] = str(audit_context["llm_call_id"])
 
     transport: dict[str, Any] = {
         "attempts": 0,
@@ -996,6 +1011,9 @@ def call_llm_messages(
                 "response_content": content,
                 "response_model": data.get("model"),
                 "response_id": data.get("id"),
+                "system_fingerprint": data.get("system_fingerprint"),
+                "finish_reason": choices[0].get("finish_reason"),
+                "response_created": data.get("created"),
                 "usage": usage,
             }
         )
@@ -1010,6 +1028,9 @@ def call_llm_messages(
                 "response_content": None,
                 "response_model": None,
                 "response_id": None,
+                "system_fingerprint": None,
+                "finish_reason": None,
+                "response_created": None,
                 "usage": None,
             }
         )

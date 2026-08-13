@@ -65,6 +65,7 @@ artifacts/**
 !artifacts/EXPERIMENT_PROTOCOL_Q1_v4.md
 !artifacts/Q1_H1_PLACEBO_LOCK.md
 !artifacts/Q1_H1_CHILD_REWRITE.md
+!artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md
 !artifacts/manuscript/draft_v0.tex
 !artifacts/manuscript/references.bib
 !artifacts/manuscript/figures/fig01_pipeline.pdf
@@ -80,6 +81,8 @@ artifacts/**
 !artifacts/manuscript/figures/fig08_anytime_ladder.pdf
 !artifacts/manuscript/figures/fig_budget_axes.pdf
 !artifacts/manuscript/figures/fig_budget_axes.png
+!artifacts/manuscript/figures/fig_floor_frontier.pdf
+!artifacts/manuscript/figures/fig_floor_frontier.png
 !artifacts/manuscript/figures/fig_b4_anytime_coverage.png
 !artifacts/manuscript/figures/fig_b4_anytime_coverage.pdf
 !artifacts/manuscript/figures/fig_b4_anytime_qd_score.png

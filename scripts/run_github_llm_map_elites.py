@@ -48,6 +48,7 @@ __all__ = [
     "main",
     "resolve_baseline_archive_for_scheduler",
     "resolve_effective_surrogate_checkpoint",
+    "resolve_llm_spec_override",
     "resolve_llm_spec_path",
     "resolve_nightly_baseline_archive",
     "resolve_nightly_grid_resolution",
@@ -72,6 +73,20 @@ def resolve_llm_spec_path(provider: str) -> Path:
         f"(default: {DEFAULT_QWEN_LLM_SPEC_PATH.name})"
     )
     raise FileNotFoundError(msg)
+
+
+def resolve_llm_spec_override(
+    *,
+    provider: str,
+    llm_spec: str | Path | None,
+) -> Path:
+    """Resolve an explicit immutable spec, otherwise use the provider mapping."""
+    if llm_spec is not None and str(llm_spec).strip():
+        candidate = Path(llm_spec).expanduser()
+        if not candidate.is_file():
+            raise FileNotFoundError(f"LLM spec not found: {candidate.resolve()}")
+        return candidate
+    return resolve_llm_spec_path(provider)
 
 
 def resolve_nightly_baseline_archive(archive_type: str) -> Path | None:
@@ -254,12 +269,30 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     parser.add_argument(
+        "--llm-spec",
+        type=str,
+        default="",
+        help=(
+            "Explicit LLM generator YAML. Prefer this over --llm-provider for "
+            "immutable-model experiments."
+        ),
+    )
+    parser.add_argument(
         "--surrogate-checkpoint",
         type=str,
         default="",
         help=(
             "Override surrogate checkpoint path. When quality gate is required, "
             "the override must pass nightly_v2.summary.json checks."
+        ),
+    )
+    parser.add_argument(
+        "--surrogate-buffer",
+        type=str,
+        default="",
+        help=(
+            "Override the scheduler surrogate buffer path. Use a per-run path "
+            "for contemporaneous parallel experiments."
         ),
     )
     parser.add_argument(
@@ -302,7 +335,10 @@ def main(argv: list[str] | None = None) -> None:
         if effective_checkpoint is None
         else str(effective_checkpoint)
     )
-    llm_spec = resolve_llm_spec_path(args.llm_provider)
+    llm_spec = resolve_llm_spec_override(
+        provider=args.llm_provider,
+        llm_spec=args.llm_spec,
+    )
 
     load_archive: str | Path | None = None
     if args.load_archive.strip():
@@ -334,6 +370,7 @@ def main(argv: list[str] | None = None) -> None:
         llm_spec_path=llm_spec,
         require_surrogate_quality_gate=require_quality_gate,
         surrogate_checkpoint_override=checkpoint_override,
+        surrogate_buffer_path_override=(args.surrogate_buffer.strip() or None),
     )
     elapsed = time.perf_counter() - started
 

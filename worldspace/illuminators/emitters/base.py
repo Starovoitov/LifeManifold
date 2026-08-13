@@ -19,7 +19,7 @@ from worldspace.illuminators.scheduler import (
     TargetCell,
     surrogate_config_from_scheduler,
 )
-from worldspace.surrogate.types import SurrogateProtocol
+from worldspace.surrogate.types import SurrogatePrediction, SurrogateProtocol
 from worldspace.specs.spec import CANONICAL_CELL_TYPES, WorldSpec
 
 __all__ = [
@@ -36,6 +36,12 @@ class EmitterOutput:
 
     world_spec: WorldSpec
     metadata: EliteMetadata
+    parent_world_spec: WorldSpec | None = None
+    llm_call_id: str | None = None
+    llm_parse_outcome: str | None = None
+    scalar_treatment: str | None = None
+    prompt_prediction: SurrogatePrediction | None = None
+    source_prediction: SurrogatePrediction | None = None
 
 
 def strip_seed(world_spec: WorldSpec) -> WorldSpec:

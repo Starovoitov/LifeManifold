@@ -135,6 +135,12 @@ class _SlotDraft:
     target_bin: TargetBin
     spec: WorldSpec
     metadata: EliteMetadata
+    parent_world_spec: WorldSpec | None = None
+    llm_call_id: str | None = None
+    llm_parse_outcome: str | None = None
+    scalar_treatment: str | None = None
+    prompt_prediction: SurrogatePrediction | None = None
+    source_prediction: SurrogatePrediction | None = None
 
 
 @dataclass(frozen=True)
@@ -266,6 +272,7 @@ def _append_proposal_log(
     insert: InsertResult,
     incumbent_fitness: float | None,
     prediction: SurrogatePrediction | None,
+    target_selection: str,
 ) -> None:
     """Append one evaluated slot to the per-run proposal log (if enabled)."""
     if proposal_log is None:
@@ -281,6 +288,13 @@ def _append_proposal_log(
         parent_id=draft.metadata.parent_id,
         incumbent_fitness=incumbent_fitness,
         prediction=prediction,
+        parent_world_spec=draft.parent_world_spec,
+        llm_call_id=draft.llm_call_id,
+        llm_parse_outcome=draft.llm_parse_outcome,
+        scalar_treatment=draft.scalar_treatment,
+        prompt_prediction=draft.prompt_prediction,
+        source_prediction=draft.source_prediction,
+        target_selection=target_selection,
     )
 
 
@@ -405,6 +419,7 @@ def _process_iteration_sequential(
             insert=insert,
             incumbent_fitness=incumbent_fitness,
             prediction=prediction,
+            target_selection=config.target_selection,
         )
 
         if (
@@ -580,6 +595,7 @@ def _process_iteration_parallel(
             insert=insert,
             incumbent_fitness=incumbent_fitness,
             prediction=prediction,
+            target_selection=config.target_selection,
         )
 
         if (
@@ -994,6 +1010,12 @@ def _slot_draft_from_output(
         target_bin=target_bin,
         spec=spec,
         metadata=output.metadata,
+        parent_world_spec=output.parent_world_spec,
+        llm_call_id=output.llm_call_id,
+        llm_parse_outcome=output.llm_parse_outcome,
+        scalar_treatment=output.scalar_treatment,
+        prompt_prediction=output.prompt_prediction,
+        source_prediction=output.source_prediction,
     )
 
 

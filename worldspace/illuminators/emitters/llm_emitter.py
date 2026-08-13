@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
+import uuid
 
 import numpy as np
 
@@ -81,6 +82,8 @@ class LlmPreparedSlot:
     grid_size: int
     steps: int
     surrogate_prediction: SurrogatePrediction | None = None
+    source_surrogate_prediction: SurrogatePrediction | None = None
+    llm_call_id: str = ""
 
 
 def _surrogate_line(prediction: SurrogatePrediction) -> str:
@@ -111,6 +114,7 @@ def remap_prepared_slot_prediction(
         slot,
         user_prompt=slot.user_prompt.replace(old_line, new_line, 1),
         surrogate_prediction=prediction,
+        source_surrogate_prediction=(slot.source_surrogate_prediction or old),
     )
 
 
@@ -287,11 +291,13 @@ class LlmEmitter:
             grid_size=grid_size,
             steps=steps,
             surrogate_prediction=prediction,
+            source_surrogate_prediction=prediction,
+            llm_call_id=uuid.uuid4().hex,
         )
 
     def request_llm(self, prepared: LlmPreparedSlot) -> str:
         """POST chat completions for a prepared slot; raise on empty content."""
-        response = self._request_llm(prepared.system_prompt, prepared.user_prompt)
+        response = self._request_llm(prepared)
         if not response.strip():
             msg = "empty LLM response"
             raise RuntimeError(msg)
@@ -332,6 +338,12 @@ class LlmEmitter:
                         parent_id=prepared.parent_id,
                         prompt_version=prepared.prompt_version,
                     ),
+                    parent_world_spec=strip_seed(prepared.parent_spec),
+                    llm_call_id=prepared.llm_call_id,
+                    llm_parse_outcome="valid",
+                    scalar_treatment=self._scalar_treatment(),
+                    prompt_prediction=prepared.surrogate_prediction,
+                    source_prediction=prepared.source_surrogate_prediction,
                 )
             fallback_reason = "invalid_world_spec"
         elif fallback_reason is None:
@@ -362,6 +374,12 @@ class LlmEmitter:
                 parent_id=prepared.parent_id,
                 prompt_version=prepared.prompt_version,
             ),
+            parent_world_spec=strip_seed(prepared.parent_spec),
+            llm_call_id=prepared.llm_call_id,
+            llm_parse_outcome=fallback_reason,
+            scalar_treatment=self._scalar_treatment(),
+            prompt_prediction=prepared.surrogate_prediction,
+            source_prediction=prepared.source_surrogate_prediction,
         )
 
     def _resolve_parent_one(
@@ -454,6 +472,8 @@ class LlmEmitter:
             grid_size=prepared.grid_size,
             steps=prepared.steps,
             surrogate_prediction=child_pred,
+            source_surrogate_prediction=child_pred,
+            llm_call_id=uuid.uuid4().hex,
         )
 
     def commit_child_rewrite(
@@ -489,6 +509,12 @@ class LlmEmitter:
                     parent_id=rewrite_prepared.parent_id,
                     prompt_version=rewrite_prepared.prompt_version,
                 ),
+                parent_world_spec=rewritten.parent_world_spec,
+                llm_call_id=rewritten.llm_call_id,
+                llm_parse_outcome=rewritten.llm_parse_outcome,
+                scalar_treatment=rewritten.scalar_treatment,
+                prompt_prediction=rewritten.prompt_prediction,
+                source_prediction=rewritten.source_prediction,
             )
         if cfg.keep_draft_on_rewrite_fail:
             return draft
@@ -549,25 +575,52 @@ class LlmEmitter:
             self._surrogate_uncertainty,
         ).predict(world_spec)
 
-    def _request_llm(self, system_prompt: str, user_prompt: str) -> str:
+    def _request_llm(self, prepared: LlmPreparedSlot) -> str:
         """Invoke the configured text caller (live API or test mock)."""
         if self._call_llm_text is None:
             from worldspace.generators import call_llm
 
-            caller: LlmTextCaller = call_llm
+            cfg = self._llm_config
+            return call_llm(
+                mode=cfg.mode,
+                provider_name=cfg.active_provider,
+                providers=cfg.providers,
+                prompt=prepared.user_prompt,
+                temperature=cfg.temperature,
+                top_p=cfg.top_p,
+                max_tokens=cfg.max_tokens,
+                system_content=prepared.system_prompt,
+                audit_context={
+                    "llm_call_id": prepared.llm_call_id,
+                    "target_cell_id": prepared.target.cell_id,
+                    "parent_id": prepared.parent_id,
+                    "prompt_version": prepared.prompt_version,
+                    "scalar_treatment": self._scalar_treatment(),
+                },
+            )
         else:
-            caller = self._call_llm_text
+            caller: LlmTextCaller = self._call_llm_text
         cfg = self._llm_config
         return caller(
             mode=cfg.mode,
             provider_name=cfg.active_provider,
             providers=cfg.providers,
-            prompt=user_prompt,
+            prompt=prepared.user_prompt,
             temperature=cfg.temperature,
             top_p=cfg.top_p,
             max_tokens=cfg.max_tokens,
-            system_content=system_prompt,
+            system_content=prepared.system_prompt,
         )
+
+    def _scalar_treatment(self) -> str:
+        """Return the prompt-scalar arm encoded by the scheduler."""
+        if self._scheduler is None:
+            return "stub"
+        if self._scheduler.llm_hint_placebo == "shuffle_batch":
+            return "shuffled"
+        if self._scheduler.llm_stub_hints_only or not self._scheduler.surrogate_enabled:
+            return "stub"
+        return "live"
 
 
 def build_user_prompt(

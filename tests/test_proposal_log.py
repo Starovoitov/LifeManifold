@@ -22,6 +22,7 @@ from worldspace.illuminators.proposal_log import (
 from worldspace.illuminators.scheduler import TargetBin
 from worldspace.metrics import WorldMetrics
 from worldspace.specs.spec import WorldSpec
+from worldspace.surrogate.types import SurrogatePrediction
 
 
 def _spec() -> WorldSpec:
@@ -180,8 +181,48 @@ class ProposalLogTests(unittest.TestCase):
             incumbent_fitness=None,
             prediction=None,
         )
-        self.assertEqual(record["schema_version"], "1.0")
+        self.assertEqual(record["schema_version"], "2.0")
+        self.assertIn("ts_utc", record)
         self.assertEqual(record["outcome"], "fill_empty")
+
+    def test_serialize_includes_llm_audit_link_and_parent(self) -> None:
+        prediction = SurrogatePrediction(
+            components={},
+            measures={},
+            fitness=0.42,
+            uncertainty=0.08,
+        )
+        record = serialize_proposal_record(
+            run_id="r",
+            iteration=2,
+            candidate_id=9,
+            emitter_type="llm",
+            target=TargetBin(bin=(1, 2), target_stability=0.2, target_diversity=0.3),
+            target_cell_id=52,
+            eval_result=_eval(),
+            insert=InsertResult(accepted=True, improved=False, rejected=False),
+            parent_id="p",
+            incumbent_fitness=0.4,
+            prediction=None,
+            parent_world_spec=_spec(),
+            llm_call_id="call-1",
+            llm_parse_outcome="valid",
+            scalar_treatment="shuffled",
+            prompt_prediction=prediction,
+            source_prediction=SurrogatePrediction(
+                components={},
+                measures={},
+                fitness=0.7,
+                uncertainty=0.1,
+            ),
+            target_selection="uniform_frontier",
+        )
+        self.assertEqual(record["llm_call_id"], "call-1")
+        self.assertEqual(record["llm_parse_outcome"], "valid")
+        self.assertEqual(record["scalar_treatment"], "shuffled")
+        self.assertEqual(record["target_selection"], "uniform_frontier")
+        self.assertIsNotNone(record["parent_world_spec_hash"])
+        self.assertEqual(record["prompt_prediction"]["fitness"], 0.42)
 
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ class LlmCallLogTests(unittest.TestCase):
                         provider_name="qwen",
                         providers=providers,
                         messages=[{"role": "user", "content": "ping"}],
+                        audit_context={"llm_call_id": "fixed-call"},
                     )
             self.assertEqual(out, '{"ok": true}')
             rows = [
@@ -96,6 +97,13 @@ class LlmCallLogTests(unittest.TestCase):
             self.assertEqual(row["usage"]["total_tokens"], 14)
             self.assertEqual(row["response_content"], '{"ok": true}')
             self.assertEqual(row["attempts"], 1)
+            self.assertEqual(row["llm_call_log_schema"], 2)
+            self.assertEqual(row["call_id"], "fixed-call")
+            self.assertIn("request_body_sha256", row)
+            self.assertEqual(
+                row["audit_context"]["llm_call_id"],
+                "fixed-call",
+            )
             self.assertNotIn("Authorization", json.dumps(row))
 
 

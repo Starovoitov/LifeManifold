@@ -109,6 +109,19 @@ class TestGithubLlmMapElites(unittest.TestCase):
         self.assertEqual(resolve_llm_spec_path("qwen"), DEFAULT_QWEN_LLM_SPEC_PATH)
         self.assertTrue(DEFAULT_QWEN_LLM_SPEC_PATH.is_file())
 
+    def test_explicit_llm_spec_overrides_provider_mapping(self) -> None:
+        import tempfile
+
+        from scripts.run_github_llm_map_elites import resolve_llm_spec_override
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = Path(tmp) / "fixed.yaml"
+            spec.write_text("version: 1\n", encoding="utf-8")
+            self.assertEqual(
+                resolve_llm_spec_override(provider="qwen", llm_spec=spec),
+                spec,
+            )
+
     def test_backfill_buffer_from_baseline_when_present(self) -> None:
         import tempfile
 

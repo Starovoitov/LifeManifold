@@ -86,7 +86,11 @@ class GeneticEmitter:
             emitter_type="genetic",
             parent_id=parent_id,
         )
-        return EmitterOutput(world_spec=spec, metadata=metadata)
+        return EmitterOutput(
+            world_spec=spec,
+            metadata=metadata,
+            parent_world_spec=strip_seed(parent1.world_spec),
+        )
 
     def _random_fallback(
         self,
