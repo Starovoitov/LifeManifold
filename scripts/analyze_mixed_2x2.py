@@ -7,6 +7,7 @@ Safe to run on partial seed sets (marks n and incomplete).
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,9 @@ from typing import Any
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-EXP = ROOT / "artifacts/experiments/q1-v3-mixed-2x2"
+DEFAULT_EXP = ROOT / "artifacts/experiments/q1-v3-mixed-2x2"
 ARMS = ("stub_uniform", "hints", "filter_stub", "filter")
+EXP = DEFAULT_EXP
 OUT = EXP
 
 
@@ -176,7 +178,29 @@ def factorial_interaction(
     return stats
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=DEFAULT_EXP,
+        help="Experiment root (default: artifacts/experiments/q1-v3-mixed-2x2)",
+    )
+    parser.add_argument(
+        "--tier",
+        default=None,
+        help="Tier label written into JSON (default: root directory name)",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    global EXP, OUT
+    args = parse_args()
+    EXP = args.root if args.root.is_absolute() else ROOT / args.root
+    OUT = EXP
+    tier = args.tier or EXP.name
+
     by_arm: dict[str, dict[int, dict[str, Any]]] = {a: {} for a in ARMS}
     for arm in ARMS:
         for seed in range(10):
@@ -260,7 +284,7 @@ def main() -> int:
     }
 
     payload = {
-        "tier": "q1-v3-mixed-2x2",
+        "tier": tier,
         "complete_seeds": complete_seeds,
         "n_complete": len(complete_seeds),
         "n_target": 10,
