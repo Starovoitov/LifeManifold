@@ -74,10 +74,16 @@ artifacts/**
 !artifacts/manuscript/figures/fig05_ladder.pdf
 !artifacts/manuscript/figures/fig06_acquisition_anytime.pdf
 !artifacts/manuscript/figures/fig07_archive_heatmaps_panel_seeds1_4_6.pdf
+!artifacts/manuscript/figures/fig07_archive_heatmaps_panel_seeds4_6_1.pdf
 !artifacts/manuscript/figures/fig07_archive_heatmaps_seed4.pdf
+!artifacts/manuscript/figures/fig07_occupancy_n10.pdf
 !artifacts/manuscript/figures/fig08_anytime_ladder.pdf
+!artifacts/manuscript/figures/fig_budget_axes.pdf
+!artifacts/manuscript/figures/fig_budget_axes.png
 !artifacts/manuscript/figures/fig_b4_anytime_coverage.png
+!artifacts/manuscript/figures/fig_b4_anytime_coverage.pdf
 !artifacts/manuscript/figures/fig_b4_anytime_qd_score.png
+!artifacts/manuscript/figures/fig_b4_anytime_qd_score.pdf
 !artifacts/experiments/q1-v4-dungeon-full-cpu/ANALYSIS.md
 !artifacts/experiments/q1-v4-dungeon-full-cpu/run_tier2_nohup.sh
 !artifacts/experiments/q1-v4-dungeon-full-cpu/summary.csv

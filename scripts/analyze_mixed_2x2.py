@@ -373,6 +373,9 @@ def main() -> int:
         f"- AUC cov@20k: "
         f"{inter['auc20k']['mean']:+.2f}±{inter['auc20k']['sd']:.2f} "
         f"({inter['auc20k']['n_positive']}/{inter['auc20k']['n']})",
+        f"- Terminal ΔQD: "
+        f"{inter['qd']['mean']:+.1f}±{inter['qd']['sd']:.1f} "
+        f"({inter['qd']['n_positive']}/{inter['qd']['n']})",
         "",
         "## Reading notes",
         "",
