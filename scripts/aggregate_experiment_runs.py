@@ -169,6 +169,7 @@ def _infer_condition(run_dir: Path) -> str:
         "me_random",
         "random",
         "genetic",
+        "genetic_minfit",
         "genetic_filter",
         "llm_stub",
         "llm_hints",

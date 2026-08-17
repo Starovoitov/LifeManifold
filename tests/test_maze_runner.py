@@ -42,6 +42,14 @@ class TestMazeRunner(unittest.TestCase):
         self.assertEqual(genetic_filter.condition, "genetic_filter")
         self.assertEqual(genetic_filter.acquisition.mode, "filter")
         self.assertEqual(genetic_filter.emitters.count("genetic"), 30)
+        self.assertEqual(genetic.target_selection, "uniform_frontier")
+        minfit = load_maze_scheduler(root / "maze_scheduler_genetic_minfit.yaml")
+        self.assertEqual(minfit.condition, "genetic_minfit")
+        self.assertEqual(minfit.target_selection, "min_fitness_frontier")
+        self.assertEqual(minfit.emitters.count("random"), 20)
+        self.assertEqual(minfit.emitters.count("genetic"), 30)
+        self.assertEqual(minfit.llm_prompt_mode, "off")
+        self.assertEqual(minfit.acquisition.mode, "off")
         expected = {
             "llm_stub": ("llm", "off"),
             "llm_hints": ("llm", "off"),
@@ -200,6 +208,74 @@ class TestMazeRunner(unittest.TestCase):
                 if llm_emitter is not None:
                     self.assertTrue(summary["llm_enabled"])
                     self.assertIn("llm_audit", summary)
+
+
+class TestMazeTargetSelection(unittest.TestCase):
+    def test_minfit_prefers_low_fitness_frontier(self) -> None:
+        from worldspace.mazes.emitters import select_target_cell
+
+        archive, low_id, high_id = self._two_cell_frontier()
+        target = select_target_cell(
+            archive,
+            np.random.default_rng(0),
+            target_selection="min_fitness_frontier",
+        )
+        self.assertEqual(target.cell_id, low_id)
+        self.assertNotEqual(low_id, high_id)
+
+    def test_maxfit_prefers_high_fitness_frontier(self) -> None:
+        from worldspace.mazes.emitters import select_target_cell
+
+        archive, low_id, high_id = self._two_cell_frontier()
+        target = select_target_cell(
+            archive,
+            np.random.default_rng(0),
+            target_selection="max_fitness_frontier",
+        )
+        self.assertEqual(target.cell_id, high_id)
+
+    def test_unknown_target_selection_raises(self) -> None:
+        from worldspace.mazes.emitters import select_target_cell
+
+        archive, _, _ = self._two_cell_frontier()
+        with self.assertRaises(ValueError):
+            select_target_cell(
+                archive,
+                np.random.default_rng(0),
+                target_selection="not_a_policy",  # type: ignore[arg-type]
+            )
+
+    def test_minfit_run_logs_target_selection(self) -> None:
+        config = MazeSchedulerConfig(
+            condition="genetic_minfit",
+            iterations=2,
+            batch_size=5,
+            archive_resolution=8,
+            initial_random_candidates=5,
+            emitters=("random", "random", "genetic", "genetic", "genetic"),
+            target_selection="min_fitness_frontier",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_maze_qd(config, seed=3, output_dir=Path(tmp))
+            self.assertEqual(result.condition, "genetic_minfit")
+            summary = json.loads(
+                (Path(tmp) / "nightly_run_summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(summary["target_selection"], "min_fitness_frontier")
+
+    @staticmethod
+    def _two_cell_frontier() -> tuple[MazeArchive, int, int]:
+        spec = random_maze(np.random.default_rng(1))
+        archive = MazeArchive(3)
+        low = MazeElite((1, 0), 0.2, (0.1, 0.1), spec, "low", None, "random")
+        high = MazeElite((1, 1), 0.9, (0.2, 0.2), spec, "high", None, "random")
+        archive.try_insert(low)
+        archive.try_insert(high)
+        return (
+            archive,
+            archive.cell_id_from_bin((1, 0)),
+            archive.cell_id_from_bin((1, 1)),
+        )
 
 
 if __name__ == "__main__":

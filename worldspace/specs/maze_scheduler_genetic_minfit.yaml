@@ -1,0 +1,65 @@
+schema_version: "maze-1.0"
+# Phase A RQ1 second-domain probe: genetic ME + min_fitness_frontier.
+# Same 20R+30G mix and 30×30 archive as locked H5 `genetic` (uniform).
+# Does not amend Holm H5. Protocol: artifacts/Q1_RQ1_SECOND_DOMAIN.md
+condition: genetic_minfit
+target_selection: min_fitness_frontier
+iterations: 650
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+llm_prompt_mode: off
+surrogate_checkpoint: null
+acquisition:
+  mode: off

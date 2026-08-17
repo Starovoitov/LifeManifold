@@ -15,11 +15,13 @@ from worldspace.illuminators.archive_trace import write_archive_trace_line
 from worldspace.illuminators.scheduler import TargetBin
 from worldspace.mazes.archive import MazeArchive, MazeElite
 from worldspace.mazes.emitters import (
+    DEFAULT_MAZE_TARGET_SELECTION,
     MazeEmitterResult,
     MazeTarget,
+    MazeTargetSelection,
     emit_genetic,
     emit_random,
-    select_uniform_frontier,
+    select_target_cell,
 )
 from worldspace.mazes.evaluation import evaluate_maze
 from worldspace.mazes.spec import MazeSpec
@@ -31,6 +33,7 @@ MazeEmitterKind = Literal["random", "genetic", "llm"]
 MazeCondition = Literal[
     "random",
     "genetic",
+    "genetic_minfit",
     "genetic_filter",
     "llm_stub",
     "llm_hints",
@@ -82,6 +85,7 @@ class MazeSchedulerConfig:
     surrogate_checkpoint: str | None = None
     llm_prompt_mode: Literal["off", "stub", "hints"] = "off"
     sim_cost_ms: float = 0.0
+    target_selection: MazeTargetSelection = DEFAULT_MAZE_TARGET_SELECTION
 
     def validate(self) -> None:
         if self.iterations < 1 or self.batch_size < 1:
@@ -96,6 +100,14 @@ class MazeSchedulerConfig:
             raise ValueError("LLM emitters require stub or hints prompt mode")
         if self.sim_cost_ms < 0.0:
             raise ValueError("sim_cost_ms must be non-negative")
+        if self.target_selection not in (
+            "min_fitness_frontier",
+            "uniform_frontier",
+            "max_fitness_frontier",
+        ):
+            raise ValueError(
+                f"unknown target_selection {self.target_selection!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -145,6 +157,9 @@ def load_maze_scheduler(path: Path) -> MazeSchedulerConfig:
         surrogate_checkpoint=raw.get("surrogate_checkpoint"),
         llm_prompt_mode=_yaml_enum(raw.get("llm_prompt_mode", "off")),  # type: ignore[arg-type]
         sim_cost_ms=float(raw.get("sim_cost_ms", 0.0)),
+        target_selection=_yaml_enum(  # type: ignore[arg-type]
+            raw.get("target_selection", DEFAULT_MAZE_TARGET_SELECTION)
+        ),
     )
     config.validate()
     return config
@@ -220,7 +235,11 @@ def run_maze_qd(
             ] = []
             llm_slots: list[int] = []
             for slot, configured_kind in enumerate(config.emitters):
-                target = select_uniform_frontier(archive, rng)
+                target = select_target_cell(
+                    archive,
+                    rng,
+                    target_selection=config.target_selection,
+                )
                 kind: MazeEmitterKind = (
                     "random"
                     if proposals + slot < config.initial_random_candidates
@@ -373,6 +392,7 @@ def run_maze_qd(
         "archive_trace": str(trace_path.resolve()),
         "surrogate_archive": str(surrogate_path.resolve()),
         "sim_cost_ms": config.sim_cost_ms,
+        "target_selection": config.target_selection,
     }
     llm_audit = getattr(llm_emitter, "audit", None)
     if llm_audit is not None and hasattr(llm_audit, "to_dict"):
