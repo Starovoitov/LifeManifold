@@ -154,6 +154,7 @@ def _infer_condition(run_dir: Path) -> str:
         "vanilla",
         "genetic_me",
         "genetic_me_uniform",
+        "genetic_me_maxfit",
         "genetic_me_filter",
         "genetic_me_filter_tau035",
         "genetic_me_filter_tau045",

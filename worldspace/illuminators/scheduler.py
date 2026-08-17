@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 
 EmitterKind = Literal["random", "genetic", "llm"]
 ArchiveType = Literal["grid", "cvt"]
-TargetSelectionStrategy = Literal["min_fitness_frontier", "uniform_frontier"]
+TargetSelectionStrategy = Literal[
+    "min_fitness_frontier",
+    "uniform_frontier",
+    "max_fitness_frontier",
+]
 ChildRewriteTrigger = Literal[
     "always", "below_parent_true", "below_tau", "below_parent_pred"
 ]
@@ -761,7 +765,12 @@ def _select_frontier_cell(
         raise ValueError(msg)
     if target_selection == "uniform_frontier":
         return int(frontier[int(rng.integers(0, len(frontier)))])
-    return _min_fitness_cell(frontier, archive)
+    if target_selection == "max_fitness_frontier":
+        return _max_fitness_cell(frontier, archive)
+    if target_selection == "min_fitness_frontier":
+        return _min_fitness_cell(frontier, archive)
+    msg = f"unknown target_selection {target_selection!r}"
+    raise ValueError(msg)
 
 
 def _frontier_cell_ids(archive: ArchiveProtocol) -> list[int]:
@@ -787,6 +796,27 @@ def _min_fitness_cell(
         if elite is None:
             continue
         if elite.fitness < best_fitness or (
+            elite.fitness == best_fitness and (best is None or cell_id < best)
+        ):
+            best = cell_id
+            best_fitness = elite.fitness
+    if best is None:
+        msg = "frontier cells must contain elites"
+        raise RuntimeError(msg)
+    return best
+
+
+def _max_fitness_cell(
+    cell_ids: list[int],
+    archive: ArchiveProtocol,
+) -> int:
+    best: int | None = None
+    best_fitness = float("-inf")
+    for cell_id in cell_ids:
+        elite = archive.get_cell(cell_id)
+        if elite is None:
+            continue
+        if elite.fitness > best_fitness or (
             elite.fitness == best_fitness and (best is None or cell_id < best)
         ):
             best = cell_id

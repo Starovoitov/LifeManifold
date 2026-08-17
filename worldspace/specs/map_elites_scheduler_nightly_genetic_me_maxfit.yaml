@@ -1,0 +1,88 @@
+schema_version: "1.2"
+# Descriptive third archive policy on the genetic ME stack (no LLM, no surrogate).
+# Same 20R+30G mix and budget as genetic_me / genetic_me_uniform; only
+# target_selection changes to max_fitness_frontier (highest elite fitness on
+# the occupied-with-empty-neighbour frontier; ties → smallest cell id).
+# Protocol: artifacts/Q1_GENETIC_MAXFIT.md
+# Does not amend Holm families or the locked genetic minfit/uniform pair.
+iterations: 650
+batch_size: 50
+grid_resolution: 50
+early_extinction_step: 200
+min_steps: 200
+target_selection: max_fitness_frontier
+
+batch_emitters:
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - random
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+  - genetic
+
+initial_random_candidates: 100
+
+genetic:
+  mutation_scale: 0.02
+
+llm:
+  enabled: false
+
+surrogate:
+  enabled: false
+  model_type: mlp
+  checkpoint: artifacts/surrogate/checkpoints/nightly_v3_mc_d005.pkl
+  buffer_path: artifacts/surrogate/buffer_experiment_genetic_me_maxfit.jsonl
+  stub_mean: 0.5
+  stub_uncertainty: 1.0
+
+performance:
+  parallel_eval: true
+  parallel_workers: 0
+  llm_parallel_emit: false
+  llm_parallel_workers: 0
+  log_iteration_timing: true

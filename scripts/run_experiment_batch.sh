@@ -9,6 +9,7 @@
 # v3 B1/RQ0:   q1-v3-vanilla              (random-only; no LLM)
 # v3 B1b:      q1-v3-genetic-me           (20R+30G; no LLM; matched stub/hints slots)
 # v3 sensitivity: q1-v3-genetic-me-uniform  (genetic_me + uniform_frontier; no surrogate)
+# v3 sensitivity: q1-v3-genetic-me-maxfit   (genetic_me + max_fitness_frontier; no surrogate)
 # v3 factorial: q1-v3-genetic-me-filter    (−LLM + surrogate filter; 2×2 ablation cell)
 # v3 mixed 2×2: q1-v3-mixed-2x2 (stub_uniform / hints / filter_stub / filter; archive_trace)
 # cold smoke:    q1-v3-mixed-2x2-cold-smoke (same 4 arms, empty archive; seed 0 default)
@@ -96,6 +97,7 @@ SCHEDULER_SHADOW_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_ll
 SCHEDULER_VANILLA_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_vanilla.yaml"
 SCHEDULER_GENETIC_ME_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me.yaml"
 SCHEDULER_GENETIC_ME_UNIFORM_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_uniform.yaml"
+SCHEDULER_GENETIC_ME_MAXFIT_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_maxfit.yaml"
 SCHEDULER_GENETIC_ME_FILTER_NIGHTLY="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter.yaml"
 SCHEDULER_GENETIC_ME_FILTER_TAU035="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau035.yaml"
 SCHEDULER_GENETIC_ME_FILTER_TAU055="$ROOT/worldspace/specs/map_elites_scheduler_nightly_genetic_me_filter_tau055.yaml"
@@ -117,6 +119,7 @@ SCHEDULER_HINTS_PILOT="$ROOT/worldspace/specs/map_elites_scheduler_github_llm.ya
 RUN_VANILLA=false
 RUN_GENETIC_ME=false
 RUN_GENETIC_ME_UNIFORM=false
+RUN_GENETIC_ME_MAXFIT=false
 RUN_GENETIC_ME_FILTER=false
 RUN_STUB_UNIFORM_ONLY=false
 RUN_HINTS_RICH_ONLY=false
@@ -301,6 +304,18 @@ case "$TIER" in
     RUN_FILTER=false
     RUN_SHADOW=false
     RUN_GENETIC_ME_UNIFORM=true
+    ;;
+  q1-v3-genetic-me-maxfit)
+    # Descriptive third policy: genetic ME + max_fitness_frontier; CPU only.
+    ITERATIONS=650
+    EXP_DIR="$EXP_ROOT/q1-v3-genetic-me-maxfit"
+    SCHEDULER_GENETIC_ME_MAXFIT="$SCHEDULER_GENETIC_ME_MAXFIT_NIGHTLY"
+    RUN_FILTER=false
+    RUN_SHADOW=false
+    RUN_GENETIC_ME_MAXFIT=true
+    if [[ -z "${LIFEMANIFOLD_PROPOSAL_LOG_ALL_EMITTERS:-}" ]]; then
+      export LIFEMANIFOLD_PROPOSAL_LOG_ALL_EMITTERS=1
+    fi
     ;;
   q1-v3-genetic-me-filter)
     # Factorial (−LLM, +surrogate filter): 20R+30G + threshold_gate; CPU-only ablation cell.
@@ -552,7 +567,7 @@ case "$TIER" in
     ;;
   *)
     echo "Unknown tier: $TIER" >&2
-    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2|q1-v3-mixed-2x2-cold-smoke" >&2
+    echo "Use: pilot|q1-min|q1-full|q1-full-filter|q1-repeat|shadow|q1-cvt-min|q1-cvt|q1-cvt-filter|cvt-shadow|q1-prompt-ablation|q1-v3-pyribs|q1-v3-sphere|q1-v3-rastrigin|q1-v4-dungeon|q1-v4-dungeon-{genetic,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v4-maze|q1-v5-maze|q1-v4-maze-{genetic,random,genetic-filter,llm-stub,llm-hints,llm-hints-filter}|q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-maxfit|q1-v3-genetic-me-filter|q1-v3-llm-deepseek-v4-pro|q1-v3-llm-gpt-4o-mini|q1-stub-uniform-sensitivity|q1-h1-matched-gpt-4o-mini|q1-h1-matched-deepseek-v4-pro|q1-anytime-ladder|q1-cma-encoding-ablation|q1-v3-pyribs-discrete-cma|q1-v3-pyribs-native-discrete-cma|q1-v3-pyribs-pbcma|q1-h2-threshold-sensitivity|q1-h2-ranking-controls|q1-h1-policy-x-hint|q1-hints-rich-pilot|q1-hints-parent-pilot|q1-hints-direction-pilot|q1-h1-child-rewrite-pilot|q1-h1-placebo-pilot|q1-h1-placebo-interleaved|q1-v3-llm-weak-pilot|q1-v3-h3-gray-zone-pilot|q1-v3-h3-gray-zone|q1-v3-mixed-2x2|q1-v3-mixed-2x2-cold-smoke" >&2
     exit 1
     ;;
 esac
@@ -596,6 +611,11 @@ if [[ "$REQUESTED_TIER" == "q1-v3-genetic-me-uniform" && $# -lt 2 ]]; then
   SEED_START=0
   SEED_END=9
   echo "NOTE: q1-v3-genetic-me-uniform default seeds 0–9 (matched target-selection control)" >&2
+fi
+if [[ "$REQUESTED_TIER" == "q1-v3-genetic-me-maxfit" && $# -lt 2 ]]; then
+  SEED_START=0
+  SEED_END=9
+  echo "NOTE: q1-v3-genetic-me-maxfit default seeds 0–9 (descriptive max_fitness_frontier; Q1_GENETIC_MAXFIT.md)" >&2
 fi
 if [[ "$REQUESTED_TIER" == "q1-v3-genetic-me-filter" && $# -lt 2 ]]; then
   SEED_START=0
@@ -769,7 +789,7 @@ case "$TIER" in
       export LIFEMANIFOLD_LLM_PARALLEL_WORKERS=2
     fi
     ;;
-  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity|q1-h2-ranking-controls)
+  q1-v3-vanilla|q1-v3-genetic-me|q1-v3-genetic-me-uniform|q1-v3-genetic-me-maxfit|q1-v3-genetic-me-filter|q1-h2-threshold-sensitivity|q1-h2-ranking-controls)
     apply_vanilla_run_defaults
     ;;
   q1-anytime-ladder)
@@ -1271,6 +1291,8 @@ else
         run_one genetic_me "$SCHEDULER_GENETIC_ME" "$seed" "$rep_arg"
       elif [[ "$RUN_GENETIC_ME_UNIFORM" == true ]]; then
         run_one genetic_me_uniform "$SCHEDULER_GENETIC_ME_UNIFORM" "$seed" "$rep_arg"
+      elif [[ "$RUN_GENETIC_ME_MAXFIT" == true ]]; then
+        run_one genetic_me_maxfit "$SCHEDULER_GENETIC_ME_MAXFIT" "$seed" "$rep_arg"
       elif [[ "$RUN_GENETIC_ME_FILTER" == true ]]; then
         run_one genetic_me_filter "$SCHEDULER_GENETIC_ME_FILTER" "$seed" "$rep_arg"
       elif [[ "$RUN_STUB_UNIFORM_ONLY" == true ]]; then

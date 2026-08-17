@@ -443,6 +443,39 @@ class TestSelectTargetCell(unittest.TestCase):
         self.assertGreater(len(cell_ids), 1)
         self.assertIn(archive.cell_id_from_bin((2, 2)), cell_ids)
 
+    def test_partial_fill_prefers_max_fitness_frontier(self) -> None:
+        archive = GridArchive(3)
+        archive.try_insert(_minimal_elite((1, 1), 0.9, elite_id="high"))
+        archive.try_insert(_minimal_elite((1, 0), 0.2, elite_id="low"))
+        target = select_target_cell(
+            archive,
+            np.random.default_rng(0),
+            target_selection="max_fitness_frontier",
+        )
+        self.assertEqual(target.bin_ij, (1, 1))
+
+    def test_max_fitness_frontier_tie_breaks_to_smallest_cell_id(self) -> None:
+        archive = GridArchive(3)
+        archive.try_insert(_minimal_elite((1, 0), 0.8, elite_id="a"))
+        archive.try_insert(_minimal_elite((1, 1), 0.8, elite_id="b"))
+        target = select_target_cell(
+            archive,
+            np.random.default_rng(0),
+            target_selection="max_fitness_frontier",
+        )
+        self.assertEqual(target.cell_id, archive.cell_id_from_bin((1, 0)))
+        self.assertLess(target.cell_id, archive.cell_id_from_bin((1, 1)))
+
+    def test_unknown_target_selection_raises(self) -> None:
+        archive = GridArchive(3)
+        archive.try_insert(_minimal_elite((1, 1), 0.9, elite_id="high"))
+        with self.assertRaises(ValueError):
+            select_target_cell(
+                archive,
+                np.random.default_rng(0),
+                target_selection="not_a_policy",  # type: ignore[arg-type]
+            )
+
     def test_load_scheduler_reads_target_selection(self) -> None:
         config = load_scheduler(
             "worldspace/specs/map_elites_scheduler_nightly_llm_filter.yaml"
