@@ -67,6 +67,7 @@ artifacts/**
 !artifacts/Q1_H1_CHILD_REWRITE.md
 !artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md
 !artifacts/Q1_GENETIC_MAXFIT.md
+!artifacts/Q1_RQ1_SECOND_DOMAIN.md
 !artifacts/manuscript/draft_v0.tex
 !artifacts/manuscript/references.bib
 !artifacts/manuscript/figures/fig01_pipeline.pdf
