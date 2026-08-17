@@ -1,9 +1,43 @@
 # RQ1 contemporaneous factorial — execution lock
 
-**Status:** infrastructure only; **no experiment has been launched**.
+**Status:** complete (2026-08-17). Matrix **50/50**, audit-clean join of
+`llm_call_log.jsonl` ↔ `proposal_log.jsonl`. Not a Holm family; does not
+amend locked Holm / matched-H1 / H2 numbers.
 
 This package replaces the retrospective cross-tier decomposition with one
-calendar-blocked experiment. It does not amend historical Holm families.
+calendar-blocked experiment. Historical Holm $+15.09$~pp remains motivation
+only.
+
+## 0. Readout (new coverage above the 971-niche floor, pp; 10 blocks)
+
+Archive-clustered percentile bootstrap 95% CI. Do **not** write “0 pp”,
+TOST, or equivalence.
+
+| Contrast | Mean ± SD | pos | CI |
+|---|---|---|---|
+| Policy @ stub | $+14.53 \pm 3.93$ | 10/10 | $[+11.83,+18.04]$ |
+| Policy @ live | $+14.82 \pm 3.68$ | 10/10 | $[+12.16,+18.06]$ |
+| Soft @ minfit | identical terminal archives in all 10 blocks | — | $[0,0]$ |
+| Soft @ uniform | $+0.29 \pm 0.81$ | 5/10 | $[-0.20,+0.75]$ |
+| Alignment live−shuffled | $+0.28 \pm 0.89$ | 6/10 | $[+0.02,+0.54]$ |
+
+Cell means (new cov pp / terminal %): stub=live minfit $4.42\pm1.60$ / $43.26\%$;
+stub_uniform $18.95\pm4.27$ / $57.79\%$; live_uniform $19.24\pm3.96$ / $58.08\%$;
+shuffled $18.96\pm4.11$ / $57.80\%$. Terminal levels sit ${\sim}2$ pp below the
+one-JSONL historical cells; **contrasts** match.
+
+Shuffle is a real alignment break (prompt $\neq$ source on ${\approx}89\%$ of
+LLM slots; L1 ${\approx}0.21$). Signed `prompt_minus_source_fitness_mean` is
+near zero because permutation preserves the multiset — do not use it as a
+placebo diagnostic.
+
+Mechanism: all emitters share `select_target_cell`. Minfit ${\approx}1.6$ unique
+targets, entropy $0.16$, consecutive repeat $1.00$. Uniform ${\approx}670$ unique,
+entropy $0.97$. Stub vs live at a fixed policy does not change the target
+distribution.
+
+Analysis: `artifacts/experiments/q1-rq1-contemporaneous/analysis/`.
+Manuscript: Table `tab:rq1-cf`.
 
 ## 1. Question and scope
 
@@ -107,10 +141,10 @@ Per arm, archive, continuation, and emitter type:
 - live-vs-prompt scalar alignment (including shuffled placebo);
 - completeness join between `llm_call_log.jsonl` and `proposal_log.jsonl`.
 
-## 5. Launch gate
+## 5. Launch gate (completed)
 
-The runner defaults to planning/preflight and cannot execute without an explicit
-execution flag and protocol acknowledgement. Before launch:
+The runner defaulted to planning/preflight and required an explicit execution
+flag plus protocol acknowledgement. Launch checklist (all done):
 
 1. commit all code/config/protocol files;
 2. record the commit SHA and hashes in `experiment_plan.json`;
@@ -121,10 +155,13 @@ execution flag and protocol acknowledgement. Before launch:
 7. inspect the randomized block order;
 8. do not inspect factorial outcomes until the planned matrix completes.
 
-Any change after first live call must be recorded as a protocol deviation; do
-not silently reuse a partially completed block under changed code or model.
+Deviation: `archive_04/continuation_00/stub_uniform` was killed mid-run
+(~450/650), deleted, and restarted under the same code/model; the finished arm
+has 0.03% parser fallback. Any other change after first live call must be
+recorded; do not silently reuse a partially completed block under changed code
+or model.
 
-## 6. Operator commands (documented, not executed)
+## 6. Operator commands (how this matrix was run)
 
 Read-only plan and preflight:
 
@@ -142,9 +179,11 @@ uv run python scripts/run_rq1_contemporaneous_factorial.py \
 # repeat archive-index 1..4
 ```
 
-The command above is intentionally guarded and was not run while preparing this
-infrastructure. Before live LLM runs, write the immutable plan from the clean
-commit and perform the separately authorized one-call dated-model probe:
+The command above is intentionally guarded. Floors, plan, probe, and the 50-arm
+matrix were executed after that lock; analysis commands at the bottom of this
+section are the post-matrix readout. Before live LLM runs, write the immutable
+plan from the clean commit and perform the separately authorized one-call
+dated-model probe:
 
 ```bash
 uv run python scripts/run_rq1_contemporaneous_factorial.py plan \
