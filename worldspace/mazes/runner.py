@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,10 @@ MazeCondition = Literal[
     "llm_stub",
     "llm_hints",
     "llm_hints_filter",
+    "llm_stub_minfit",
+    "llm_stub_uniform",
+    "llm_hints_minfit",
+    "llm_hints_uniform",
 ]
 
 
@@ -165,6 +170,15 @@ def load_maze_scheduler(path: Path) -> MazeSchedulerConfig:
     return config
 
 
+def _llm_max_workers() -> int:
+    raw = os.environ.get("LIFEMANIFOLD_LLM_PARALLEL_WORKERS", "4")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        value = 4
+    return max(1, value)
+
+
 def _yaml_enum(value: object) -> str:
     """Normalize YAML 1.1's unquoted off/false coercion."""
     if value is False or value is None:
@@ -267,7 +281,9 @@ def run_maze_qd(
                     emitted_batch[slot] = emit_random(slot_rng)
             if llm_jobs:
                 assert llm_emitter is not None
-                llm_results = llm_emitter.emit_batch(llm_jobs, max_workers=4)
+                llm_results = llm_emitter.emit_batch(
+                    llm_jobs, max_workers=_llm_max_workers()
+                )
                 for slot, emitted in zip(llm_slots, llm_results, strict=True):
                     emitted_batch[slot] = emitted
 
@@ -394,6 +410,18 @@ def run_maze_qd(
         "sim_cost_ms": config.sim_cost_ms,
         "target_selection": config.target_selection,
     }
+    llm_config = getattr(llm_emitter, "config", None)
+    if llm_config is not None:
+        provider = getattr(llm_config, "active_provider", None)
+        payload["llm_provider"] = provider
+        spec_path = getattr(llm_emitter, "llm_spec_path", None)
+        if spec_path is not None:
+            payload["llm_spec"] = str(spec_path)
+        providers = getattr(llm_config, "providers", None) or {}
+        if provider and isinstance(providers, dict):
+            active = providers.get(provider) or {}
+            if isinstance(active, dict) and active.get("model"):
+                payload["llm_model"] = active["model"]
     llm_audit = getattr(llm_emitter, "audit", None)
     if llm_audit is not None and hasattr(llm_audit, "to_dict"):
         audit_payload = llm_audit.to_dict()

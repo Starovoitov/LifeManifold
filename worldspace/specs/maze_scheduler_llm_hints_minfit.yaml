@@ -1,0 +1,15 @@
+schema_version: "maze-1.0"
+# RQ1 maze Phase B: live (hints) × min_fitness_frontier. Empty archive, 5k slots.
+# Same maze_v1 checkpoint as H5 hints; dated OpenAI spec via batch --llm-spec.
+# Protocol: artifacts/Q1_RQ1_SECOND_DOMAIN.md
+# Does not amend Holm H5. Do not reuse maze_scheduler_llm_hints.yaml (650 iters).
+condition: llm_hints_minfit
+target_selection: min_fitness_frontier
+iterations: 100
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+llm_prompt_mode: hints
+surrogate_checkpoint: artifacts/surrogate/checkpoints/maze_v1.pkl
+acquisition:
+  mode: off

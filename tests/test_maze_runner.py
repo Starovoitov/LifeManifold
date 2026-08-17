@@ -60,6 +60,54 @@ class TestMazeRunner(unittest.TestCase):
                 config = load_maze_scheduler(root / f"maze_scheduler_{condition}.yaml")
                 self.assertEqual(config.emitters.count(emitter), 30)
                 self.assertEqual(config.acquisition.mode, acquisition)
+                self.assertEqual(config.iterations, 650)
+                self.assertEqual(config.target_selection, "uniform_frontier")
+        factorial = {
+            "llm_stub_minfit": ("stub", "min_fitness_frontier", None),
+            "llm_stub_uniform": ("stub", "uniform_frontier", None),
+            "llm_hints_minfit": (
+                "hints",
+                "min_fitness_frontier",
+                "artifacts/surrogate/checkpoints/maze_v1.pkl",
+            ),
+            "llm_hints_uniform": (
+                "hints",
+                "uniform_frontier",
+                "artifacts/surrogate/checkpoints/maze_v1.pkl",
+            ),
+        }
+        for condition, (mode, policy, checkpoint) in factorial.items():
+            with self.subTest(condition=condition):
+                config = load_maze_scheduler(root / f"maze_scheduler_{condition}.yaml")
+                self.assertEqual(config.condition, condition)
+                self.assertEqual(config.iterations, 100)
+                self.assertEqual(config.batch_size, 50)
+                self.assertEqual(config.emitters.count("random"), 20)
+                self.assertEqual(config.emitters.count("llm"), 30)
+                self.assertEqual(config.llm_prompt_mode, mode)
+                self.assertEqual(config.target_selection, policy)
+                self.assertEqual(config.surrogate_checkpoint, checkpoint)
+                self.assertEqual(config.acquisition.mode, "off")
+
+    def test_maze_factorial_aggregate_infers_condition(self) -> None:
+        from scripts.aggregate_experiment_runs import _infer_condition
+
+        root = Path(__file__).resolve().parents[1]
+        for condition in (
+            "llm_stub_minfit",
+            "llm_stub_uniform",
+            "llm_hints_minfit",
+            "llm_hints_uniform",
+        ):
+            run_dir = (
+                root
+                / "artifacts"
+                / "experiments"
+                / "q1-rq1-maze-factorial"
+                / condition
+                / "seed_0"
+            )
+            self.assertEqual(_infer_condition(run_dir), condition)
 
     def test_archive_replaces_only_with_better_fitness(self) -> None:
         spec = random_maze(np.random.default_rng(1))

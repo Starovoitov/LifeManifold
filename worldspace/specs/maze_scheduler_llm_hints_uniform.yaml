@@ -1,0 +1,14 @@
+schema_version: "maze-1.0"
+# RQ1 maze Phase B: live (hints) × uniform_frontier. Empty archive, 5k slots.
+# Protocol: artifacts/Q1_RQ1_SECOND_DOMAIN.md
+# Does not amend Holm H5. Do not reuse maze_scheduler_llm_hints.yaml (650 iters).
+condition: llm_hints_uniform
+target_selection: uniform_frontier
+iterations: 100
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+llm_prompt_mode: hints
+surrogate_checkpoint: artifacts/surrogate/checkpoints/maze_v1.pkl
+acquisition:
+  mode: off

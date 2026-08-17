@@ -3,7 +3,7 @@
 **Status:** Phase A complete 2026-08-17 (10/10). **GO** for Phase B.
 Primary @ 5k: minfit **16.79 ± 3.29%** vs frozen uniform **56.98 ± 4.47%**;
 Δ **−40.19 ± 4.13 pp** (10/10). Readout: [`experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md`](experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md).
-Phase B (LLM 2×2) **not launched**.
+Phase B **launched** 2026-08-17 (`q1-rq1-maze-factorial`; empty archive; 5k).
 **Does not amend** Holm H5, locked maze arms, CA RQ1, or genetic H2.
 
 Maze H5 is a hard-gate transfer family. This protocol is a **policy × soft**
@@ -90,17 +90,37 @@ Four cells, **not** five floors, **not** Holm, **not** H5:
 `{stub, live} × {minfit, uniform}` on maze, dated `gpt-4o-mini-2024-07-18`,
 call logs.
 
-**Budget:** 5k proposals/arm (same primary cut), not 32.5k. Maze 30L would
-otherwise be ~19.5k LLM calls/seed.
+### Lock (2026-08-17, after Phase A GO)
 
-**Warm-start:** empty or a shared mid-fill floor truncated near 40% — lock
-in a Phase B amendment after GO, not now.
+| Knob | Lock |
+|------|------|
+| Archive | **Empty** (not occupancy-matched to CA 38.84%; not a warm-start continuation) |
+| Budget | **5{,}000** proposal slots (100 × 50); primary endpoint = terminal coverage |
+| Model | `gpt-4o-mini-2024-07-18` via `worldspace/specs/llm_world_generator_rq1_fixed_openai.yaml` |
+| Call logs | on (`run_maze_qd.py` → `llm_call_log.jsonl`) |
+| Cells | `llm_stub_minfit`, `llm_stub_uniform`, `llm_hints_minfit`, `llm_hints_uniform` |
+| Seeds | **0–9** (n=10; 40 runs) |
+| Surrogate | off on stub; `maze_v1.pkl` on live (same checkpoint as H5 hints; gate off) |
+| Emitters | 20R+30L (implicit `llm_*` mix) |
+| Tier | `q1-rq1-maze-factorial` → `artifacts/experiments/q1-rq1-maze-factorial/` |
+| Locked H5 files | **do not edit** `maze_scheduler_llm_stub.yaml` / `llm_hints.yaml` (650 iters) |
 
-**Do not** treat locked H5 `llm_stub` / `llm_hints` (uniform, 32.5k, ceiling)
-as two cells of this grid.
+**Regime:** maze headroom where genetic policy Δ is **−40.19 pp** @ 5k. This is
+not CA mid/late continuation. Disclose as a second-evaluator empty-start 2×2.
 
-## Reporting
+**Contrasts (descriptive):** policy @ stub and @ live; leftover @ minfit and
+@ uniform. Do **not** treat locked H5 `llm_stub` / `llm_hints` (uniform, 32.5k,
+ceiling) as two cells of this grid.
 
-Descriptive. Not a new Holm family. Does not identify CA Holm +15.09.
-Manuscript stays one-evaluator until Phase B exists **or** Phase A is
-NO-GO and is written as a bound.
+**Launch:**
+
+```bash
+./scripts/run_rq1_maze_factorial_nohup.sh
+# override: MAZE_FACTORIAL_WORKERS=4 ./scripts/run_rq1_maze_factorial_nohup.sh
+```
+
+Progress: `python scripts/analyze_rq1_maze_factorial.py`
+
+**Reporting:** Descriptive. Not a new Holm family. Does not identify CA Holm
++15.09. Manuscript stays one-evaluator until this grid completes; then a maze
+2×2 bound, not a new primary RQ.

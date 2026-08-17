@@ -174,6 +174,10 @@ def _infer_condition(run_dir: Path) -> str:
         "llm_stub",
         "llm_hints",
         "llm_hints_filter",
+        "llm_stub_minfit",
+        "llm_stub_uniform",
+        "llm_hints_minfit",
+        "llm_hints_uniform",
     }
     for part in run_dir.parts:
         if part in known:

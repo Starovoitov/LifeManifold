@@ -97,7 +97,8 @@ class MazeLlmEmitter:
         if prompt_mode not in ("stub", "hints"):
             raise ValueError("prompt_mode must be stub or hints")
         self.prompt_mode = prompt_mode
-        self.config = load_llm_config(llm_spec_path)
+        self.llm_spec_path = Path(llm_spec_path)
+        self.config = load_llm_config(self.llm_spec_path)
         self.call_llm_text = call_llm_text
         self.system_prompt = system_prompt_path.read_text(encoding="utf-8")
         self.user_prompt = user_prompt_path.read_text(encoding="utf-8")

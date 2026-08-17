@@ -1,0 +1,15 @@
+schema_version: "maze-1.0"
+# RQ1 maze Phase B: stub × min_fitness_frontier. Empty archive, 5k slots.
+# Dated OpenAI spec is passed by the batch tier, not this file.
+# Protocol: artifacts/Q1_RQ1_SECOND_DOMAIN.md
+# Does not amend Holm H5. Do not reuse maze_scheduler_llm_stub.yaml (650 iters).
+condition: llm_stub_minfit
+target_selection: min_fitness_frontier
+iterations: 100
+batch_size: 50
+archive_resolution: 30
+initial_random_candidates: 100
+llm_prompt_mode: stub
+surrogate_checkpoint: null
+acquisition:
+  mode: off
