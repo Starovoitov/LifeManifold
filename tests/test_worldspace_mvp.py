@@ -633,6 +633,126 @@ class TestWorldSpaceMVP(unittest.TestCase):
                         )
         self.assertIn("IncompleteRead", str(ctx.exception))
 
+    def test_call_llm_messages_retries_cloudflare_520(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        llm_body = {"choices": [{"message": {"content": "{}"}}]}
+        fake_cm = MagicMock()
+        fake_cm.__enter__.return_value.read.return_value = json.dumps(
+            llm_body, ensure_ascii=True
+        ).encode("utf-8")
+        cloudflare = HTTPError(
+            "https://api.openai.com/v1/chat/completions",
+            520,
+            "<none>",
+            None,
+            BytesIO(b""),
+        )
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[cloudflare, fake_cm],
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep") as m_sleep:
+                    from worldspace.generators import call_llm_messages
+
+                    out = call_llm_messages(
+                        mode="remote",
+                        provider_name="qwen",
+                        providers=providers,
+                        messages=[{"role": "user", "content": "ping"}],
+                    )
+
+        self.assertEqual(out, "{}")
+        self.assertEqual(m_open.call_count, 2)
+        m_sleep.assert_called_once()
+
+    def test_call_llm_messages_http_400_is_not_retried(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        bad = HTTPError(
+            "https://api.openai.com/v1/chat/completions",
+            400,
+            "Bad Request",
+            None,
+            BytesIO(b""),
+        )
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=bad,
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep") as m_sleep:
+                    from worldspace.generators import call_llm_messages
+
+                    with self.assertRaises(RuntimeError) as ctx:
+                        call_llm_messages(
+                            mode="remote",
+                            provider_name="qwen",
+                            providers=providers,
+                            messages=[{"role": "user", "content": "ping"}],
+                        )
+
+        self.assertEqual(m_open.call_count, 1)
+        m_sleep.assert_not_called()
+        self.assertIn("LLM request failed: HTTP 400", str(ctx.exception))
+
+    def test_call_llm_messages_http_520_exhausts_to_request_failed(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        spec_path = (
+            Path(__file__).resolve().parent.parent
+            / "worldspace"
+            / "specs"
+            / "llm_world_generator.yaml"
+        )
+        providers = load_llm_generator_yaml(spec_path)["llm"]["providers"]
+        cloudflare = HTTPError(
+            "https://api.openai.com/v1/chat/completions",
+            520,
+            "<none>",
+            None,
+            BytesIO(b""),
+        )
+
+        with patch.dict(os.environ, {"QWEN_API_KEY": "test-qwen-key"}):
+            with patch(
+                "worldspace.generators.request.urlopen",
+                side_effect=[cloudflare, cloudflare, cloudflare],
+            ) as m_open:
+                with patch("worldspace.generators.time.sleep"):
+                    from worldspace.generators import call_llm_messages
+
+                    with self.assertRaises(RuntimeError) as ctx:
+                        call_llm_messages(
+                            mode="remote",
+                            provider_name="qwen",
+                            providers=providers,
+                            messages=[{"role": "user", "content": "ping"}],
+                        )
+
+        self.assertEqual(m_open.call_count, 3)
+        self.assertIn("LLM request failed: HTTP 520", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

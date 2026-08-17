@@ -794,7 +794,8 @@ _LLM_HTTP_RETRY_BACKOFF_SECONDS = 2.0
 
 
 def _retryable_llm_http_status(code: int) -> bool:
-    return code in (429, 500, 502, 503, 504)
+    """Retry provider 429/5xx and Cloudflare origin failures (520–524)."""
+    return code in (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
 
 
 def _llm_http_retry_backoff_seconds(attempt: int) -> float:
@@ -858,7 +859,9 @@ def _fetch_llm_response_body(
                 time.sleep(_llm_http_retry_backoff_seconds(attempt))
                 continue
             _commit_transport(attempt)
-            raise RuntimeError(f"LLM HTTP error {exc.code}: {exc.reason}") from exc
+            raise RuntimeError(
+                f"LLM request failed: HTTP {exc.code}: {exc.reason}"
+            ) from exc
         except (
             error.URLError,
             TimeoutError,

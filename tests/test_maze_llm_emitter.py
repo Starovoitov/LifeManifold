@@ -264,6 +264,24 @@ class TestMazeLlmEmitter(unittest.TestCase):
         self.assertEqual(emitter.audit.fallbacks, 1)
         self.assertEqual(emitter.audit.failure_reasons.get("network"), 1)
 
+    def test_persistent_http_520_uses_genetic_fallback(self) -> None:
+        archive, target = _target()
+        emitter = MazeLlmEmitter(
+            prompt_mode="stub",
+            call_llm_text=_ErrorCaller(  # type: ignore[arg-type]
+                "LLM request failed: HTTP 520: <none>"
+            ),
+        )
+        result = emitter.emit(
+            target=target,  # type: ignore[arg-type]
+            archive=archive,
+            rng=np.random.default_rng(6),
+            prediction=None,
+        )
+        self.assertEqual(result.emitter_type, "llm_fallback_genetic")
+        self.assertEqual(emitter.audit.fallbacks, 1)
+        self.assertEqual(emitter.audit.failure_reasons.get("network"), 1)
+
     def test_repair_returns_none_when_corridor_is_fully_blocked(self) -> None:
         parent_rows = ["#" * 16, "#S............G#"] + ["#" * 16] * 14
         parent = MazeSpec(rows=tuple(parent_rows))
