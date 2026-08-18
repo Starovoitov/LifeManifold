@@ -1,9 +1,10 @@
 # RQ1 second-domain attribution — maze, done properly
 
-**Status:** Phase A complete 2026-08-17 (10/10). **GO** for Phase B.
+**Status:** Phase A complete 2026-08-17 (10/10). Phase B complete 2026-08-18 (**40/40**).
 Primary @ 5k: minfit **16.79 ± 3.29%** vs frozen uniform **56.98 ± 4.47%**;
 Δ **−40.19 ± 4.13 pp** (10/10). Readout: [`experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md`](experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md).
-Phase B **launched** 2026-08-17 (`q1-rq1-maze-factorial`; empty archive; 5k).
+Phase B LLM 2×2: policy **+39.10 / +39.31 pp** (10/10); leftover **+0.02 / +0.23 pp**.
+Readout: [`experiments/q1-rq1-maze-factorial/ANALYSIS.md`](experiments/q1-rq1-maze-factorial/ANALYSIS.md).
 **Does not amend** Holm H5, locked maze arms, CA RQ1, or genetic H2.
 
 Maze H5 is a hard-gate transfer family. This protocol is a **policy × soft**
@@ -122,5 +123,14 @@ ceiling) as two cells of this grid.
 Progress: `python scripts/analyze_rq1_maze_factorial.py`
 
 **Reporting:** Descriptive. Not a new Holm family. Does not identify CA Holm
-+15.09. Manuscript stays one-evaluator until this grid completes; then a maze
-2×2 bound, not a new primary RQ.
++15.09. Manuscript: maze 2×2 bound, not a new primary RQ.
+
+### Result (2026-08-18)
+
+**40/40.** Terminal coverage @ 5k (empty): stub minfit **5.10 ± 0.83%** /
+stub uniform **44.20 ± 3.52%** / hints minfit **5.12 ± 0.81%** / hints
+uniform **44.43 ± 3.68%**. Policy **+39.10 ± 3.38** / **+39.31 ± 3.97 pp**
+(10/10 both soft levels). Leftover **+0.02 ± 0.14** @ minfit (5/2/3);
+**+0.23 ± 3.42** @ uniform (5/4/1). Same inversion as CA (policy dominates;
+scalars do not). Magnitudes are maze empty-start @ 5k, not CA continuation
+pp. Details: [`ANALYSIS.md`](experiments/q1-rq1-maze-factorial/ANALYSIS.md).

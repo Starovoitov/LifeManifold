@@ -96,6 +96,10 @@ artifacts/**
 !artifacts/experiments/q1-v4-dungeon-rerun/ANALYSIS.md
 !artifacts/experiments/q1-v4-dungeon-rerun/summary.csv
 !artifacts/experiments/q1-v4-dungeon-rerun/v4_dungeon_statistics.json
+!artifacts/experiments/q1-rq1-maze-factorial/
+!artifacts/experiments/q1-rq1-maze-factorial/ANALYSIS.md
+!artifacts/experiments/q1-v5-maze-genetic-minfit/
+!artifacts/experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md
 
 # Environment / secrets (never commit)
 .env
