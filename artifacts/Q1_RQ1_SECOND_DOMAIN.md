@@ -25,7 +25,9 @@ genetic seed 0, Spearman \(\rho(f,\mathrm{path}){\approx}0.89\),
 \(\rho(f,\mathrm{branch}){\approx}0.42\). Operators preserve solvability
 (no \(f{=}0\) unsolvable dump).
 
-Dungeon is the same PCG-BFS family. Sphere has no LLM. Neither is Phase A.
+Dungeon is the same PCG-BFS family. Sphere H2 has no LLM; the Sphere H1
+2×2 is a separate protocol: [`Q1_RQ1_SPHERE_DOMAIN.md`](Q1_RQ1_SPHERE_DOMAIN.md).
+Neither is this maze Phase A.
 
 ## Phase A — genetic policy probe (cheap, required)
 

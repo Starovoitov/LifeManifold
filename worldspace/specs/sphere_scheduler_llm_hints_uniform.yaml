@@ -1,0 +1,13 @@
+schema_version: "sphere-rq1-1.0"
+# RQ1 Sphere Phase B: live parent-level scalars × uniform_frontier. Empty, 5k.
+# Protocol: artifacts/Q1_RQ1_SPHERE_DOMAIN.md
+condition: llm_hints_uniform
+target_selection: uniform_frontier
+iterations: 100
+batch_size: 50
+archive_dims: [100, 100]
+solution_dim: 20
+sigma: 0.5
+initial_random_candidates: 100
+llm_prompt_mode: hints
+surrogate_checkpoint: artifacts/surrogate/sphere_h1_mlp.joblib

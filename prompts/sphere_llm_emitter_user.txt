@@ -1,0 +1,17 @@
+Target behavior cell:
+- measure_0 (sum of coords 0-9): {target_m0:.3f}
+- measure_1 (sum of coords 10-19): {target_m1:.3f}
+
+Parent observed objective (0-100, higher better): {parent_objective:.4f}
+Parent measures: {parent_m0:.3f}, {parent_m1:.3f}
+
+Surrogate estimate for the parent:
+- predicted fitness: {surrogate_fitness:.4f}
+- uncertainty: {surrogate_uncertainty:.4f}
+
+Parent solution (20 floats):
+{parent_json}
+
+Return 20 deltas that locally mutate the parent toward the target cell.
+Returning an all-zero or too-small mutation is invalid. Return the deltas
+JSON object and no explanation.

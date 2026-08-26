@@ -1,0 +1,14 @@
+schema_version: "sphere-rq1-1.0"
+# RQ1 Sphere Phase B: stub × min_fitness_frontier. Empty archive, 5k.
+# Dated OpenAI spec is passed by the batch tier, not this file.
+# Protocol: artifacts/Q1_RQ1_SPHERE_DOMAIN.md
+condition: llm_stub_minfit
+target_selection: min_fitness_frontier
+iterations: 100
+batch_size: 50
+archive_dims: [100, 100]
+solution_dim: 20
+sigma: 0.5
+initial_random_candidates: 100
+llm_prompt_mode: stub
+surrogate_checkpoint: null

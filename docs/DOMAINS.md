@@ -12,7 +12,7 @@ The packages below reuse the same QD ideas (archive, emitters, optional surrogat
 | --- | --- | --- | --- |
 | Maze | `worldspace/mazes/` | `scripts/run_maze_qd.py` | `worldspace/specs/maze_scheduler_*.yaml` |
 | Dungeon | `worldspace/dungeons/` | `scripts/run_dungeon_qd.py` | `worldspace/specs/dungeon_scheduler_*.yaml` |
-| Analytic Sphere | `worldspace/benchmarks/` | `scripts/run_sphere_h2.py` (and related) | N/A (CLI flags) |
+| Analytic Sphere | `worldspace/benchmarks/` | `scripts/run_sphere_h2.py` (H2 gate); `scripts/run_sphere_rq1.py` (H1 2×2) | `worldspace/specs/sphere_scheduler_*.yaml` (RQ1) |
 
 **Also out of the main CLI:** pyribs / CMA baselines under `worldspace/illuminators/pyribs_*.py`, `discrete_cma_emitter.py`, `pbcma_emitter.py`, launched via `scripts/run_pyribs_*.py`.
 
