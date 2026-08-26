@@ -67,6 +67,7 @@ uv run python -m worldspace \
 | --- | --- |
 | [Domains](docs/DOMAINS.md) | Maze / dungeon / sphere runners (not main CLI) |
 | [Formulas](docs/FORMULAS.md) | Metrics and fitness definitions |
+| [Protocol freeze timeline](artifacts/PROTOCOL_FREEZE_TIMELINE.md) | Lock / extension / reporting ledger (not in the journal PDF) |
 
 ## License
 

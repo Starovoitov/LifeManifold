@@ -46,10 +46,25 @@ cp -a artifacts/EXPERIMENT_PROTOCOL_Q1.md \
       artifacts/EXPERIMENT_PROTOCOL_Q1_v4.md \
       artifacts/EXPERIMENT_PROTOCOL_Q1_v5.md \
       "${STAGE}/protocols/" 2>/dev/null || true
-# Task lists that lock amended confirmatory paths
-for f in artifacts/Q1_H3_GRAY_ZONE_CONFIRMATORY.md artifacts/Q1_H2_RANKING_CONTROLS.md; do
+# Task lists that lock amended confirmatory / extension paths
+for f in \
+  artifacts/Q1_H3_GRAY_ZONE_CONFIRMATORY.md \
+  artifacts/Q1_H2_RANKING_CONTROLS.md \
+  artifacts/Q1_H2_ORACLE_REPLAY.md \
+  artifacts/Q1_H1_POLICY_X_HINT.md \
+  artifacts/Q1_H1H2_MIXED_STACK_2X2.md \
+  artifacts/Q1_COLD_START_SMOKE.md \
+  artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md \
+  artifacts/Q1_RQ1_SECOND_DOMAIN.md \
+  artifacts/Q1_H1_CHILD_REWRITE.md \
+  artifacts/Q1_H1_PLACEBO_LOCK.md \
+  artifacts/Q1_H1_PLACEBO_INTERLEAVED.md \
+  artifacts/PROTOCOL_FREEZE_TIMELINE.md
+do
   if [[ -f "${f}" ]]; then
     cp -a "${f}" "${STAGE}/protocols/"
+  else
+    echo "WARN: missing ${f}" >&2
   fi
 done
 
@@ -85,6 +100,17 @@ TIERS=(
   q1-cvt
   q1-v3-sphere
   q1-v3-rastrigin
+  # After 2026-07-31 Zenodo snapshot (DOI 10.5281/zenodo.21727011); cited in the manuscript
+  q1-h1-policy-x-hint
+  q1-v3-mixed-2x2
+  q1-v3-mixed-2x2-cold-smoke
+  h2-oracle-replay
+  q1-rq1-contemporaneous
+  q1-rq1-maze-factorial
+  q1-v5-maze-genetic-minfit
+  q1-h1-child-rewrite-pilot
+  q1-h1-placebo-pilot
+  q1-h1-placebo-interleaved
 )
 for t in "${TIERS[@]}"; do
   stage_dir "artifacts/experiments/${t}" "${STAGE}/experiments"
@@ -183,9 +209,18 @@ prospective OSF/Zenodo pre-registration of runs that already completed.
 | Sphere H2 transfer | supplementary | \`q1-v3-sphere-h2\` + \`checkpoints/sphere_h2_mlp.joblib\` |
 | CVT sensitivity | descriptive | \`q1-cvt\` |
 | Compose-gate / hold-out | 2026-07-28 | \`surrogate/*.json\` |
+| H1 policy×hint missing cell | 2026-08-09 | \`q1-h1-policy-x-hint\` |
+| Mixed-stack 2x2 | 2026-08-01 lock | \`q1-v3-mixed-2x2\` |
+| H2 oracle / true-fitness replay | descriptive | \`h2-oracle-replay\` |
+| Cold mixed 2x2 | 2026-08-10 | \`q1-v3-mixed-2x2-cold-smoke\` |
+| Calendar-blocked RQ1 2x2 | 2026-08-13 | \`q1-rq1-contemporaneous\` |
+| Maze genetic Phase A (headroom) | 2026-08-17 | \`q1-v5-maze-genetic-minfit\` |
+| Maze empty RQ1 2x2 | 2026-08-17 | \`q1-rq1-maze-factorial\` |
+| H1 Path A / placebo (appendix K) | demoted | \`q1-h1-child-rewrite-pilot\`, \`q1-h1-placebo-*\` |
 
-Amendment kinds (Lock / Extension / Reporting): see manuscript appendix
-and \`protocols/EXPERIMENT_PROTOCOL_Q1_v3.md\` §12.
+Amendment kinds (Lock / Extension / Reporting): see
+\`protocols/PROTOCOL_FREEZE_TIMELINE.md\` and
+\`protocols/EXPERIMENT_PROTOCOL_Q1_v3.md\` §12.
 EOF
 
 cat > "${STAGE}/README.md" << EOF
@@ -198,10 +233,15 @@ cat > "${STAGE}/README.md" << EOF
 
 Curated snapshot of:
 
-- dated experiment protocol files (v2–v5) + H3 gray-zone task list,
+- dated experiment protocol files (v2–v5) + task lists for H3 gray-zone,
+  mixed-stack / cold 2x2, calendar-blocked RQ1, maze empty RQ1,
+  policy×hint, H2 ranking/oracle, Path A / placebo, and
+  \`PROTOCOL_FREEZE_TIMELINE.md\`,
 - paper-relevant experiment tiers under \`experiments/\` (main claims **and**
   appendix packages that report numbers: dungeon CPU@32.5k, encoding / pbCMA,
-  anytime ladder, CVT, B3 sphere/rastrigin, Sphere H2, maze cost wall),
+  anytime ladder, CVT, B3 sphere/rastrigin, Sphere H2, maze cost wall,
+  calendar-blocked RQ1, maze empty 2x2, mixed/cold 2x2,
+  policy×hint, H2 oracle replay, Path A / placebo),
 - surrogate checkpoints (\`nightly_v3_mc_d005\`, \`maze_v1\`, \`sphere_h2_mlp.joblib\`),
 - offline compose-gate / hold-out / filter-replay JSON under \`surrogate/\`,
 - maze wall-time microbench (\`mazes/walltime/\`),
@@ -212,10 +252,11 @@ Curated snapshot of:
 ## What this is not
 
 - Not a claim that every historical run was prospectively registered on Zenodo.
-- Not the full \`artifacts/\` tree. Still omitted (by design): exploratory prompt
-  pilots (\`q1-hints-*\`, weak-LLM), smoke/gate/shadow dungeon–maze tiers,
-  and the bulky \`q1-h2-threshold-sensitivity\` matrix (~0.6 GB). Those do not
-  drive confirmatory pass/fail; re-run from the pinned GitHub commit if needed.
+- Not the full \`artifacts/\` tree. Still omitted (by design): exploratory
+  prompt screens (\`q1-hints-*\`, weak-LLM), smoke/gate/shadow dungeon–maze
+  tiers, and the bulky \`q1-h2-threshold-sensitivity\` matrix (~0.6 GB). Those
+  do not drive confirmatory pass/fail; re-run from the pinned GitHub commit
+  if needed.
 - Code and schedulers live in the public GitHub repo; pin the same commit SHA.
 
 ## Layout notes

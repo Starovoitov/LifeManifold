@@ -86,14 +86,18 @@
 \cortext[cor1]{Corresponding author}
 
 \begin{abstract}
-Matching target selection reverses a bundled LLM-emitter coverage gain in quality-diversity (QD) MAP-Elites. On a structured-genotype cellular automaton we continue a shared warm-start of $971$ niches / $38.84\%$ coverage. Live hints appear to beat a constant-scalar stub by about $15$ percentage points (pp) of terminal coverage. That gap collapses to $+0.26$~pp when both arms use the same target-selection policy: the tested parent-level prompt scalars added little coverage. Unmatched target selection had attributed the $15$~pp to the prompt; the size of the policy contrast is consistent with this fitness--descriptor geometry. The same collapse appears on five independently built floors of that occupancy (policy ${\approx}{+}15$~pp; leftover $+0.29$~pp; shuffle leftover $+0.28$~pp) and on a second, empty-archive maze evaluator (policy ${\approx}{+}39$~pp at $5$k; leftover $+0.02$/$+0.23$~pp). A genetic threshold gate further improves evaluation efficiency, but not terminal or wall-clock performance on this inexpensive cellular-automaton evaluator.
+In quality-diversity (QD) MAP-Elites, an improvement from a language-model emitter is often attributed to the prompt itself. But the emitter also brings an archive policy, a warm-start, and a budget---each of which can change coverage. Here we show that this error can be substantial.
+
+On a structured-genotype cellular automaton we continue a shared archive of $971$ niches ($38.84\%$ coverage). Live parent-level surrogate scalars appear to beat a constant-scalar stub by about $15$ percentage points (pp). After both arms use the same target-selection policy, only $+0.26$~pp remains. The $15$~pp had been credited to the prompt; they came from unmatched policy. That policy gap fits this evaluator's fitness--descriptor geometry. Five independently built floors of the same occupancy repeat the split (policy ${\approx}{+}15$~pp; leftover $+0.29$~pp; shuffle leftover $+0.28$~pp). An empty-archive maze, a second evaluator of our own, shows the same pattern (policy ${\approx}{+}39$~pp at $5$k; leftover $+0.02$/$+0.23$~pp). These figures describe this warm-started configuration.
+
+The cellular automaton is cheap to simulate. On it, a genetic threshold gate skips evaluations and raises coverage at a matched evaluation count, but it does not raise terminal coverage or shorten wall-clock time.
 \end{abstract}
 
 \begin{highlights}
-\item Bundled +15.09 pp collapses to +0.26 pp when policy is matched.
-\item Calendar-blocked 2x2: policy ~15 pp; tested scalars add little.
-\item Hard gating buys eval efficiency, not wall, on this cheap CA.
-\item Same stack, two controls: opposite attribution conclusions.
+\item Matching policy turns a +15.09 pp gap into +0.26 pp.
+\item On five floors, policy is ~15 pp; the tested scalars add little.
+\item On this cheap CA, gating saves evaluations, not wall time.
+\item Unmatched and matched controls point to opposite causes.
 \end{highlights}
 
 \begin{keyword}
@@ -105,27 +109,27 @@ Matching target selection reverses a bundled LLM-emitter coverage gain in qualit
 \section{Introduction}
 \label{sec:intro}
 
-A measured quality-diversity (QD) gain on an LLM emitter is not automatically a gain from the channel it is attributed to. The emitter arrives with a prompt, a target-selection policy, a warm-start archive, and a budget convention, and any of those can produce the gap. On a controlled structured-genotype MAP-Elites testbed the attribution error is large. Historical \texttt{stub} fills constant placeholders ($0.5$/$1.0$) where live \texttt{hints} writes parent-level surrogate scalars (\S\ref{sec:surrogate-method}). The $15$~pp coverage difference initially suggests that hints outperform the stub. However, the difference nearly disappears when both arms use the same target-selection policy. Under both archive policies, the residual contribution of the parent-level prompt scalars is near zero (\S\ref{sec:decomposition}).
+Large language models are now used as variation operators and emitters in quality-diversity (QD) search. MAP-Elites keeps the best elite in each behavioural niche~\cite{mouret2015illuminating}; an LLM can propose the next genome from a parent and a prompt~\cite{lehman2023openelm,nasir2024llmatic,lim2024llmqd}. When coverage rises after that swap, researchers often credit the language model: the prompt, the scalars it receives, the edits it writes. The emitter also changes the archive policy, the warm-start, the budget, and the representation. Any of those can change coverage too. Matching those factors is ordinary experimental practice in evolutionary computation~\cite{eiben2011parameter,bartzbeielstein2006experimental}. With an LLM they are easy to miss, because several of them sit in one configuration file.
 
-An LLM emitter is not just a prompt. It also involves target selection, representation, floating model state, and evaluation budget. Fair comparisons, matched budgets, disclosed initialization, and configuration hygiene are standard experimental concerns in EC~\cite{eiben2011parameter,bartzbeielstein2006experimental}. Because these factors travel with the operator, a pipeline-level swap can change several factors at once, making it difficult to attribute an observed gain to the claimed channel. Appendix Table~\ref{tab:audit-checklist} records the experimental controls used here.
+This paper looks at one such case in a MAP-Elites setup we control. The historical comparison swapped a whole pipeline: \texttt{hints} writes live parent-level surrogate scalars into the prompt, while \texttt{stub} fills constant placeholders ($0.5$/$1.0$; \S\ref{sec:surrogate-method}). The two arms also used different \texttt{target\_selection} rules. On a structured-genotype cellular automaton, continuing a shared warm-start of $971$ niches ($38.84\%$ coverage), live hints appear to beat the stub by $+15.09$ percentage points (pp) of terminal coverage. Once the archive policy is the same, almost all of that gap is gone. Under \texttt{uniform\_frontier} the leftover is $+0.26$~pp (\S\ref{sec:decomposition}). The tested parent-level scalars added little coverage. Unmatched target selection had been read as a prompt effect.
 
-MAP-Elites still spends a black-box rollout on each evaluated candidate~\cite{mouret2015illuminating,gaier2018sail}, while classical SAEAs study how to allocate such evaluation budgets~\cite{jin2005fitness}. These perspectives motivate the two mechanisms we evaluate here (appendix Table~\ref{tab:jin-map}). We ask where the bundled coverage gap belongs once the relevant controls are matched.
+The policy gap is large here for a local reason. Insertion fitness puts weight $w_D{=}0.45$ on diversity $D$, and $D$ is also a behaviour axis, so the lowest-fitness frontier cells are the lowest-diversity ones (\S\ref{sec:fd-coupling}). Picking the worst frontier cell and sampling the frontier uniformly therefore search different parts of the archive. The same two policies, with no LLM at all, still move coverage by $+13.1$~pp.
 
-\textbf{RQ1.} Does matching target selection collapse the bundled LLM ``hints'' coverage gain, or do parent-level prompt scalars retain it?
+The main numbers come from one cellular-automaton evaluator, continued from a partly filled archive rather than built from empty (\S\ref{sec:warm-start-limit}). Five independently built floors of the same occupancy repeat the split (policy ${\approx}{+}15$~pp; leftover $+0.29$~pp; \S\ref{sec:rq1-cf}). A maze with a different genotype and fitness, still our implementation, shows the same pattern from an empty archive (policy ${\approx}{+}39$~pp at $5$k slots; leftover $+0.02$/$+0.23$~pp; Table~\ref{tab:rq1-maze}). We do not treat those maze percentage points as portable, and they are not a published QD domain. The Fontaine Sphere is used only for genetic gating (appendix Table~\ref{tab:sphere-h2}), not for the LLM comparison.
 
-We answer RQ1 on a controlled evaluator (\S\ref{sec:substrate}) using a mid/late continuation from a shared $971$-niche / $38.84\%$ warm-start floor. The primary comparison uses locked Holm / matched-H1 rows from one JSONL; a calendar-blocked $2\times2$ replication uses five independently built floors with the same occupancy (\S\ref{sec:rq1-cf}, \S\ref{sec:warm-start-limit}). Protocol labels \textbf{H1}--\textbf{H5} provide the audit ledger (Table~\ref{tab:h-status}).
+MAP-Elites still calls the simulator on every evaluated candidate~\cite{gaier2018sail}. How to spend that budget is a classical surrogate-assisted question~\cite{jin2005fitness}. On the same cheap cellular automaton we therefore also run a threshold gate on the matched genetic emitter (\S\ref{sec:h2}). That experiment asks whether skipped simulations buy coverage or wall-clock time; it is not a second main claim.
 
-Previous QD and LLM-emitter comparisons motivate matched experimental controls, but the practical size of the resulting attribution error is unclear.
+\textbf{RQ1.} On this setup, does matching target selection remove the bundled hints coverage gain, or do the parent-level prompt scalars keep it?
 
-\textbf{What a practitioner can decide after reading.} Match target selection before crediting an LLM emitter (\S\ref{sec:decomposition}). The tested parent-level scalar augmentation contributed little additional terminal coverage under matched target selection (\S\ref{sec:h1-impl-threat}). Gating is a cost-accounting check (\S\ref{sec:h2}).
+If an LLM emitter is dropped in as a whole pipeline, the first thing to hold fixed is target selection. That is what went wrong here. We are not reviewing other LLM-QD papers.
 
 \subsection{Contributions}
 
 \begin{enumerate}
-  \item \textbf{Attribution of the bundled coverage gain.} A $+15.09$~pp \texttt{stub}-to-\texttt{hints} coverage gap on the shared $38.84\%$ floor largely disappears when target selection is matched: the policy contrast remains ${\approx}{+}15$~pp, while the matched parent-level scalar residual is ${\le}0.3$~pp (\S\ref{sec:decomposition}). A calendar-blocked $2\times2$ on five independent $971$-niche floors replicates this inversion (Table~\ref{tab:rq1-cf}). The result shows that the bundled gain is primarily attributable to target selection rather than the tested parent-level prompt scalars.
-  \item \textbf{Small residual after matching.} On the primary evaluator, the matched parent-level scalar contribution is small (mean $\Delta{=}{+}0.26$~pp; paired 95\% CI $[-0.59,+1.11]$; \S\ref{sec:decomposition}). The corresponding calendar-blocked estimate is $+0.29$~pp (95\% CI $[-0.20,+0.75]$). These results characterize this prompt interface rather than establishing provider-universal equivalence (\S\ref{sec:h1-impl-threat}).
-  \item \textbf{Budget-dependent evaluation gains.} A threshold gate on the matched non-LLM genetic stack skips $33.5\%$ of proposals and improves evaluation-indexed coverage by $+3.65$~pp at $20{,}000$ real evaluations, but reduces terminal coverage by $0.83$~pp at equal slots and increases paired wall time by $13.6$~min (\S\ref{sec:h2}). This shows that surrogate utility depends on the budget axis and evaluator cost. The same evaluation-indexed pattern appears on the Fontaine Sphere (appendix Table~\ref{tab:sphere-h2}).
-  \item \textbf{Scope and transfer.} The primary attribution result concerns a warm-started mid/late continuation on one structured-genotype cellular-automaton evaluator, rather than cold-start illumination (\S\ref{sec:warm-start-limit}). An empty-archive maze experiment reproduces the same qualitative inversion, but its pp magnitudes are not treated as directly portable (Table~\ref{tab:rq1-maze}). Other empty-start and transfer settings are reported as scope boundaries in the appendix.
+  \item \textbf{Where the $+15$~pp went.} A $+15.09$~pp \texttt{stub}-to-\texttt{hints} coverage gap on the shared $38.84\%$ floor largely disappears when target selection is matched: the policy contrast remains ${\approx}{+}15$~pp, while the matched parent-level scalar residual is ${\le}0.3$~pp (\S\ref{sec:decomposition}). A calendar-blocked $2\times2$ on five independent $971$-niche floors repeats this split (Table~\ref{tab:rq1-cf}). On this setup the bundled gain belongs to target selection, not to the tested parent-level prompt scalars.
+  \item \textbf{What remains after matching.} On the primary evaluator, hints $-$ \texttt{stub\_uniform} is $+0.26$~pp (paired 95\% CI $[-0.59,+1.11]$; \S\ref{sec:decomposition}). The calendar-blocked leftover at uniform is $+0.29$~pp (95\% CI $[-0.20,+0.75]$). Both describe this prompt under matched policy.
+  \item \textbf{Gating and the budget axis.} A threshold gate on the matched non-LLM genetic emitter skips $33.5\%$ of proposals and improves evaluation-indexed coverage by $+3.65$~pp at $20{,}000$ real evaluations, but reduces terminal coverage by $0.83$~pp at equal slots and increases paired wall time by $13.6$~min (\S\ref{sec:h2}). Whether the surrogate helps depends on which budget one counts, and on how expensive the simulator is. The same evaluation-indexed pattern appears on the Fontaine Sphere (appendix Table~\ref{tab:sphere-h2}).
+  \item \textbf{Scope.} The main result is a warm-started continuation on one structured-genotype cellular-automaton evaluator. The maze empty $2\times2$ is a second evaluator of our own, not a literature-domain replica (Table~\ref{tab:rq1-maze}). Empty-start and transfer checks in the appendix stay inside that scope.
 \end{enumerate}
 
 \section{Background and related work}
@@ -165,7 +169,7 @@ Main-text claims use three evidence roles (Table~\ref{tab:h-status}):
 
 \begin{table}[!htbp]
   \centering
-  \caption{Reader-facing role of each contrast. Primary contrasts test RQ1 attribution; robustness contrasts qualify the primary claim; supplementary contrasts are exploratory or secondary. Holm family definitions are given in \ref{sec:amendments-appendix}.}
+  \caption{Reader-facing role of each contrast. Primary contrasts test RQ1 attribution; robustness contrasts qualify the primary claim; supplementary contrasts are exploratory or secondary. Holm family definitions stay in the internal protocol (Data availability).}
   \label{tab:role-exp}
   \label{tab:h-status}
   \label{tab:families}
@@ -189,7 +193,7 @@ Main-text claims use three evidence roles (Table~\ref{tab:h-status}):
   \noindent\small\textit{Note:} Evidence role and Holm status are separate classifications.
 \end{table}
 
-The locked families are defined in \ref{sec:amendments-appendix}. Surrogate-informed parent selection is out of scope; archive \texttt{target\_selection} remains the standard MAP-Elites policy.
+The locked families are listed in the internal protocol (Data availability). Surrogate-informed parent selection is out of scope; archive \texttt{target\_selection} remains the standard MAP-Elites policy.
 
 The comparison checks are listed in appendix Table~\ref{tab:audit-checklist}; they instantiate the controls in appendix Table~\ref{tab:rq1-design} rather than defining a separate framework.
 
@@ -248,11 +252,11 @@ Implementation and analysis scripts in the accompanying repository were drafted 
 \section{Experimental protocol}
 \label{sec:protocol}
 
-The evidence role of each contrast is given in Table~\ref{tab:h-status}. Which endpoint uses which test is recorded in appendix Table~\ref{tab:test-map}. Holm families were specified per analysis window in dated internal protocol files, not in an external registry; the lock list is in \ref{sec:amendments-appendix}. Matched H1 is reported as a paired mean coverage difference with a 95\% CI and sits outside those Holm sets. H2 has no Holm family.
+The evidence role of each contrast is given in Table~\ref{tab:h-status}. Which endpoint uses which test is recorded in appendix Table~\ref{tab:test-map}. Holm families were specified per analysis window in dated internal protocol files, not in an external registry (Data availability). Matched H1 is reported as a paired mean coverage difference with a 95\% CI and sits outside those Holm sets. H2 has no Holm family.
 
 \subsection{Design principles}
 
-Primary-grid contrasts share seeds $0$--$9$ within a tier. Pairing therefore controls run-level stochasticity, not the LLM sampler ($T{=}0.2$ and no provider seed; \S\ref{sec:llm-id}). Locked Holm, H1, H2, and H4 arms continue one JSONL warm-start ($971$ niches / $38.84\%$) for $32{,}500$ slots; the $n{=}10$ seeds are continuation RNGs on that floor, not independently built archives. The calendar-blocked $2\times2$ instead uses five independently generated floors of the same occupancy (\S\ref{sec:rq1-cf}). The maze empty $2\times2$ at $5$k is a second-evaluator bound and is not a Holm family (\S\ref{sec:rq1-maze-design}). Holm correction is applied within each family only; a non-reject is fail-to-reject. With $n{=}10$ paired observations, no ties, and unanimous sign, the exact one-sided Wilcoxon signed-rank $p$-value is $2^{-10}{=}9.77\times10^{-4}$. The locked \texttt{stub} vs.\ \texttt{hints} contrast also differs in \texttt{target\_selection}; the H1 comparison holds that policy fixed (\S\ref{sec:decomposition}).
+Primary-grid contrasts share seeds $0$--$9$ within a tier. Pairing therefore controls run-level stochasticity, not the LLM sampler ($T{=}0.2$ and no provider seed; \S\ref{sec:llm-id}). Locked Holm, H1, H2, and H4 arms continue one JSONL warm-start ($971$ niches / $38.84\%$) for $32{,}500$ slots; the $n{=}10$ seeds are continuation RNGs on that floor, not independently built archives. The calendar-blocked $2\times2$ instead uses five independently generated floors of the same occupancy (\S\ref{sec:rq1-cf}). The maze empty $2\times2$ at $5$k is a second-evaluator bound and is not a Holm family (\S\ref{sec:rq1-maze-design}). Holm correction is applied within each family only; a non-reject is fail-to-reject. The locked \texttt{stub} vs.\ \texttt{hints} contrast also differs in \texttt{target\_selection}; the H1 comparison holds that policy fixed (\S\ref{sec:decomposition}).
 
 \subsection{Experimental conditions}
 
@@ -261,7 +265,7 @@ Locked primary-grid arms share a $50\times50$ GridArchive, the same JSONL, and $
 \subsection{Contemporaneous RQ1 factorial}
 \label{sec:rq1-cf-design}
 
-The design is specified in \path{artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md}. Five independent no-LLM floors are truncated at $971$ occupied cells / $38.84\%$ coverage, with two continuation RNG replicates per floor ($10$ blocks). Within each block, five arms run in a deterministic randomized order: \texttt{stub\_minfit}, \texttt{live\_minfit}, \texttt{stub\_uniform}, \texttt{live\_uniform}, and \texttt{shuffled\_uniform}. The shuffled arm is a distribution-matched placebo and is not part of the $2\times2$ interaction. All LLM calls use dated \texttt{gpt-4o-mini-2024-07-18} and are joined to their proposals. The endpoint is terminal new coverage above the floor. Uncertainty is an archive-clustered percentile bootstrap $95\%$ CI. This factorial is not a Holm family and is not a TOST.
+The design is specified in \path{artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md}. Five independent no-LLM floors are truncated at $971$ occupied cells / $38.84\%$ coverage, with two continuation RNG replicates per floor ($10$ blocks). Within each block, five arms run in a deterministic randomized order: \texttt{stub\_minfit}, \texttt{live\_minfit}, \texttt{stub\_uniform}, \texttt{live\_uniform}, and \texttt{shuffled\_uniform}. The shuffled arm is a distribution-matched placebo and is not part of the $2\times2$ interaction. All LLM calls use dated \texttt{gpt-4o-mini-2024-07-18} and are joined to their proposals. The endpoint is terminal new coverage above the floor. Uncertainty is an archive-clustered percentile bootstrap $95\%$ CI (floor unit). This factorial is not a Holm family.
 
 \subsection{Maze empty RQ1 $2\times2$}
 \label{sec:rq1-maze-design}
@@ -273,9 +277,9 @@ The design is specified in \path{artifacts/Q1_RQ1_SECOND_DOMAIN.md}. Maze uses a
 
 The primary endpoints are terminal coverage (occupied niches as a percentage of the $2500$-cell tessellation; \S\ref{sec:coverage-support}) and occupied-bin mean elite fitness. The logged \texttt{mean\_best\_fitness} column is not the archive maximum. QD-score (Eq.~\eqref{eq:qd}) is the coverage$\times$quality companion and is not a Holm endpoint on the CA grid. The endpoint-to-test map is appendix Table~\ref{tab:test-map}.
 
-Unless a caption names a CI, $\pm$ is the sample SD of $n{=}10$ seed-level values (or of the paired $\Delta$). Claim-facing leftover intervals are Student-$t$ 95\% CIs. Table~\ref{tab:rq1-cf} uses archive-clustered percentile bootstrap $95\%$ CIs ($k{=}5$). TOST 90\% CIs remain appendix-only.
+Confirmatory decisions use a one-sided Wilcoxon test with Holm correction within each locked family. Effect estimates that are not Holm decisions---the matched leftover, the calendar-blocked $2\times2$, and the maze empty $2\times2$---are paired mean $\Delta$ with a $95\%$ CI. The resampling unit is the continuation seed on one floor, or the floor archive when $k{=}5$ independent floors. Exploratory companions (post-hoc $\pm 2$~pp TOST, $\mathrm{PPS}$, MDE) are in \ref{sec:stats-appendix}; they do not change the claim-facing numbers.
 
-Locked Holm families use paired seeds, a one-sided Wilcoxon test, and Holm correction within each pre-specified set. Matched-policy H1 reports the paired mean $\Delta$cov and its 95\% CI. The post-hoc $\pm 2$~pp band and TOST are in \ref{sec:stats-appendix}.
+Unless a caption names a CI, $\pm$ is the sample SD of $n{=}10$ seed-level values (or of the paired $\Delta$).
 
 \section{Results}
 \label{sec:results}
@@ -330,7 +334,7 @@ Thus, the matched experiment supports the narrower attribution statement: policy
 
 Table~\ref{tab:rq1-cf} provides a contemporaneous replication of the inversion. It uses five independently built $971$-niche floors, with two continuation blocks per floor, and the dated \texttt{gpt-4o-mini-2024-07-18} model. Call logs are complete for all $50/50$ arms. This is an independent-floor factorial, not a comparison of two historical pipeline tiers. The primary endpoint is new coverage above the floor.
 
-The policy effect is $+14.53$~pp under stub and $+14.82$~pp under live ($10/10$ blocks; archive-clustered 95\% CIs $[+11.8,+18.0]$ and $[+12.2,+18.1]$, respectively). At minfit, the terminal archives of live and stub match in all $10$ blocks: they have the same occupied bins, elite fitness values, and stored genotypes. Equal coverage is therefore a consequence of archive equality, not its definition. Under uniform selection, the leftover is $+0.29$~pp (archive-clustered 95\% CI $[-0.20,+0.75]$; $5/10$). The distribution-matched placebo, \texttt{live\_uniform}$-$\texttt{shuffled\_uniform}, is $+0.28$~pp (archive-clustered 95\% CI $[+0.02,+0.54]$; $6/10$). The observed placebo effect is small relative to target selection and does not provide evidence for a second ${\approx}15$~pp channel. The outer unit is the five floor archives ($k{=}5$); the shuffle interval is a clustered bootstrap CI, not a confirmatory alignment test.
+The policy effect is $+14.53$~pp under stub and $+14.82$~pp under live ($10/10$ blocks; archive-clustered 95\% CIs $[+11.8,+18.0]$ and $[+12.2,+18.1]$, respectively). At minfit, the terminal archives of live and stub match in all $10$ blocks: they have the same occupied bins, elite fitness values, and stored genotypes. Equal coverage is therefore a consequence of archive equality, not its definition. Under uniform selection, the leftover is $+0.29$~pp (archive-clustered 95\% CI $[-0.20,+0.75]$; $5/10$). The distribution-matched placebo, \texttt{live\_uniform}$-$\texttt{shuffled\_uniform}, is $+0.28$~pp (archive-clustered 95\% CI $[+0.02,+0.54]$; $6/10$). The observed placebo effect is small relative to target selection and does not provide evidence for a second ${\approx}15$~pp channel. The outer unit is the five floor archives ($k{=}5$).
 
 Absolute terminal coverage is ${\sim}2$~pp below the one-JSONL historical cells because the floors differ; the contrasts are consistent. Mechanism logs show that LLM, genetic, and random proposals share the same \texttt{select\_target\_cell} implementation. Under minfit, runs visit ${\approx}1.6$ unique targets (normalized entropy $0.16$; consecutive-repeat rate $1.00$), whereas uniform selection visits ${\approx}670$ targets (entropy $0.97$). Stub and live produce the same target distribution when the policy is fixed. The shuffle mismatches the parent $(f,u)$ on $89\%$ of LLM slots ($\mathrm{L1}{=}0.21$) while leaving target entropy unchanged, providing an alignment placebo rather than a second live arm.
 
@@ -398,7 +402,7 @@ Maze fitness is different from the CA $w_D$ formula ($f{=}0.55$ length $+0.30$ b
   }
   \vspace{0.25em}
   \noindent\small\textit{Note:}
-  Contrasts are mean block $\Delta$ with archive-clustered percentile bootstrap $95\%$ CIs. Terminal coverage $=38.84+$ new coverage.
+  Contrasts are mean block $\Delta$ with archive-clustered percentile bootstrap $95\%$ CIs (floor unit). Terminal coverage $=38.84+$ new coverage.
   Policy (uniform $-$ minfit): $+14.53$~pp under stub, $+14.82$~pp under live (both $10/10$; CI $[+11.8,+18.0]$ / $[+12.2,+18.1]$).
   Soft leftover (live $-$ stub): the terminal archives are identical at minfit in all $10$ blocks (same occupied bins, elite fitness values, and stored genotypes); $+0.29$~pp at uniform (95\% CI $[-0.20,+0.75]$; $5/10$).
   Alignment (\texttt{live\_uniform}$-$\texttt{shuffled\_uniform}): $+0.28$~pp (95\% CI $[+0.02,+0.54]$; $6/10$).
@@ -527,7 +531,7 @@ The LLM is one emitter in the H1 stack, not the product under test (\S\ref{sec:c
 
 \begin{enumerate}
   \item \emph{Attribution first.} Before crediting an emitter from a reported gap, re-run the control under matched target selection, warm-start, and budget. On this testbed matching policy removes the $+15$~pp bundled gap (\S\ref{sec:decomposition}; Table~\ref{tab:rq1-cf})---collapse of the attributed channel, not mediation of the Holm $\Delta$.
-  \item \emph{Choose the LLM emitter for the artifact, not the metric.} Editable genotypes can justify the cost; coverage here does not. Hints ($60.4\%$) sit slightly above genetic ME ($59.0\%$ at ${\sim}6$~min) and below discrete CMA-ME / pbCMA / \texttt{rint} (appendix Table~\ref{tab:discrete-cma}). Hard gating is a cost-accounting check on the warm-start floor (\S\ref{sec:h2}; appendix~\S\ref{sec:h2-breakeven}), not a co-equal result, and does not cut API calls on the mixed stack.
+  \item \emph{Choose the LLM emitter for the artifact, not the metric.} Editable genotypes can justify the cost; coverage here does not. Hints ($60.4\%$) sit slightly above genetic ME ($59.0\%$ at ${\sim}6$~min) and below discrete CMA-ME / pbCMA / \texttt{rint} (appendix Table~\ref{tab:discrete-cma}). Hard gating is a wall-clock check on the warm-start floor (\S\ref{sec:h2}; appendix~\S\ref{sec:h2-breakeven}), not a second main result, and does not cut API calls on the mixed stack.
 \end{enumerate}
 
 \subsection{Limitations}
@@ -567,7 +571,7 @@ H2 instantiates an absolute fitness-threshold gate on a shared MLP, not SAIL-sty
 
 \subsubsection{Scope of the evidence}
 
-The protocol freezes were specified per analysis family rather than as a whole-paper external preregistration (\ref{sec:amendments-appendix}). The main evidence concerns RQ1 attribution. H2 is a budget-axis illustration; H4 and maze H5 provide robustness bounds; the maze empty $2\times2$ provides a second-evaluator attribution bound (Table~\ref{tab:rq1-maze}).
+The protocol freezes were specified per analysis family rather than as a whole-paper external preregistration (Data availability). The main evidence concerns RQ1 attribution. H2 is a budget-axis illustration; H4 and maze H5 provide robustness bounds; the maze empty $2\times2$ provides a second-evaluator attribution bound (Table~\ref{tab:rq1-maze}).
 
 \subsection{Future work}
 
@@ -578,16 +582,16 @@ Several natural extensions remain, none of which is required for the policy-coll
 
 We studied a bundled LLM ``hints'' improvement in MAP-Elites and asked whether its apparent coverage gain was attributable to parent-level prompt scalars or to target selection. The first control to check is target selection. On the primary warm-started CA grid, the historical stub$\rightarrow$hints contrast was $+15.09$~pp, but matching target selection reduced the remaining soft contrast to $+0.26$~pp. A contemporaneous calendar-blocked $2\times2$ on five independently generated floors replicated the same separation: target selection contributed $+14.53$/$+14.82$~pp, whereas the remaining live-vs-stub difference was $+0.29$~pp at uniform selection (Table~\ref{tab:rq1-cf}).
 
-The policy effect was also observed without LLM calls ($+13.1$~pp in the matched genetic comparison) and transferred qualitatively to an empty-archive maze evaluator (Table~\ref{tab:rq1-maze}). These results support a scoped attribution conclusion: in this testbed, the bundled LLM improvement was primarily associated with target-selection policy rather than the parent-level scalar hints used by the emitter. They do not establish a provider-independent null for all LLM guidance or a general ranking of QD methods.
+The policy effect was also observed without LLM calls ($+13.1$~pp in the matched genetic comparison) and, qualitatively, on an empty-archive maze (Table~\ref{tab:rq1-maze}). In this setup the bundled LLM improvement went with target-selection policy, not with the parent-level scalars. That is not a claim about every LLM prompt, and it is not a ranking of QD methods.
 
-When an LLM-guided evolutionary system shows an improvement, match target-selection policy before attributing the gain to the LLM interface. H2 provides a separate budget-axis illustration rather than a co-equal performance claim (\S\ref{sec:h2}). Code and experimental artifacts are released at the pinned repository revision \texttt{\SubmissionGitShort}.
+If an LLM emitter is dropped in as a whole pipeline, the first thing to hold fixed is target selection. H2 asks a separate question about evaluation budget, not a second performance claim (\S\ref{sec:h2}). Code and experimental artifacts are released at the pinned repository revision \texttt{\SubmissionGitShort}.
 
 \section*{Data and code availability}
 
 {\sloppy
 \textbf{Code.} Source, scheduler YAMLs, analysis scripts, and protocol files are in the public repository \url{https://github.com/Starovoitov/LifeManifold}. Integrity pin for this revision: tag~\texttt{\SubmissionGitTag}, short SHA~\texttt{\SubmissionGitShort}, full SHA~\texttt{\SubmissionGitFull}. Later manuscript-only commits may advance the default branch without superseding that pin unless a new Zenodo version is minted.
 
-\textbf{Protocols.} Holm families were specified in dated \emph{internal} protocol files before each family's recorded analysis window (primary grid; maze H5; appendix dungeon)---not an externally timestamped pre-registration. Amendment kinds (lock / extension / reporting) and the freeze$\leftrightarrow$data timeline are appendix~\S\ref{sec:amendments-appendix}. Public \texttt{git} history is mutable and is only a supplementary integrity aid alongside the Zenodo pin.
+\textbf{Protocols.} Holm families were specified in dated \emph{internal} protocol files before each family's recorded analysis window (primary grid; maze H5; appendix dungeon)---not an externally timestamped pre-registration. Amendment kinds (lock / extension / reporting) and the freeze$\leftrightarrow$data timeline are in the repository file \path{artifacts/PROTOCOL_FREEZE_TIMELINE.md}; the complete wording log is \path{artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md}~\S12. Public \texttt{git} history is mutable and is only a supplementary integrity aid alongside the Zenodo pin.
 
 \textbf{Artifacts.} Claim-driving experiment tiers, protocol files, and checkpoints for this revision are archived at Zenodo (DOI~\texttt{\ZenodoArtifactsDOI}; \url{https://doi.org/\ZenodoArtifactsDOI}), tied to the same git pin. Batch and statistics entry points are documented in the repository README / protocol files. \textbf{PDF split.} \texttt{scripts/compile\_manuscript.sh both} writes a combined preprint plus a main-text PDF and a Supplementary PDF split at Appendix~A (\texttt{all} $=$ combined only; \texttt{split} / \texttt{glue} $=$ divide or rejoin existing files).
 \par}
@@ -609,16 +613,18 @@ During the preparation of this work the author used Cursor (Composer) to draft a
 \immediate\closeout\appsplitwrite
 \makeatother
 \section*{Supplementary Material}
-\noindent Supplementary statistical details, protocol chronology, additional figures, and locked-family tables.
+\noindent Supplementary statistical details, additional figures, and locked-family tables.
 
 \section{Statistical details}
 \label{sec:stats-appendix}
 
-Table~\ref{tab:h-status} assigns each contrast a main-text role (Primary / Robustness / Supplementary). Table~\ref{tab:test-map} maps each endpoint family to its estimand and test. Role and multiplicity status are orthogonal: matched H1 is a primary RQ1 effect estimate but is not a member of a Holm family. This appendix records Holm-family membership, the TOST apparatus, and selective Kerby $\mathrm{PPS}$.
+Table~\ref{tab:h-status} assigns each contrast a main-text role (Primary / Robustness / Supplementary). Table~\ref{tab:test-map} maps each endpoint family to its estimand and test. Role and multiplicity status are orthogonal: matched H1 is a primary RQ1 effect estimate but is not a member of a Holm family.
+
+Two layers. Locked confirmatory families use a one-sided Wilcoxon test with Holm correction as specified in the internal protocol. Matched leftovers and later factorials are exploratory effect estimates with $95\%$ CIs. TOST, $\mathrm{PPS}$, and MDE are diagnostic companions; they were not locked with those families and do not amend them.
 
 \begin{table}[!htbp]
   \centering
-  \caption{Endpoint $\rightarrow$ test map. Role matches Table~\ref{tab:h-status}; Holm membership is stated in ``Why this test,'' not as a fourth role.}
+  \caption{Endpoint $\rightarrow$ test map. Test is the locked decision rule or the report statistic. Role matches Table~\ref{tab:h-status} and is orthogonal to Holm membership.}
   \label{tab:test-map}
   \scriptsize
   \setlength{\tabcolsep}{3.5pt}
@@ -640,21 +646,16 @@ Table~\ref{tab:h-status} assigns each contrast a main-text role (Primary / Robus
   \noindent\textit{Note:} With $n{=}10$ paired observations, no ties, and all differences of the same sign, the exact one-sided Wilcoxon signed-rank $p$-value is $2^{-10}{=}9.77\times10^{-4}$. That value is a discrete property of the exact test, not evidence of a tiny effect. It applies to the Wilcoxon signed-rank test used in the Holm families, not to a sign test. Holm adjustment then controls the family-wise error rate within each set. Parametric NI /$t$ rows are not bound by that Wilcoxon floor (see Table~\ref{tab:h3-gray-holm}). Dungeon factorial: supplementary (\ref{sec:dungeon-appendix}).
 \end{table}
 
-\paragraph{Multiple-comparison policy.}
-Primary confirmatory decisions use Holm correction within each pre-specified contrast family ($\alpha{=}0.05$). Families are defined separately for the bundled stack, maze H5 AUC, multi-provider bundled replications, gray-zone NI, and dungeon AUC, with membership frozen within the corresponding analysis window. Matched H1 is a primary RQ1 effect estimate but lies outside the confirmatory Holm families; it is reported as a paired mean $\Delta$coverage with a 95\% CI rather than as a Holm decision. H4 is dual-reported: the locked F-RQ4 decision is retained, while the representation-mismatched end-to-end comparison is descriptive (\S\ref{sec:h4}). We do not pool these families into one paper-wide Holm vector; the protocol specifies correction within each pre-specified family, whose contrasts were defined for distinct estimands and analysis windows. The claim-facing primary outcomes remain those specified in Table~\ref{tab:h-status}.
+\subsubsection*{Locked families}
 
-\paragraph{Paired proportion of favorable pairs ($\mathrm{PPS}$; selective).}
-Classic Vargha--Delaney $A_{12}$ is defined for independent samples~\cite{vargha2000new}. On paired seeds Kerby's \emph{paired proportion of favorable pairs}~\cite{kerby2014simple} (common-language effect size for matched pairs~\cite{mcgraw1992cl}) is
-\begin{equation}
-  \mathrm{PPS} \;=\; \frac{\#\{\Delta_i > 0\} + 0.5\,\#\{\Delta_i = 0\}}{n},
-  \label{eq:pps}
-\end{equation}
-where $\Delta_i$ is treatment $-$ control on seed $i$ (for ``less,'' count $\Delta_i < 0$). $\mathrm{PPS}{=}0.5$ is the expected value under a paired null of no systematic sign (ties as half), and coincides with the Sign rate when there are no ties. At $n{=}10$, unanimous contrasts therefore give $\mathrm{PPS}\in\{0,1\}$; main-text tables omit that redundant column and keep Sign. We report $\mathrm{PPS}$ only as a robustness descriptor when it is not $0$ or $1$, or when no Sign column is shown (H4 MAE coverage; H3-gray NI). It is not a propensity score, not an $A_{12}$ cutoff, and not a confirmatory gate (Holm / protocol $d_z$ decide the family outcome).
+Primary confirmatory decisions use Holm correction within each pre-specified contrast family ($\alpha{=}0.05$). Families are defined separately for the bundled stack, maze H5 AUC, multi-provider bundled replications, gray-zone NI, and dungeon AUC, with membership frozen within the corresponding analysis window. Matched H1 is a primary RQ1 effect estimate but lies outside the confirmatory Holm families; it is reported as a paired mean $\Delta$coverage with a 95\% CI rather than as a Holm decision. H4 is dual-reported: the locked F-RQ4 decision is retained, while the representation-mismatched end-to-end comparison is descriptive (\S\ref{sec:h4}). We do not pool these families into one paper-wide Holm vector; the protocol specifies correction within each pre-specified family, whose contrasts were defined for distinct estimands and analysis windows. The claim-facing primary outcomes remain those specified in Table~\ref{tab:h-status}. The exact Wilcoxon floor $2^{-10}$ is recorded in the note to Table~\ref{tab:test-map}.
+
+\subsubsection*{Mean-$\Delta$ interval estimates}
+
+The leftover Student-$t$ $95\%$ CI and the calendar-blocked clustered bootstrap $95\%$ CI estimate the same quantity---a paired mean coverage difference---with different resampling units. On the one-JSONL continuation, the unit is the seed ($n{=}10$). On the calendar-blocked $2\times2$, the unit is the floor archive ($k{=}5$), with two continuation blocks nested in each floor. The maze empty $2\times2$ reports the same paired mean $\Delta$ at the seed. None of these intervals is a Holm decision.
 
 \paragraph{H1 matched residual.}
-Main text \S\ref{sec:decomposition} reports the decision numbers only. This subsection records the inferential companions for the matched leftover.
-
-\textbf{Primary estimand.} On \texttt{qwen-turbo} ($n{=}10$), hints $-$ \texttt{stub\_uniform} mean $\Delta$cov $=+0.26$~pp (SD~$1.19$; paired 95\% CI $[-0.59,+1.11]$; bootstrap 95\% CI $[-0.43,+0.98]$). Table~\ref{tab:decomposition} lists companions. An exploratory paired-$t$ TOST vs.\ a post-hoc $\pm 2$~pp band meets its criterion ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $\subset[-2,2]$) but does \emph{not} upgrade the estimate to a locked in-band claim (\S\ref{sec:limitations}). Wilcoxon $p{=}0.41$ is descriptive only. Retrospective difference-test MDE ${\approx}1.2$~pp (Eq.~\eqref{eq:mde}) is \emph{not} TOST power and not the margin justification.
+On \texttt{qwen-turbo} ($n{=}10$), hints $-$ \texttt{stub\_uniform} mean $\Delta$cov $=+0.26$~pp (SD~$1.19$; paired 95\% CI $[-0.59,+1.11]$; bootstrap 95\% CI $[-0.43,+0.98]$). Both intervals estimate the seed-resampled mean $\Delta$; the $t$ interval is the claim-facing leftover. Diagnostic companions sit in the note to Table~\ref{tab:decomposition}.
 
 \textbf{Random MAP-Elites floor.} Vanilla random MAP-Elites reaches $42.36\pm0.29\%$ terminal coverage; hints $-$ vanilla is $+18.05$~pp ($10/10$; Holm $m{=}2$). That contrast is a bundled floor, not a matched-policy leftover. Figure~\ref{fig:ladder} is a level overview only: the intervals are unpaired $t$ 95\% CIs on arm means, not paired $\Delta$.
 
@@ -665,11 +666,9 @@ Main text \S\ref{sec:decomposition} reports the decision numbers only. This subs
   \label{fig:ladder}
 \end{figure}
 
-\textbf{Why $\pm 2$~pp (substantive).} On a $2500$-cell archive, $\pm 2$~pp $=\pm 50$ cells (${\approx}2\%$ of the grid; ${\approx}3.3\%$ of the observed ${\sim}60\%$ coverage level). The band is a practical indifference threshold for this parent-scalar case study---not from SD$_\Delta$, not for TOST convenience---because it is an order of magnitude below same-stack interventions treated as large (policy contrast ${\approx}{+}14.8$~pp; CMA-ME ${\sim}13$~pp; H2 mid-budget ${\sim}3.7$~pp) and because the LLM soft channel already costs ${\approx}15\times$ wall vs.\ matched genetic ME for only ${\approx}{+}1.4$~pp terminal tip (\S\ref{sec:cost}). Prior resource-screen reuse of the same number is provenance only (Table~\ref{tab:hint-pilots}).
-
 \begin{table}[!htbp]
   \centering
-  \caption{Matched-policy H1 on primary \texttt{qwen-turbo}: \texttt{hints} $-$ \texttt{stub\_uniform} (seeds~0--9, $n{=}10$). Primary estimand $=$ paired mean $\Delta$cov with its 95\% CI. Cell $\pm$ on levels / $\Delta$ is SD across seeds unless the row names a CI. Occupied-bin mean fitness changes denominator with coverage; QD-score is the companion. Post-hoc $\pm 2$~pp / exploratory TOST (90\% CI) are consistency checks only (outside confirmatory Holm; \S\ref{sec:limitations}).}
+  \caption{Matched-policy H1 on primary \texttt{qwen-turbo}: \texttt{hints} $-$ \texttt{stub\_uniform} (seeds~0--9, $n{=}10$). Primary estimand $=$ paired mean $\Delta$cov with its 95\% CI. Cell $\pm$ on levels / $\Delta$ is SD across seeds unless the row names a CI. Occupied-bin mean fitness changes denominator with coverage; QD-score is the companion. The paired and bootstrap $95\%$ CIs estimate the same mean $\Delta$ under seed resampling.}
   \label{tab:decomposition}
   \small
   \fitcenter{%
@@ -683,17 +682,16 @@ Main text \S\ref{sec:decomposition} reports the decision numbers only. This subs
     Mean $\Delta$cov (primary estimand) & $+0.26$~pp (${\approx}6$--$7$ cells; SD~$1.19$~pp) \\
     Paired 95\% CI (mean $\Delta$cov) & $[-0.59, +1.11]$~pp \\
     Bootstrap 95\% CI (mean $\Delta$cov) & $[-0.43, +0.98]$~pp \\
-    Exploratory TOST vs.\ post-hoc $\pm 2$~pp & criterion met ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $\subset[-2,2]$) \\
-    Wilcoxon two-sided (descriptive companion) & $p{=}0.41$ \\
-    Sensitivity MDE (Eq.~\eqref{eq:mde}; difference test) & ${\approx}1.2$~pp at $n{=}10$, $\alpha{=}0.05$, 80\% power \\
     \bottomrule
   \end{tabular}%
   }
+  \vspace{0.25em}
+  \noindent\small\textit{Note:} Diagnostic companions, not claim-facing. Exploratory paired-$t$ TOST vs.\ a post-hoc $\pm 2$~pp band meets its criterion ($p_{\mathrm{TOST}}{=}6.4\times10^{-4}$; 90\% CI $\subset[-2,2]$) but does not upgrade the leftover to a locked in-band claim (\S\ref{sec:limitations}). Wilcoxon two-sided $p{=}0.41$ is descriptive. Retrospective difference-test MDE ${\approx}1.2$~pp (Eq.~\eqref{eq:mde}) is not TOST power and not a margin justification.
 \end{table}
 
 \begin{table}[!htbp]
   \centering
-  \caption{Matched H1 QD / cost companions on primary \texttt{qwen-turbo} ($n{=}10$; descriptive; not TOST/Holm). Cell $\pm$ is SD across seeds (paired $\Delta$ SD in the last column). Occupied-bin mean fitness is not quality on a common occupied support.}
+  \caption{Matched H1 QD / cost companions on primary \texttt{qwen-turbo} ($n{=}10$; descriptive). Cell $\pm$ is SD across seeds (paired $\Delta$ SD in the last column). Occupied-bin mean fitness is not quality on a common occupied support.}
   \label{tab:h1-qd-cost}
   \small
   \fitcenter{%
@@ -714,9 +712,21 @@ Main text \S\ref{sec:decomposition} reports the decision numbers only. This subs
   \noindent\small\textit{Note:} Practical cost contrast is LLM stack vs.\ genetic ME (Table~\ref{tab:cost}), not stub\_uniform vs.\ hints. The wall gap ($137\pm28$ vs.\ $93.6\pm5.5$~min at identical $6{,}500$ calls) is a cross-tier throughput/calendar marker, not a coverage confound: fallback is $0\%$ and coverage SDs stay tight. Eval-indexed soft anytime: Table~\ref{tab:mixed-2x2}.
 \end{table}
 
+\subsubsection*{Diagnostic companions}
+
+\paragraph{Paired proportion of favorable pairs ($\mathrm{PPS}$; selective).}
+Classic Vargha--Delaney $A_{12}$ is defined for independent samples~\cite{vargha2000new}. On paired seeds Kerby's \emph{paired proportion of favorable pairs}~\cite{kerby2014simple} (common-language effect size for matched pairs~\cite{mcgraw1992cl}) is
+\begin{equation}
+  \mathrm{PPS} \;=\; \frac{\#\{\Delta_i > 0\} + 0.5\,\#\{\Delta_i = 0\}}{n},
+  \label{eq:pps}
+\end{equation}
+where $\Delta_i$ is treatment $-$ control on seed $i$ (for ``less,'' count $\Delta_i < 0$). $\mathrm{PPS}{=}0.5$ is the expected value under a paired null of no systematic sign (ties as half), and coincides with the Sign rate when there are no ties. At $n{=}10$, unanimous contrasts therefore give $\mathrm{PPS}\in\{0,1\}$; main-text tables omit that redundant column and keep Sign. We report $\mathrm{PPS}$ only as a robustness descriptor when it is not $0$ or $1$, or when no Sign column is shown (H4 MAE coverage; H3-gray NI). It is not a propensity score, not an $A_{12}$ cutoff, and not a confirmatory gate (Holm / protocol $d_z$ decide the family outcome).
+
+\textbf{Why $\pm 2$~pp (provenance).} The $\pm 2$~pp band first appeared as an internal extend-or-stop gate on $n{\le}3$ resource screens (Table~\ref{tab:hint-pilots}; \S\ref{sec:h1-impl-threat}). Later reuse of that number as a TOST margin is post-hoc and is not a locked equivalence claim. The claim-facing comparison is the leftover $95\%$ CI against the policy $\Delta$ of ${\approx}15$~pp. On a $2500$-cell archive, $\pm 2$~pp is $\pm 50$ cells; that conversion is descriptive.
+
 \begin{table}[!htbp]
   \centering
-  \caption{Matched-policy H1 on additional LLM providers ($n{=}10$; hints $-$ stub\_uniform; outside confirmatory Holm). Claim-facing paired 95\% CIs: \texttt{gpt-4o-mini} $[-0.61,+0.85]$; DeepSeek $[-1.49,+3.53]$. Band check $=$ exploratory paired-$t$ vs.\ post-hoc $\pm 2$~pp using the TOST 90\% CI (not a locked in-band claim).}
+  \caption{Matched-policy H1 on additional LLM providers ($n{=}10$; hints $-$ stub\_uniform). Claim-facing paired 95\% CIs: \texttt{gpt-4o-mini} $[-0.61,+0.85]$; DeepSeek $[-1.49,+3.53]$.}
   \label{tab:h1-matched-providers}
   \small
   \fitcenter{%
@@ -730,14 +740,14 @@ Main text \S\ref{sec:decomposition} reports the decision numbers only. This subs
   \end{tabular}%
   }
   \vspace{0.25em}
-  \noindent\small\textit{Note:} $^\dagger$Do not pool providers. Bootstrap-median TOST is a different estimand. Cook's $D$ / leave-one-out below.
+  \noindent\small\textit{Note:} Wilcoxon $p$ is a companion. Band check $=$ exploratory paired-$t$ vs.\ a post-hoc $\pm 2$~pp band using the TOST 90\% CI, not a locked in-band claim. $^\dagger$Do not pool providers. Bootstrap-median TOST is a different estimand. Cook's $D$ / leave-one-out below.
 \end{table}
 
 Table~\ref{tab:h1-tost-margin} reports margin sensitivity. DeepSeek seed-influence diagnostics follow.
 
 \begin{table}[!htbp]
   \centering
-  \caption{Matched H1 margin sensitivity (hints $-$ stub\_uniform; offline; outside Holm; exploratory only). $\delta_{\min}$ $=$ smallest symmetric band containing the paired-mean 90\% CI---a descriptive precision readout, not a SESOI.}
+  \caption{Diagnostic companion: matched H1 margin sensitivity (hints $-$ stub\_uniform; offline). Claim-facing leftover intervals remain the paired 95\% CIs in Tables~\ref{tab:decomposition} and~\ref{tab:h1-matched-providers}. $\delta_{\min}$ $=$ smallest symmetric band containing the paired-mean 90\% CI---a descriptive precision readout, not a SESOI.}
   \label{tab:h1-tost-margin}
   \small
   \fitcenter{%
@@ -758,6 +768,7 @@ Table~\ref{tab:h1-tost-margin} reports margin sensitivity. DeepSeek seed-influen
 \paragraph{DeepSeek seed influence (appendix sensitivity only).}
 The claim-facing DeepSeek leftover is paired 95\% CI $[-1.49,+3.53]$; the exploratory $n{=}10$ TOST 90\% CI is not contained in the post-hoc $\pm 2$~pp band (Table~\ref{tab:h1-matched-providers}). Seed~8 is the sole high-leverage paired delta (Cook $D_8{\approx}0.85$; rule-of-thumb $4/n{=}0.40$); dropping it is an influence note, not a leave-one-out conclusion at $n{=}10$, and does not amend the provider row or license pooling. That diagnostic is \emph{not} a proxy for floating-alias backend drift on primary \texttt{qwen-turbo} (\S\ref{sec:llm-id}).
 
+\paragraph{MDE (difference-test companion).}
 Separately, as a sensitivity analysis---not TOST power---we report the approximate minimum detectable effect for a two-sided paired $t$-test of H$_0{:}\,\mathrm{mean}\,\Delta{=}0$ at $n$ seeds, $\alpha{=}0.05$, 80\% power:
 \begin{equation}
   \mathrm{MDE} \;=\; \bigl(t_{1-\alpha/2,\,n-1} + t_{0.80,\,n-1}\bigr)\,\frac{\mathrm{SD}_{\Delta}}{\sqrt{n}},
@@ -890,7 +901,7 @@ Main-text \S\ref{sec:related} keeps Jin's taxonomy as \emph{this} stack's topolo
     Ranking vs.\ skip volume & Separate ranking quality from rate-matched skip volume & Absolute-$\tau$ true-fitness-threshold replay; ranking controls (appendix Tables~\ref{tab:h2-oracle-replay}, \ref{tab:h2-ranking-controls}) \\
     Wall-cost decomposition & Price hard gating with skip-conditional sim time, not unconditional $t_{\mathrm{sim}}$ & Eq.~\eqref{eq:h2-breakeven}; constant-$t$ special case only (appendix~\S\ref{sec:h2-breakeven}) \\
     Warm-start / stage disclosure & State initial coverage; $n$ seeds on one floor file are continuation RNG, not archive-to-archive variance & Locked Holm / H1: $971$ niches / $38.84\%$ from one JSONL; calendar-blocked $2\times2$: five independent floors of that occupancy; CA empty mixed $2\times2$; maze empty $2\times2$ @ $5$k (\S\ref{sec:warm-start-limit}, \S\ref{sec:rq1-maze}) \\
-    Role of each contrast & Say whether it is primary, robustness, or supplementary; Holm lock stays in the protocol & Table~\ref{tab:h-status}; appendix~\S\ref{sec:amendments-appendix} \\
+    Role of each contrast & Say whether it is primary, robustness, or supplementary; Holm lock stays in the protocol & Table~\ref{tab:h-status}; Data availability \\
     \bottomrule
   \end{tabular}%
   }
@@ -985,7 +996,7 @@ H4 is a pipeline reference, not RQ1 (\S\ref{sec:h4}). Headline coverage levels f
 
 \begin{table}[!htbp]
   \centering
-  \caption{Pyribs \texttt{rint} CMA-ME reference contrast (H4; robustness): paired CMA $-$ hints. One-sided Wilcoxon tests CMA $>$ hints (companion only). $\mathrm{PPS}$ (Eq.~\eqref{eq:pps}) shown only when not $0$ or $1$; unanimous rows use Sign in the Detail column. Locked F-RQ4 tested hints $>$ CMA and remains FAIL (\ref{sec:amendments-appendix}). Discrete CMA/pbCMA: Table~\ref{tab:discrete-cma}.}
+  \caption{Pyribs \texttt{rint} CMA-ME reference contrast (H4; robustness): paired CMA $-$ hints. One-sided Wilcoxon tests CMA $>$ hints (companion only). $\mathrm{PPS}$ (Eq.~\eqref{eq:pps}) shown only when not $0$ or $1$; unanimous rows use Sign in the Detail column. Locked F-RQ4 tested hints $>$ CMA and remains FAIL (\ref{sec:encoding-appendix}). Discrete CMA/pbCMA: Table~\ref{tab:discrete-cma}.}
   \label{tab:frq-ceiling}
   \small
   \fitcenter{%
@@ -1815,82 +1826,6 @@ Table~\ref{tab:rq1-seeds} expands the bundled stub$\rightarrow$hints stack contr
     \bottomrule
   \end{tabular}%
   }
-\end{table}
-
-\section{Protocol freeze kinds and commit$\leftrightarrow$run timeline}
-\label{sec:amendments-appendix}
-
-\emph{Not required to follow the main argument.} Confirmatory families were specified in dated internal protocol files before the recorded analysis window for each family. This provides an internal audit trail of rule-before-analysis timing, but is \emph{not} an externally timestamped pre-registration (no OSF/AsPredicted lock before data). Public \texttt{git} history and filesystem artifact mtimes are integrity aids; they are \emph{mutable} and are not equivalent to an independent registry timestamp. The \emph{external integrity pin} is the post-hoc Zenodo snapshot for this manuscript revision (DOI~\texttt{\ZenodoArtifactsDOI}); it is an integrity snapshot, not evidence of pre-data registration. This appendix classifies which decisions were freezes, new packages, or reporting-only.
-
-\begin{itemize}
-  \item \textbf{Lock} --- freezes a confirmatory family's endpoints / Holm (or NI) rules in the internal protocol relative to that family's analysis window.
-  \item \textbf{Extension} --- adds a new package or repair path; does not rewrite already-frozen families.
-  \item \textbf{Reporting} --- records an outcome, descriptive case study, or post-hoc TOST on already-collected paired seeds; not a change of locked family rules.
-\end{itemize}
-
-Table~\ref{tab:amendments} lists protocol events that freeze, extend, or reclassify families. Confirmatory Holm families for the bundled stack and dungeon AUC were not redefined by Extension/Reporting rows (H2 was never a Holm family; the 2026-08-09 row only clarifies descriptive status). H4 is the explicit exception: the 2026-08-07 Reporting row is a \emph{methodological category correction} (representation-mismatched \texttt{rint} encoding made confirmatory ``hints $>$ CMA'' a category error from the v3 lock onward), not a post-hoc status demotion after seeing FAIL. Paired deltas are unchanged. \textbf{Dual-report:} under the original locked F-RQ4 (Holm $m{=}4$), the family remains a failure (only \texttt{RQ4\_mae\_fit} rejects; CMA-ME $\Delta$cov mean $-12.96$~pp); the manuscript retains that locked-family outcome and adds the descriptive end-to-end-baseline reading. A former pooled ``paper-wide'' Holm table is withdrawn (2026-08-09): multiplicity stays within-family only. Full protocol wording: \texttt{EXPERIMENT\_PROTOCOL\_Q1\_v3.md} §12.
-
-\begin{table}[!htbp]
-  \centering
-  \caption{Protocol events that freeze, extend, or reclassify families. Wording-only manuscript edits are omitted; the complete chronology is in \texttt{EXPERIMENT\_PROTOCOL\_Q1\_v3.md} §12. Lock = freeze of a confirmatory family; Extension = new package/path; Reporting = status or descriptive/post-hoc analysis only.}
-  \label{tab:amendments}
-  \small
-  \fitcenter{%
-  \begin{tabular}{@{}lllp{5.2cm}@{}}
-    \toprule
-    Date & Kind & Scope & Note \\
-    \midrule
-    2026-07-12 & Lock & Primary-grid §§1--4 / F-RQ0 / F-RQ4 & Document-dated freeze (v3 header) \\
-    2026-07-17 & Lock & Dungeon v4 confirmatory AUC & Bundled stack / H4 wording unchanged \\
-    2026-07-17 & Reporting & Matched H2 genetic filter & Protocol \S3.8 descriptive; no Holm family \\
-    2026-07-22 & Reporting & No external pre-registration declared & Disclosure, not a family rewrite \\
-    2026-07-22 & Extension & Multi-provider bundled $n{=}10$ & Per-provider Holm; not matched H1 \\
-    2026-07-28 & Extension & Hold-out gate$=$0.95; F-RQ3-gray path & Production H3 not confirmatory \\
-    2026-07-29 & Extension & Gray-zone exploratory pilot ($n{=}10$) & Not pooled into production H3 \\
-    2026-07-30 & Extension & Maze H5 confirmatory; Sphere H2; cost wall & Maze mixed; wall descriptive \\
-    2026-07-31 & Reporting & H3-gray outcome; matched H1 TOST & Outcome/descriptive; H3-prod still not confirmatory \\
-    2026-08-07 & Reporting & H4 category correction $\rightarrow$ descriptive ceiling & Representation mismatch made confirmatory Holm $m{=}4$ a category error; deltas unchanged; locked F-RQ4 still FAIL \\
-    2026-08-09 & Reporting & H2 status recorded as descriptive (§3.8) & Manuscript wording; no Holm; does not invent F-RQ2 \\
-    2026-08-09 & Reporting & Withdraw pooled ``paper-wide'' Holm & Incomplete $m{=}16$ vector dropped; multiplicity within-family only \\
-    2026-08-13 & Reporting & Cold mixed $2\times2$ $n{=}10$ readout & Descriptive empty-archive bound; not Holm; does not amend warm H1/H2 \\
-    2026-08-17 & Extension$+$Rep. & Calendar-blocked RQ1 $2\times2$ complete & Five independent floors; dated model; call logs. Not Holm; not TOST; locked families unchanged \\
-    2026-08-18 & Extension$+$Rep. & Maze empty RQ1 $2\times2$ complete & Empty 900-cell archive at $5$k; dated model; call logs. Not Holm; not H5; locked families unchanged \\
-    \bottomrule
-  \end{tabular}%
-  }
-\end{table}
-
-\paragraph{Commit$\leftrightarrow$artifact timeline (claim-driving families).}
-Table~\ref{tab:timeline} records, for each claim-driving family: internal-protocol freeze date; first/last artifact mtime window, used only as a filesystem proxy for the recorded data-generation window; a public git SHA that carries the protocol/analysis text; and amendment class. The external integrity pin applies to every row. Missing by design: a logged ``first result inspection'' timestamp and an independent pre-data registry ID---we do not invent them. Artifact windows are local filesystem mtimes, not wall-clock run logs. Git SHAs are mutable history tips. Where the document freeze date precedes the first commit that carries that freeze text, both are reported---that gap is why an external pre-data stamp would strengthen a later revision.
-
-\begin{table}[!htbp]
-  \centering
-  \caption{Internal freeze versus recorded data window for claim-driving families. Dates \texttt{YYYY-MM-DD} local. The external integrity pin for every row is the post-hoc Zenodo snapshot for this revision; it is not evidence of pre-data registration.}
-  \label{tab:timeline}
-  \small
-  \begin{tabularx}{\linewidth}{@{}
-    >{\raggedright\arraybackslash}p{2.45cm}
-    >{\raggedright\arraybackslash}p{2.05cm}
-    >{\raggedright\arraybackslash}X
-    >{\raggedright\arraybackslash}p{2.05cm}
-    >{\raggedright\arraybackslash}p{2.15cm}
-    @{}}
-    \toprule
-    Family & Internal freeze & Data window & Git SHA & Kind \\
-    \midrule
-    Bundled stub/hints & v2 & \texttt{q1-full}\newline 06-29--07-28 & historical & Lock$^\ast$ \\
-    H4 (F-RQ4) & 2026-07-12 & \texttt{q1-v3-pyribs}\newline 07-12--07-13 & v3 freeze text & Lock; later Reporting$^\S$ \\
-    H2 genetic filter & 2026-07-17 & \texttt{genetic\_me\_*}\newline 07-16--07-17 & matched-H2 window & Descriptive$^\P$ \\
-    Dungeon AUC (app.) & 2026-07-17 & \texttt{q1-v4-dungeon}\newline 07-17--07-22 & v4 lock & Lock \\
-    Maze H5 (F-B5) & v5, before readout & \texttt{q1-v5-maze}\newline 07-24--07-30 & \texttt{0d28707} & Lock \\
-    H3-gray & 2026-07-28 path & confirmatory\newline 07-30--07-31 & \texttt{07d9550}\newline\texttt{716f7c3} & Ext.$+$Reporting \\
-    Matched H1 TOST & --- (post-hoc) & \texttt{stub\_uniform} / LLM (prior) & reporting commits & Reporting \\
-    Calendar-blocked $2\times2$ & 2026-08-13 & \texttt{q1-rq1-cf}\newline 08-13--08-17 & protocol lock & Extension$^\dagger$ \\
-    Maze empty $2\times2$ & 2026-08-17 & \texttt{q1-rq1-maze}\newline 08-17--08-18 & protocol lock & Extension$^\ddagger$ \\
-    \bottomrule
-  \end{tabularx}
-  \vspace{0.2em}
-  \noindent\small\textit{Note:} $^\ast$Bundled stack locked in v2 internal protocol; not a matched-H1 TOST lock. $^\S$H4 was locked as confirmatory Holm $m{=}4$ on 2026-07-12 (encoding asymmetry disclosed in the same freeze). Reporting row 2026-08-07 is a category correction to a descriptive ceiling---not a demotion of an inconvenient reject: paired deltas unchanged; locked F-RQ4 remains a failure (dual-report). $^\P$Matched genetic H2 is protocol \S3.8 \emph{descriptive} (no Holm family); Kind is not a confirmatory lock. The mtime window starts 16~Jul, one day before the 17~Jul DONE text---an internal-audit overlap, not a silent upgrade to confirmatory. $^\dagger$Calendar-blocked RQ1 $2\times2$ is a locked extension (not a Holm family; not TOST). $^\ddagger$Maze empty RQ1 $2\times2$ is a locked extension (not a Holm family; not H5; not CA occupancy). Amendments that touch a family are listed in Table~\ref{tab:amendments}. First-inspection time not logged. \emph{Reading rule.} A Lock row plus a data window that starts at or after the freeze date supports the claim that the documented rules preceded the recorded artifact window, but does not establish when results were first inspected. H2 is not a Lock row. An Extension row must not be read as reopening H2. A Reporting row (including matched H1 TOST) must not be read as a new confirmatory family. The H4 Reporting row specifically corrects the \emph{category} of a representation-mismatched confirmatory hypothesis (continuous-relaxation encoding); it does not erase the locked F-RQ4 dual-report.
 \end{table}
 
 \section{CVT archive sensitivity}
