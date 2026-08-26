@@ -25,7 +25,9 @@ EXPECTED_MODEL = "gpt-4o-mini-2024-07-18"
 def _load_summaries(root: Path) -> dict[str, dict[int, dict]]:
     by_arm: dict[str, dict[int, dict]] = {arm: {} for arm in ARMS}
     for arm in ARMS:
-        for summary_path in sorted((root / arm).glob("seed_*/nightly_run_summary.json")):
+        for summary_path in sorted(
+            (root / arm).glob("seed_*/nightly_run_summary.json")
+        ):
             payload = json.loads(summary_path.read_text(encoding="utf-8"))
             by_arm[arm][int(payload["seed"])] = payload
     return by_arm
@@ -43,7 +45,9 @@ def _fmt(values: list[float]) -> str:
     return f"{mean(values):.2f} ± {pstdev(values):.2f}"
 
 
-def _paired(left: dict[int, dict], right: dict[int, dict]) -> tuple[list[int], list[float]]:
+def _paired(
+    left: dict[int, dict], right: dict[int, dict]
+) -> tuple[list[int], list[float]]:
     seeds = sorted(set(left) & set(right))
     return seeds, [_cov_pct(right[s]) - _cov_pct(left[s]) for s in seeds]
 
@@ -59,7 +63,9 @@ def main() -> None:
     root = args.root.resolve()
     by_arm = _load_summaries(root)
     print(f"root={root}")
-    print(f"primary cut = terminal coverage @ {PRIMARY_PROPOSALS} proposals (empty archive)")
+    print(
+        f"primary cut = terminal coverage @ {PRIMARY_PROPOSALS} proposals (empty archive)"
+    )
     print()
     for arm in ARMS:
         rows = by_arm[arm]

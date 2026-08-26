@@ -270,9 +270,7 @@ class MockSphereLlmEmitter:
         max_workers: int = 4,
     ) -> list[SphereEmitterResult]:
         del max_workers
-        return [
-            self.emit(target=job[0], rng=job[1], prediction=job[2]) for job in jobs
-        ]
+        return [self.emit(target=job[0], rng=job[1], prediction=job[2]) for job in jobs]
 
 
 def parse_sphere_deltas(response: str) -> FloatArray:

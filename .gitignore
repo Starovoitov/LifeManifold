@@ -68,6 +68,8 @@ artifacts/**
 !artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md
 !artifacts/Q1_GENETIC_MAXFIT.md
 !artifacts/Q1_RQ1_SECOND_DOMAIN.md
+!artifacts/Q1_RQ1_SPHERE_DOMAIN.md
+!artifacts/PROTOCOL_FREEZE_TIMELINE.md
 !artifacts/manuscript/draft_v0.tex
 !artifacts/manuscript/references.bib
 !artifacts/manuscript/figures/fig01_pipeline.pdf
@@ -100,6 +102,10 @@ artifacts/**
 !artifacts/experiments/q1-rq1-maze-factorial/ANALYSIS.md
 !artifacts/experiments/q1-v5-maze-genetic-minfit/
 !artifacts/experiments/q1-v5-maze-genetic-minfit/ANALYSIS.md
+!artifacts/experiments/q1-rq1-sphere-factorial/
+!artifacts/experiments/q1-rq1-sphere-factorial/ANALYSIS.md
+!artifacts/experiments/q1-sphere-genetic-policy/
+!artifacts/experiments/q1-sphere-genetic-policy/ANALYSIS.md
 
 # Environment / secrets (never commit)
 .env

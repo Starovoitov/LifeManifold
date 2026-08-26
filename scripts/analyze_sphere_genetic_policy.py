@@ -62,7 +62,9 @@ def main() -> None:
             print(f"  WARNING unexpected proposals={sorted(bad)}")
 
     seeds = sorted(set(by_arm["genetic"]) & set(by_arm["genetic_minfit"]))
-    deltas = [_cov(by_arm["genetic_minfit"][s]) - _cov(by_arm["genetic"][s]) for s in seeds]
+    deltas = [
+        _cov(by_arm["genetic_minfit"][s]) - _cov(by_arm["genetic"][s]) for s in seeds
+    ]
     print()
     if not seeds:
         print("paired n=0")

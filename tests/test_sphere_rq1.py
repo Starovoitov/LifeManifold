@@ -34,7 +34,6 @@ from worldspace.benchmarks.sphere_rq1 import (
     train_sphere_h1_surrogate,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = ROOT / "worldspace/specs"
 
@@ -355,9 +354,7 @@ class TestSphereLlmFailureModes(unittest.TestCase):
 
         caller = _SequenceCaller(
             [
-                RuntimeError(
-                    "LLM request failed: [SSL: UNEXPECTED_EOF_WHILE_READING]"
-                ),
+                RuntimeError("LLM request failed: [SSL: UNEXPECTED_EOF_WHILE_READING]"),
                 _deltas_json(),
             ]
         )
@@ -405,9 +402,7 @@ class TestSphereLlmFailureModes(unittest.TestCase):
         from unittest.mock import patch
 
         with patch("worldspace.benchmarks.sphere_llm.time.sleep"):
-            emitter, result = self._emit(
-                _ErrorCaller("LLM response is not valid JSON")
-            )
+            emitter, result = self._emit(_ErrorCaller("LLM response is not valid JSON"))
         self.assertEqual(result.emitter_type, "llm_fallback_genetic")
         self.assertEqual(emitter.audit.fallbacks, 1)
         self.assertEqual(emitter.audit.failure_reasons.get("network"), 1)

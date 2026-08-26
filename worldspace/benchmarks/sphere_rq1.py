@@ -24,7 +24,6 @@ from worldspace.benchmarks.qd_sphere import (
     CLIP_BOUND,
     DEFAULT_ARCHIVE_DIMS,
     DEFAULT_SOLUTION_DIM,
-    SPHERE_SHIFT,
     archive_ranges,
     clip_solution,
     linear_projection_measures,
@@ -122,7 +121,10 @@ class SphereH1Surrogate:
         clipped = clip_solution(solution)
         batch = clipped if clipped.ndim == 2 else clipped[np.newaxis, :]
         members = np.stack(
-            [np.asarray(model.predict(batch), dtype=np.float64) for model in self.models]
+            [
+                np.asarray(model.predict(batch), dtype=np.float64)
+                for model in self.models
+            ]
         )
         mean = float(np.mean(members[:, 0]))
         std = float(np.std(members[:, 0], ddof=0))
@@ -722,9 +724,7 @@ def _bin_from_cell_id(archive: GridArchive, cell_id: int) -> tuple[int, int]:
 
 
 def _index_from_bin(archive: GridArchive, i: int, j: int) -> int:
-    return int(
-        archive.grid_to_int_index(np.asarray([[i, j]], dtype=np.int32))[0]
-    )
+    return int(archive.grid_to_int_index(np.asarray([[i, j]], dtype=np.int32))[0])
 
 
 def _cell_center(archive: GridArchive, cell_id: int) -> tuple[float, float]:

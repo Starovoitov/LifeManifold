@@ -110,9 +110,7 @@ class MazeSchedulerConfig:
             "uniform_frontier",
             "max_fitness_frontier",
         ):
-            raise ValueError(
-                f"unknown target_selection {self.target_selection!r}"
-            )
+            raise ValueError(f"unknown target_selection {self.target_selection!r}")
 
 
 @dataclass(frozen=True)

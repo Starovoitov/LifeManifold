@@ -101,7 +101,9 @@ def _extremal_fitness_cell(
         elite = archive.get_cell(cell_id)
         if elite is None:
             continue
-        better = elite.fitness > best_fitness if maximize else elite.fitness < best_fitness
+        better = (
+            elite.fitness > best_fitness if maximize else elite.fitness < best_fitness
+        )
         tied = elite.fitness == best_fitness and (best is None or cell_id < best)
         if better or tied:
             best = cell_id

@@ -41,7 +41,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("artifacts/experiments/q1-rq1-sphere-factorial/llm_preflight.json"),
+        default=Path(
+            "artifacts/experiments/q1-rq1-sphere-factorial/llm_preflight.json"
+        ),
     )
     return parser.parse_args()
 
@@ -73,9 +75,7 @@ def main() -> None:
         llm_spec_path=args.llm_spec,
     )
     for _ in range(args.calls):
-        target = select_target_cell(
-            archive, rng, target_selection="uniform_frontier"
-        )
+        target = select_target_cell(archive, rng, target_selection="uniform_frontier")
         emitter.emit(target=target, rng=rng, prediction=None)
     report = emitter.audit.to_dict()
     parse_success_rate = float(report["parse_success_rate"])
