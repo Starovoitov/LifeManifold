@@ -57,11 +57,11 @@
 }{}
 \makeatother
 
-% Fill these at journal submission (after tagging the release commit on GitHub).
-\newcommand{\SubmissionGitTag}{journal-v1}
-\newcommand{\SubmissionGitShort}{6d07dcdecf64} % Zenodo integrity snapshot pin (tag journal-v1)
-\newcommand{\SubmissionGitFull}{6d07dcdecf6471ea633342163ddd7450dde40fbc}
-\newcommand{\ZenodoArtifactsDOI}{10.5281/zenodo.21727011}
+% Integrity pin = Zenodo dataset version; GitHub Release tag journal-v1.1 on the same SHA.
+\newcommand{\SubmissionGitTag}{journal-v1.1}
+\newcommand{\SubmissionGitShort}{a714e548cfd6}
+\newcommand{\SubmissionGitFull}{a714e548cfd682645af38a7dd343fe8da26b6e3d}
+\newcommand{\ZenodoArtifactsDOI}{10.5281/zenodo.22119553}
 
 % Drop elsarticle "Preprint submitted to …" footer (Elsevier EM preference).
 \makeatletter
@@ -585,7 +585,7 @@ If an LLM emitter is dropped in as a whole pipeline, the first thing to hold fix
 \section*{Data and code availability}
 
 {\sloppy
-\textbf{Code.} Source, scheduler YAMLs, analysis scripts, and protocol files are in the public repository \url{https://github.com/Starovoitov/LifeManifold}. Integrity pin for this revision: tag~\texttt{\SubmissionGitTag}, short SHA~\texttt{\SubmissionGitShort}, full SHA~\texttt{\SubmissionGitFull}. Later manuscript-only commits may advance the default branch without superseding that pin unless a new Zenodo version is minted.
+\textbf{Code.} Source, scheduler YAMLs, analysis scripts, and protocol files are in the public repository \url{https://github.com/Starovoitov/LifeManifold}. Integrity pin for this revision: tag~\texttt{\SubmissionGitTag}, commit~\texttt{\SubmissionGitFull} (short~\texttt{\SubmissionGitShort}). Later manuscript-only commits may advance the default branch without superseding that pin unless a new Zenodo version is minted.
 
 \textbf{Protocols.} Holm families were specified in dated \emph{internal} protocol files before each family's recorded analysis window (primary grid; maze H5; appendix dungeon)---not an externally timestamped pre-registration. Amendment kinds (lock / extension / reporting) and the freeze$\leftrightarrow$data timeline are in the repository file \path{artifacts/PROTOCOL_FREEZE_TIMELINE.md}; the complete wording log is \path{artifacts/EXPERIMENT_PROTOCOL_Q1_v3.md}~\S12. Public \texttt{git} history is mutable and is only a supplementary integrity aid alongside the Zenodo pin.
 

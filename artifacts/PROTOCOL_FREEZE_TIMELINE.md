@@ -4,7 +4,7 @@ Auditor-facing ledger. **Not part of the journal PDF.** Holm families, endpoints
 
 Full wording log: [`EXPERIMENT_PROTOCOL_Q1_v3.md`](EXPERIMENT_PROTOCOL_Q1_v3.md) §12.
 
-External integrity pin for every row: Zenodo snapshot DOI [10.5281/zenodo.21727011](https://doi.org/10.5281/zenodo.21727011) (git tag `journal-v1`). That snapshot is **not** evidence of pre-data registration.
+External integrity pin for every row: Zenodo snapshot DOI [10.5281/zenodo.22119553](https://doi.org/10.5281/zenodo.22119553) (git tag `journal-v1.1` / `a714e548cfd6`). First version of the same concept: [10.5281/zenodo.21727011](https://doi.org/10.5281/zenodo.21727011) (`journal-v1`). That snapshot is **not** evidence of pre-data registration.
 
 ## Status
 
@@ -51,6 +51,7 @@ Wording-only manuscript edits are omitted.
 | 2026-08-27 | Extension+Rep. | Sphere H1 LLM 2×2 readout | Empty 10k-cell archive at 5k; dated model; call logs. Policy +2.68/+2.47 pp; leftover +0.00/−0.21 pp. Not Holm; not Sphere H2; locked families unchanged |
 | 2026-08-27 | Reporting | Sphere H1 not in journal PDF | Keep H2-only in the manuscript. H1 2×2 remains repo/protocol. Maze empty 2×2 stays the second-evaluator table |
 | 2026-08-27 | Reporting | Sphere H1 appendix-only | Reverses same-day keep-out. One appendix table; not main text; not Holm. Maze empty 2×2 remains the second-evaluator table |
+| 2026-08-27 | Reporting | Zenodo artifact pin v2 | `10.5281/zenodo.22119553` / tag `journal-v1.1` / `a714e548cfd6` supersedes v1 `21727011` (`journal-v1`) as the current artifact DOI |
 
 ## Freeze versus recorded data window
 
