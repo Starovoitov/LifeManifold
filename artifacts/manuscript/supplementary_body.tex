@@ -1,0 +1,534 @@
+\section{MLP vs.\ GP/UCB ablation (offline)}
+\label{sec:surrogate-ablation-appendix}
+
+This analysis is not required for the descriptive H2 case study. Production H2 uses a four-member MLP ensemble with MC-dropout and an absolute fitness threshold ($\texttt{min\_fit}{=}0.45$, $\texttt{max\_u}{=}1.0$), not a SAIL-style GP+UCB acquisition policy. This section records an offline MLP-versus-GP/UCB comparison that motivates freezing this surrogate family for the attach-role contrast (\S\ref{sec:surrogate-method}). Hold-out NMAE/$R^{2}$ are used for offline surrogate comparison; they do not validate live gate decisions (\ref{sec:h2-impl-threat}).
+
+On the nightly-buffer hold-out at the runtime-aligned compose gate of $0.95$, the production MLP achieves $\mathrm{NMAE}{=}0.112$ and $R^{2}{=}0.94$, versus $\mathrm{NMAE}{=}0.222$ and $R^{2}{=}0.89$ for a scikit-learn GP fitness regressor trained on $5{,}000$ rows under the same label definition. The MLP is approximately $37\times$ faster for inference on a $32{,}500$-proposal batch. This comparison supports the choice of MLP as the production surrogate on offline predictive accuracy and batch-inference cost, but does not establish superior evolutionary control. It is an offline baseline comparison rather than an architecture-only ablation, because the GP uses a smaller training subset. An earlier M1 snapshot at the misaligned gate~$0.5$ reported MLP $R^{2}{=}0.76$ versus GP ${\approx}0.22$; because ${\approx}96\%$ of gate-$0.5$ labels are zero, that comparison is not used as a model-quality claim (\ref{sec:checkpoint-appendix}).
+
+Offline acquisition replay further illustrates the distinction between prediction quality and gate behavior. Replacing the MLP with the GP under the same threshold gate increases the false-skip proxy from $0.7\%$ to $3.2\%$. A GP UCB skip rule using $\mu{+}\beta\sigma < \texttt{min\_fit}$, with $\beta\in\{0.15,0.5,1.0\}$, remains near $99\%$ skip, indicating that the GP/UCB scores are poorly aligned with the runtime threshold at these $\beta$ values. On logged Q1 filter proposals ($n{=}325{,}000$), applying the same UCB rule to the MLP's $\mu/\sigma$ only softens the gate, reducing the skip rate from $33.5\%$ to $28.5\%$, $25.7\%$, and $21.2\%$, respectively, without adding skips. At $\texttt{max\_u}{=}1.0$, uncertainty therefore does not materially affect the production threshold gate in this replay.
+
+These results do not constitute a live SAIL comparison or establish GP+UCB as an inferior evolutionary-control algorithm. GP+UCB is treated here as a related SAIL-lineage reference rather than a competitive drop-in baseline. Tree boosters (XGBoost / LightGBM) are outside the scope of this surrogate-family diagnostic.
+
+\section{Related-work positioning}
+\label{sec:positioning-appendix}
+
+Main-text \S\ref{sec:related} keeps Jin's taxonomy as \emph{this} stack's topology (Table~\ref{tab:jin-map}). It does not audit other authors' configs: the claim is that the attribution error can be large in one controlled setting, not that prior LLM-QD papers generally make that error. Table~\ref{tab:positioning} is a mechanism map (surrogate / LLM role / skip), not a coding of cited experimental designs. Table~\ref{tab:audit-checklist} records the comparison-hygiene checks used here.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Jin~(2005) evolution-control vocabulary~\cite{jin2005fitness} $\leftrightarrow$ surrogate roles used in this audit. Mapping is pipeline topology, not a claim that we tested a general before-generation channel. H1 is redundant parent-level scalar augmentation (true parent fitness is already in the prompt).}
+  \label{tab:jin-map}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llp{5.2cm}@{}}
+    \toprule
+    Jin~(2005) pattern & This paper & Role in the design \\
+    \midrule
+    Individual-based control & H2 after-generation threshold gate & Pre-selects which proposals spend a simulator call (hard) \\
+    Soft / non-controlling use of the same model & H1 redundant parent-level scalars (not a general before-generation test) & Advice restating known parent $f$ on ${\approx}10/50$ slots; never skips evaluation \\
+    Generation-based control & --- & Not tested (fixed MAP-Elites batch schedule; no approx./exact generation alternation) \\
+    Surrogate-assisted parent / mating selection & --- & Out of scope (ordinary archive \texttt{target\_selection} only) \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Where this work sits relative to related QD, surrogate, and LLM lines (mechanism map; not a config audit of cited papers, not a result table).}
+  \label{tab:positioning}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llp{3.2cm}l@{}}
+    \toprule
+    Line & Surrogate & LLM role & Skip real eval? \\
+    \midrule
+    Classical SAEA model mgmt.\cite{jin2005fitness} & Approx.\ fitness; individual / generation control & --- & Often (pre-selection) \\
+    SAIL / DSA-ME & GP / deep predictor as search surface & --- & Often yes \\
+    LAEA / LLM-SAEA & LLM \emph{as} fitness model & Surrogate / ranker & Sometimes \\
+    LLMatic & --- & Code/variation emitter & No (NAS training) \\
+    Prompt-aug.\ LLM search & Text advice (often none) & Mutator / coder & Usually no \\
+    \textbf{This work} & Shared MLP; attribution of bundled LLM gap & Structured mutator (not the surrogate) & After-generation gate$^\dagger$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+\noindent\footnotesize$^\dagger$Prompt-only arms evaluate every proposal; only the after-generation gate may skip simulation.\normalsize
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Comparison-hygiene checks used in this study. Instantiation of the two-control design in Table~\ref{tab:rq1-design}; items are design/reporting checks, not a new methodology. Four rows reuse ordinary EC experimental-hygiene names: configuration-diff $=$ algorithm configuration; matched-policy $=$ fair comparison of the claimed treatment; budget axis $=$ budget normalization (slots vs.\ sims vs.\ wall); warm-start disclosure $=$ initialization~\cite{eiben2011parameter,bartzbeielstein2006experimental}. Instantiations cite this paper's tables/sections; re-measure on the target stack.}
+  \label{tab:audit-checklist}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}p{3.4cm}p{5.0cm}p{5.4cm}@{}}
+    \toprule
+    Check & Purpose & Instantiation here \\
+    \midrule
+    Configuration-diff table & List every factor that co-varies with the claimed treatment & Table~\ref{tab:cross-stack} (H1 vs.\ H2 stacks) \\
+    Matched-policy arm & Hold target selection (\texttt{target\_selection}) fixed before crediting prompts or emitters & \texttt{stub\_uniform}; historical policy$\times$hint $2\times2$; calendar-blocked $2\times2$; maze empty $2\times2$ (\S\ref{sec:decomposition}, \S\ref{sec:rq1-maze}) \\
+    Explicit budget axis & Separate proposal slots, real simulations, and wall / LLM call counts (not invoices) & Figure~\ref{fig:budget-axes}; filter: $32.5$k slots / ${\sim}21.5$k sims / wall (\S\ref{sec:h2}, \S\ref{sec:cost}) \\
+    Online surrogate audit & Validate the live gate/advice stream, not only hold-out NMAE & Shadow AUROC / prec--rec @$\tau$; emitter NMAE (appendix~\S\ref{sec:h2-impl-threat}) \\
+    Distribution-matched placebo & Break parent alignment while preserving scalar multiset (stub constants are weaker) & Calendar-blocked \texttt{shuffled\_uniform} (Table~\ref{tab:rq1-cf}); historical pilot in appendix~\S\ref{sec:h1-pilots-appendix} \\
+    Ranking vs.\ skip volume & Separate ranking quality from rate-matched skip volume & Absolute-$\tau$ true-fitness-threshold replay; ranking controls (appendix Tables~\ref{tab:h2-oracle-replay}, \ref{tab:h2-ranking-controls}) \\
+    Wall-cost decomposition & Price hard gating with skip-conditional sim time, not unconditional $t_{\mathrm{sim}}$ & Eq.~\eqref{eq:h2-breakeven}; constant-$t$ special case only (appendix~\S\ref{sec:h2-breakeven}) \\
+    Warm-start / stage disclosure & State initial coverage; $n$ seeds on one floor file are continuation RNG, not archive-to-archive variance & Locked Holm / H1: $971$ niches / $38.84\%$ from one JSONL; calendar-blocked $2\times2$: five independent floors of that occupancy; CA empty mixed $2\times2$; maze empty $2\times2$ @ $5$k (\S\ref{sec:warm-start-limit}, \S\ref{sec:rq1-maze}) \\
+    Role of each contrast & Say whether it is primary, robustness, or supplementary & Table~\ref{tab:h-status}; Holm membership \S\ref{sec:stats} \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\section{Multi-provider bundled replication}
+\label{sec:multi-provider-appendix}
+
+\emph{Not required for matched-policy H1.} Main-text \S\ref{sec:multi-llm} is a one-sentence bound. Table~\ref{tab:g1} keeps the historical stub arm (stack $\Delta$, not matched H1). Never pool across APIs.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Multi-provider bundled hints $-$ stub by LLM (separate experiments; never pooled). Absolute hint-arm coverage shows level gaps across APIs.}
+  \label{tab:g1}
+  \fitcenter{%
+  \begin{tabular}{@{}lccccl@{}}
+    \toprule
+    Provider & Hints cov.\ (\%) & $\Delta$cov (pp) & $\Delta$fit & Sign (cov) & Outcome \\
+    \midrule
+    qwen-turbo (v2 reference, $n{=}10$) & $60.41$ & $+15.09$ & $+0.047$ & 10/10 & passes \\
+    DeepSeek V4 Pro ($n{=}10$) & $61.93$ & $+16.95 \pm 2.12$ & $+0.052 \pm 0.013$ & 10/10 & passes \\
+    OpenAI gpt-4o-mini ($n{=}10$) & $55.34$ & $+9.66 \pm 2.41$ & $+0.018 \pm 0.013$ & 10/10 & passes \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+DeepSeek matches the qwen-turbo reference in magnitude and absolute hint-arm coverage ($\sim$62\% vs.\ $\sim$60\%). gpt-4o-mini is $10/10$ favourable on both bundled endpoints ($p_{\mathrm{cov}}{=}0.001$, $p_{\mathrm{fit}}{=}0.003$ at $n{=}10$) but absolute hint-arm coverage is lower ($55.3\%$), cutting $\Delta$cov almost in half vs.\ DeepSeek while stub arms stay aligned ($\sim$45\%). Fallback rates do not explain that gap (Table~\ref{tab:g1}); the plausible residual is weaker structured edits from the smaller model under the same prompt. Averaging the three $\Delta$cov rows would be methodologically wrong.
+
+\section{CMA encoding / discrete-search controls}
+\label{sec:encoding-appendix}
+
+H4 is a pipeline reference, not RQ1 (\S\ref{sec:h4}). Headline coverage levels for native discrete CMA-ME, pbCMA, and \texttt{rint} CMA-ME are reported in Table~\ref{tab:discrete-cma}. Native discrete CMA-ME and pbCMA operate in the discrete genotype space; \texttt{rint} CMA-ME is a representation-mismatched end-to-end reference. This section keeps pairwise contrasts, decode-only ablations, the Wilcoxon companion for the \texttt{rint} reference contrast, locked F-RQ4 FAIL, and the seed-4 heatmap / anytime ladder moved out of the main text.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Reference coverage levels on the primary CA grid ($n{=}10$; robustness/reference comparison, not a claim of universal algorithmic ranking). Native discrete CMA-ME / pbCMA operate directly on the discrete rule-bit representation; \texttt{rint} CMA-ME is retained as a representation-mismatched end-to-end reference. $\Delta$ vs.\ hints is arm$-$hints (positive $=$ CMA leads). Cell $\pm$ is SD across seeds (paired $\Delta$ SD in the vs.-hints column).}
+  \label{tab:discrete-cma}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}lrrl@{}}
+    \toprule
+    Arm & Coverage (\%) & vs.\ hints (pp) & Representation \\
+    \midrule
+    \texttt{hints} & $60.41\pm0.82$ & --- & discrete LLM mix \\
+    \texttt{genetic\_me\_uniform} & $59.04\pm0.76$ & --- & discrete ME peer \\
+    native discrete CMA-ME & $65.57\pm3.40$ & $+5.16\pm3.67$ (10/10) & discrete $\{0,1\}$ archive \\
+    pbCMA & $69.95\pm5.42$ & $+9.54\pm5.25$ (10/10) & latent CMA; discrete archive \\
+    \texttt{rint} CMA-ME & $73.37\pm3.65$ & $+12.96\pm3.46$ (10/10) & continuous $\mathbb{R}^{21}$ $+$ \texttt{rint} \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig07_archive_heatmaps_seed4.pdf}
+  \caption{\emph{Illustrative} archive elite fitness on the $[0,1]^2$ descriptor tessellation (Diversity $\rightarrow$, Stability $\rightarrow$) for paired seed~4, selected for visualization as the largest $|\texttt{hints}-\texttt{cma\_me}|$ coverage difference among seeds~0--9, LLM+scalar hints vs.\ CMA-ME (collapsed warm-start archives). Colour bar on a shared $[0,1]$ fitness scale (ticks $0.0$--$1.0$); gray $=$ empty niche, not a certified infeasible cell. Coverage: hints 60.5\%, cma\_me 80.5\% of the $2500$-cell tessellation. Spatial reading and $n{=}10$ occupancy: \S\ref{sec:heatmap-panel}.}
+  \label{fig:heatmaps}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig08_anytime_ladder.pdf}
+  \caption{Anytime performance ladder: coverage vs.\ simulator evaluations for \texttt{vanilla}, \texttt{hints}, and \texttt{cma\_me} (median + IQR; protocol-locked seeds $0$--$4$, $n{=}5$, with \texttt{archive\_trace.jsonl}; pre-specified before the ladder runs, not selected by terminal outcome). CMA-ME separates early ($\sim$+$14$~pp vs.\ hints @ 10k evals); hints and vanilla converge to their terminal bands by 32{,}500 evals.}
+  \label{fig:anytime-ladder}
+\end{figure}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Pyribs \texttt{rint} CMA-ME reference contrast (H4; robustness): paired CMA $-$ hints. One-sided Wilcoxon tests CMA $>$ hints (companion only). $\mathrm{PPS}$ (Eq.~\eqref{eq:pps}) shown only when not $0$ or $1$; unanimous rows use Sign in the Detail column. Locked F-RQ4 tested hints $>$ CMA and remains FAIL (\ref{sec:encoding-appendix}). Discrete CMA/pbCMA: Table~\ref{tab:discrete-cma}.}
+  \label{tab:frq-ceiling}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llrrl@{}}
+    \toprule
+    Contrast & Metric & Mean $\Delta$ & Wilcoxon $p$ & Detail \\
+    \midrule
+    \texttt{cma\_mae}$-$\texttt{hints} & coverage & $+0.15$~pp & 0.50 & $\mathrm{PPS}{=}0.50$ (5/10) \\
+    \texttt{cma\_mae}$-$\texttt{hints} & fitness & $-0.010$ & 1.0 & Sign 0/10 \\
+    \texttt{cma\_me}$-$\texttt{hints} & coverage & $+12.96$~pp & $9.77\times10^{-4}$ & Sign 10/10 \\
+    \texttt{cma\_me}$-$\texttt{hints} & fitness & $+0.077$ & $9.77\times10^{-4}$ & Sign 10/10 \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\textbf{Encoding ablation} (seeds~0--4, descriptive): alternate rule-bit \emph{decode} and cold-start CMA-ME leave the continuous-relaxation gap intact. These runs vary how continuous proposals map to rule bits; they do \emph{not} test discrete search in the same space as genetic/LLM emitters. Threshold decoding (bit threshold $\geq 0.5$) is bit-identical to the frozen \texttt{rint} decoder on every seed. Bernoulli decoding reduces coverage by $0.46$~pp on average ($72.18\%$). Empty-archive cold start reduces mean coverage by $3.47$~pp to $69.17\%$, still $8.8$~pp above the hints mean.
+
+\textbf{Bernoulli-decode CMA-ME} ($n{=}10$, descriptive). Same warm-start and $32{,}500$-ask budget (asks $=$ sims); CMA proposes in $\mathbb{R}^{21}$ but rule bits are Bernoulli-sampled at decode (discrete genotypes at evaluation, continuous covariance adaptation unchanged). Mean coverage $71.25 \pm 2.88$\%, fitness $0.578 \pm 0.020$. Paired vs.\ \texttt{hints}: $+10.84 \pm 2.94$~pp (10/10 seeds); vs.\ \texttt{genetic\_me\_uniform}: $+12.22 \pm 2.56$~pp (10/10); vs.\ \texttt{rint} CMA-ME: $-2.12 \pm 4.93$~pp (3/10).
+
+\textbf{Native discrete-search CMA-ME} ($n{=}10$, descriptive). Custom bit-flip emitter on rule bits + Gaussian on floats, discrete $\{0,1\}$ genotype stored in archive, $\sigma$ adapted by a 1/5 success rule (MVP). Mean coverage $65.57 \pm 3.40$\%, fitness $0.542 \pm 0.028$. Paired vs.\ \texttt{hints}: $+5.16 \pm 3.67$~pp (10/10); vs.\ \texttt{genetic\_me\_uniform}: $+6.54 \pm 3.76$~pp (10/10); vs.\ Bernoulli: $-5.68 \pm 5.90$~pp (1/10); vs.\ \texttt{rint}: $-7.80 \pm 5.07$~pp (0/10).
+
+\textbf{pbCMA CMA-ME} ($n{=}10$, descriptive). Latent $(\mu/\mu_w,\lambda)$-CMA on $\mathbb{R}^{21}$ with bit threshold at $0.5$, margin correction, and CMA updates from \emph{latent} ranked parents (discrete $\{0,1\}$ genotype stored in archive). Mean coverage $69.95 \pm 5.42$\%, fitness $0.548 \pm 0.034$. Paired vs.\ \texttt{hints}: $+9.54 \pm 5.25$~pp (10/10); vs.\ \texttt{genetic\_me\_uniform}: $+10.92 \pm 5.80$~pp (10/10); vs.\ native bit-flip: $+4.38 \pm 5.93$~pp (8/10); vs.\ Bernoulli: $-1.30 \pm 6.54$~pp (4/10); vs.\ \texttt{rint}: $-3.42 \pm 7.12$~pp (2/10). Latent covariance adaptation recovers most of the MVP bit-flip deficit vs.\ Bernoulli and nearly half the \texttt{rint} gap, but continuous-relaxation \texttt{rint} still leads on eight seeds---consistent with a residual advantage of the continuous-relaxation representation in this testbed, not ``any CMA-ME pipeline wins.''
+
+\section{Compose-gate diagnosis and gray-zone H3}
+\label{sec:h3-appendix}
+
+\emph{Not required to follow the main H1/H2 argument.} Production \texttt{filter} vs.\ frozen \texttt{hints} is descriptive only (D1 block): $59.27\pm0.79\%$ vs.\ $60.41\pm0.82\%$ coverage, skip $33.5\%$. This section keeps the locked gray-zone NI family (Table~\ref{tab:h3-gray-holm}) and a short compose-gate diagnosis. Measurement-bug ledger: Table~\ref{tab:bug-ledger}. Per-$\tau$ skip/$d$ cells remain in the repository replay JSON---not a second appendix table.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{H3-gray: gray-zone filter $-$ hints ($n{=}10$; not superior; Holm $m{=}3$). Eval uses exact one-sided Wilcoxon; NI rows use the protocol's one-sided non-inferiority tests (not Wilcoxon---those $p$-values can fall below $2^{-10}{=}9.77\times10^{-4}$). $\mathrm{PPS}$ (Eq.~\eqref{eq:pps}) kept here because NI rows are non-extreme; not independent-sample $A_{12}$.}
+  \label{tab:h3-gray-holm}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llrrcc@{}}
+    \toprule
+    Test & Mean $\Delta$ & Raw $p$ (method) & $\mathrm{PPS}$ & Holm & Detail \\
+    \midrule
+    Eval $\downarrow$ & $-3{,}867$ sims & $9.77\times10^{-4}$ (Wilcoxon) & 1.00 & Yes & 10/10 fewer \\
+    Cov NI ($>-3$ pp) & $-0.60$ pp & $1.0\times10^{-4}$ (bootstrap NI) & 0.20 & Yes & 10/10 per-seed $>-3$ \\
+    Fit NI ($>-5\%$ rel.) & $-0.36\%$ & $1.6\times10^{-5}$ (one-sided $t$ NI) & 0.40 & Yes & NI accept \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\paragraph{Dual compose definition.}
+Hard fitness recompose zeros a candidate when predicted $p_{\mathrm{ext}}\ge$ an extinction gate. Live filter used gate~$0.95$ while an earlier hold-out path used $0.5$; hold-out is now aligned to runtime (\S\ref{sec:checkpoint-appendix}). The locked skip-agreement metric compares skip decisions under gates $0.5$ vs.\ $0.95$ at $\tau{=}0.45$ ($d{=}0.528$). On logged production \texttt{filter} proposals ($n{=}10$; $325{,}000$ slots/seed), $74.6\%$ of proposals fall in $p_{\mathrm{ext}}\in[0.5,0.95)$, where those gates disagree; outside that band, $d{=}0$. In-band, about $71\%$ of proposals flip skip/accept at $\tau{=}0.45$.
+
+\paragraph{$\tau\times$emitter replay (offline; not tabulated).}
+At production $\tau{=}0.45$, per-emitter $d$ stays $0.51$--$0.58$ (pooled $0.528$). Operating-band $\tau\in\{0.35,0.45,0.55\}$ never brings $d$ below $0.05$; $d{<}0.05$ appears only at extreme $\tau$ (${>}87\%$ skip)---artifactual agreement, not compose repair. Blocked production H3 is the extinction-gate mismatch, not a mis-set fitness threshold.
+
+\paragraph{Fix candidate and live repair.}
+Force-eval of the gray zone drives $d\!\rightarrow\!0$ but cuts skip from $33.5\%$ to ${\sim}11.7\%$ on replay. The live confirmatory repair ($n{=}10$) matches that skip band and passes the NI family in Table~\ref{tab:h3-gray-holm} (mean $\Delta\text{cov}=-0.60$~pp); an exploratory duplicate replicated directionally ($-0.52$~pp). Passing the repair family does \textbf{not} rehabilitate historical production \texttt{filter} at 33.5\% skip.
+
+\section{H1 resource screens and Path~A rewrite (demoted)}
+\label{sec:h1-pilots-appendix}
+
+These packages are not part of the matched-H1 claim. They are retained for provenance. The $\pm 2$~pp threshold was originally used as an internal extend-or-stop rule on $n{\le}3$ resource screens; its later reuse as the H1 TOST band was therefore not prospectively registered (\S\ref{sec:limitations}). Path~A is a bundled two-pass rewrite (second pass $+$ instruction $+$ child scalars $+$ extra calls) without a rewrite-stub arm. The historical shuffled placebo is a descriptive channel-isolation bound, not a confirmatory soft-channel win. The calendar-blocked shuffle on independent floors is the claim-facing alignment robustness contrast (Table~\ref{tab:rq1-cf}).
+
+These earlier packages are retained only to document the development and exclusion of alternative H1 interpretations. None contributes to the claim-facing H1 estimate.
+
+\subsubsection*{Resource-screening pilots}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Engineering resource screens only ($n{=}1$ or $n{\le}3$); these runs were used to decide whether additional seeds were worth collecting. An internal $|\Delta\mathrm{cov}|<2$~pp extend-or-stop gate is not a valid sequential test and is not evidence for or against H1. Reuse of that numeric threshold for the H1 TOST band does not prospectively register the margin (\S\ref{sec:limitations}).}
+  \label{tab:hint-pilots}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llrrp{2.6cm}@{}}
+    \toprule
+    Arm & Seeds & Comparator & $\Delta$cov (pp) & Reading \\
+    \midrule
+    \texttt{hints\_rich} & 0 ($n{=}1$) & \texttt{hints} & $+0.40$ & resource screen \\
+    \texttt{hints\_parent} & 0 ($n{=}1$) & \texttt{hints} & $+0.20$ & resource screen \\
+    \texttt{hints\_direction} & 0 ($n{=}1$) & \texttt{hints} & $-0.68$ & resource screen \\
+    \texttt{hints\_weak} (omni-7b) & 0--2 ($n{=}3$) & \texttt{stub\_uniform} & $-0.08$ & resource screen \\
+    \bottomrule
+  \end{tabular}%
+  }
+  \vspace{0.25em}
+  \noindent\small\textit{Note:} At $n{=}1$ seed-to-seed variance is unidentified; $|\Delta\mathrm{cov}|<2$~pp on seed~0 is nearly uninformative. No $p$-values / Holm. Matched H1 at $n{=}10$: Tables~\ref{tab:decomposition},~\ref{tab:h1-matched-providers}.
+\end{table}
+
+\subsubsection*{Path A child rewrite}
+Tier \texttt{q1-h1-child-rewrite-pilot} adds a conditional second LLM pass after \texttt{predict(draft)} when predicted child fitness is below parent true fitness (protocol \texttt{artifacts/Q1\_H1\_CHILD\_REWRITE.md}). Paired vs.\ single-pass \texttt{hints}: terminal $+0.35\pm1.46$~pp (6/10; Wilcoxon $p{\approx}0.49$), cov@20k $+0.16\pm1.37$~pp, $\Delta$fit ${\approx}0$. Rewrite fired on ${\sim}39\%$ of draft slots (${\sim}2545$ extra calls/seed) at ${\sim}{+}35\%$ wall. The $90\%$ CI of the paired coverage difference lies within a $\pm 2$~pp band ($[-0.50,+1.20]$), but this exploratory post-hoc check is not an equivalence test. This is not a clean test that stronger before-generation actuators fail. There is no rewrite-stub arm. Approximately $80\%$ of drafts were unchanged, so the second pass often had no effect. Child-level NMAE is also substantially worse than parent hold-out validity, indicating substantially lower predictive validity on the child distribution. Matched H1 is unchanged. The package is not a Holm family. A null on this stack does not isolate ``surrogate on child is useless''; it only shows that the tested Path~A bundle (second pass $+$ instruction $+$ child scalars $+$ budget) did not move coverage beyond single-pass hints. Offline soft-channel diagnostics (no new API; compose gate~$0.95$; artifact \texttt{SOFT\_CHANNEL\_OFFLINE.md}): on live evaluated LLM proposals, child-distribution NMAE is ${\approx}0.63$ (\texttt{llm}) / ${\approx}0.39$ (\texttt{llm\_rewrite}) vs.\ hold-out~$0.112$, indicating useful but substantially lower predictive validity than on the parent hold-out. Rewrite edits are mostly null (${\approx}80\%$ identical draft returned; mean rule Hamming ${\approx}0.15$) and uncorrelated with $(\mathrm{parent\_true}-\mathrm{child\_pred})$ / uncertainty ($|r|{\lesssim}0.03$); parent-hint residual vs.\ parent$\to$child Hamming is weak ($r{\approx}0.07$). Artifact: \texttt{artifacts/experiments/q1-h1-child-rewrite-pilot/ANALYSIS.md}.
+
+\subsubsection*{Historical shuffled placebo}
+Tier \texttt{q1-h1-placebo-pilot} permutes intact live MLP $(\mathrm{fitness},\mathrm{uncertainty})$ pairs across the ${\approx}10$ LLM slots after \texttt{prepare\_emit}, preserving the batch scalar multiset while breaking parent alignment (protocol \texttt{artifacts/Q1\_H1\_PLACEBO\_LOCK.md}). Offline vs.\ frozen mixed-stack \texttt{hints}/\texttt{stub\_uniform}: terminal coverage $62.17\pm1.70\%$ (placebo) vs.\ $60.52\pm0.72\%$ / $60.21\pm0.81\%$; paired placebo$-$hints $+1.65\pm1.73$~pp (8/10; Wilcoxon $p{\approx}0.020$), but cov@20k only $+0.42$~pp---a late-terminal gap, not a mid-budget lift. The $90\%$ CI of the paired coverage difference extends beyond the $\pm 2$~pp band ($[+0.64,+2.65]$); this exploratory check therefore does not support practical equivalence. This package does not reopen matched H1 and is not a confirmatory soft-channel result: the direction is opposite to that expected if correctly aligned scalars were beneficial, and the comparison is cross-tier (placebo later, $2$ LLM workers vs.\ frozen hints at $4$). A matched interleaved engineering seed (\texttt{q1-h1-placebo-interleaved}; protocol \texttt{Q1\_H1\_PLACEBO\_INTERLEAVED.md}; both arms, $2$ workers) was collected for seed~0 only: placebo$-$hints $-0.92$~pp terminal / $-1.44$~pp @20k, with interleaved hints matching frozen mixed-2x2 seed~0 ($+0.04$~pp). That single seed cannot support inference about non-reproduction of the historical $+1.65$~pp late gap. The narrower lesson is that a distribution-matched placebo is a better alignment control than YAML $0.5$/$1.0$ constants alone. Artifacts: \texttt{q1-h1-placebo-pilot/ANALYSIS.md}; \texttt{q1-h1-placebo-interleaved/ANALYSIS.md}.
+
+The contemporaneous factorial below supersedes these historical pilots for the alignment question.
+
+\subsubsection*{Calendar-blocked shuffle}
+The contemporaneous factorial's \texttt{shuffled\_uniform} arm uses the same permutation on dated \texttt{gpt-4o-mini-2024-07-18}, inside calendar-blocked blocks, with call logs (protocol \path{artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md}). Alignment leftover \texttt{live\_uniform}$-$\texttt{shuffled\_uniform} is $+0.28$~pp of new coverage (archive-clustered 95\% CI $[+0.02,+0.54]$; $6/10$; outer unit $k{=}5$ floors; Table~\ref{tab:rq1-cf}): consistent with only a small incremental alignment effect, far below the target-selection effect---not a second ${\sim}15$~pp channel and not a confirmatory alignment test. Prompt $(f,u)$ mismatches the source parent on $89\%$ of LLM slots (mean L1 $0.21$); a signed mean of prompt$-$source fitness is uninformative because the permutation preserves the multiset. This contrast does not license an equivalence claim. The historical placebo above remains a bound on that earlier package.
+
+\subsubsection*{Additional diagnostics}
+Accepted-elite LLM quality proxies for \texttt{hints} vs.\ \texttt{stub\_uniform} (Table~\ref{tab:h1-llm-quality}): insert rate ${\approx}12\%$ vs.\ $11\%$, cell-improve rate ${\approx}5.6\%$ vs.\ $5.1\%$, realized child$-$parent $\Delta$fit ${\approx}{+}0.01$ both arms, compact edits (Hamming ${\approx}1.6$--$1.9$). These are descriptive. Rejected LLM genotypes were never logged per-seed on frozen arms; later runs append \texttt{proposal\_log.jsonl} (accepts$+$rejects; \texttt{artifacts/PROPOSAL\_LOG.md}). Offline MLP predict on a subsample of \emph{accepted} children systematically under-shoots true fitness. Path~A therefore provides provenance and diagnostic evidence, but does not alter the matched-H1 estimate.
+
+\section{H1 prompt I/O (stub vs.\ live scalars)}
+\label{sec:h1-prompt-appendix}
+
+Main-text \S\ref{sec:surrogate-method} / \S\ref{sec:h1-impl-threat} state that confirmatory H1 only swaps two parent-level scalars. This section prints the templates and a filled stub vs.\ live example so the redundancy with true parent fitness is inspectable without repository hashes alone.
+
+\paragraph{System prompt (shared; grid).}
+\noindent{\raggedright\path{prompts/map_elites_llm_emitter_system.txt}\par}
+Abbreviated structure; fitness formula matches Eq.~\eqref{eq:fitness}:
+\begin{quote}
+\small\ttfamily
+You are an expert in Artificial Life and Quality-Diversity (MAP-Elites).\\
+You act as an LLM emitter.\\
+Fixed rules \ldots fitness = 0.45*diversity + \ldots\\
+Generate a WorldSpec \ldots Reply with strictly valid JSON only \ldots
+\end{quote}
+
+\paragraph{User prompt template (confirmatory H1).}
+\noindent{\raggedright\path{prompts/map_elites_llm_emitter_user.txt}\par}
+\begin{quote}
+\small\ttfamily
+Target niche: stability $\approx$ \{target\_stability:.2f\} ($\pm$0.03), diversity $\approx$ \{target\_diversity:.2f\} ($\pm$0.03)\\
+Surrogate predicts fitness $\approx$ \{surrogate\_mean:.3f\}, uncertainty = \{surrogate\_uncertainty:.3f\}\\[0.4em]
+Current best elite in this cell:\\
+\{current\_elite\_json\}\\[0.4em]
+Examples of successful elites from nearby niches (with fitness):\\
+\{few\_shot\_examples\}\\[0.4em]
+Generate a new WorldSpec that:\\
+1. Lands in the target niche \ldots\\
+2. Maximizes fitness \ldots\\
+3. Differs from existing elites.\\
+4. Accounts for high surrogate uncertainty.\\[0.4em]
+Constraints for world\_spec:\\
+\{constraints\}\\[0.4em]
+Return JSON only: \{\{"world\_spec": \{ \ldots \}\}\}
+\end{quote}
+The H1 contrast changes \emph{only} the second line. Both arms share the same \texttt{current\_elite\_json}, which already includes true simulated \texttt{fitness}, \texttt{measures}, and \texttt{world\_spec} for the parent elite (and few-shot neighbours likewise carry true fitness).
+
+\paragraph{Filled example (illustrative parent).}
+Suppose the target niche is $(0.60,0.40)$ and the parent elite has true fitness $0.498$. Then the differing line is:
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Arm & Surrogate line \\
+\midrule
+\texttt{stub\_uniform} & \texttt{Surrogate predicts fitness} $\approx$ \texttt{0.500, uncertainty = 1.000} \\
+\texttt{hints} (live) & \texttt{Surrogate predicts fitness} $\approx$ \texttt{0.491, uncertainty = 0.162} \\
+\bottomrule
+\end{tabular}
+\end{center}
+(Live numbers are typical parent-level MLP outputs; exact values vary by seed/slot.) The parent JSON block below that line is identical across arms and already reports \texttt{"fitness": 0.498}. Component-rich / parent-metrics / direction user prompts (\texttt{hints\_rich}, \texttt{hints\_parent}, \texttt{hints\_direction}) are resource-screening pilots only (appendix Table~\ref{tab:hint-pilots}) and are not the confirmatory H1 template.
+
+\paragraph{Accepted-elite LLM quality (package~A; descriptive).}
+Confirmatory arms do not log rejected LLM WorldSpecs per seed. Table~\ref{tab:h1-llm-quality} therefore reports proxies on \emph{accepted} \texttt{emitter\_type=llm} elites only, with insertion denominators $\texttt{llm\_emit\_attempts}-\texttt{llm\_emit\_fallbacks}$ (${\approx}6500$). Script: \texttt{scripts/analyze\_h1\_llm\_candidate\_quality.py}; artifact: \texttt{artifacts/experiments/h1-llm-candidate-quality/}.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{H1 LLM-candidate quality on accepted elites ($n{=}10$ seeds; mean$\pm$SD). Not confirmatory Holm. Rejected proposals unavailable per-seed.}
+  \label{tab:h1-llm-quality}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    Metric & \texttt{hints} & \texttt{stub\_uniform} & Paired $\Delta$ \\
+    \midrule
+    Insert rate (\% of eval.\ LLM) & $12.11\pm0.67$ & $11.28\pm0.56$ & $+0.83\pm0.64$~pp \\
+    Cell-improve rate (\%) & $5.62\pm0.46$ & $5.06\pm0.50$ & $+0.55\pm0.69$~pp \\
+    Accepted fitness & $0.575\pm0.009$ & $0.567\pm0.010$ & $+0.008\pm0.014$ \\
+    Edit rule Hamming & $1.60\pm0.15$ & $1.87\pm0.20$ & $-0.27\pm0.22$ \\
+    Realized child$-$parent $\Delta$fit & $+0.010\pm0.006$ & $+0.010\pm0.004$ & $-0.001\pm0.007$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\noindent Offline MLP predict on a 40-elite/seed subsample of accepted children yields mean pred$-$true ${\approx}{-}0.29$ (hints) / ${-}0.26$ (\texttt{stub\_uniform}): accepted elites are a high-fitness selected set, so this is \emph{not} a fair emit-time calibration check. Realized child$-$parent $\Delta$fit stays near zero on both arms.
+
+\section{Condition label map}
+\label{sec:arm-map}
+
+This section maps internal scheduler / artifact labels (left) to the plain names used in prose, so readers need not track repository arm strings. Table~\ref{tab:conditions} lists the main experimental conditions referenced in the main text. Table~\ref{tab:rq1-design} is a reading aid for the RQ1 control designs.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{RQ1 analysis-design map (reading aid). Locked Holm / matched-H1 rows are on one $38.84\%$ JSONL; the calendar-blocked $2\times2$ uses five independent floors of that occupancy. Formulas: Table~\ref{tab:estimands}.}
+  \label{tab:rq1-design}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}p{3.2cm}p{4.0cm}p{5.6cm}@{}}
+    \toprule
+    Analysis design & Contrast & Reading \\
+    \midrule
+    Bundled (policy confounded) & \texttt{hints} vs.\ \texttt{stub} & $+15.09$~pp; Holm PASS (pipeline difference, not scalar causation) \\
+    Matched policy & \texttt{hints} vs.\ \texttt{stub\_uniform} & $+0.26$~pp leftover (frozen \texttt{qwen}) \\
+    Policy at stub & \texttt{stub\_uniform} vs.\ \texttt{stub} & $+14.83$~pp (observed policy contrast, not an identification of the Holm $\Delta$) \\
+    Policy at hints & \texttt{hints} vs.\ \texttt{hints\_minfit} & $+15.12$~pp (observed policy contrast, not an identification of the Holm $\Delta$) \\
+    Calendar-blocked $2\times2$ & five floors $\times$ two continuations & policy $+14.53$/$+14.82$~pp new coverage; leftover $+0.29$~pp @uniform; shuffle $+0.28$~pp (Table~\ref{tab:rq1-cf}) \\
+    Maze empty $2\times2$ & stub/hints $\times$ minfit/uniform @ $5$k & policy $+39.10$/$+39.31$~pp ($10/10$); leftover $+0.02$/$+0.23$~pp (Table~\ref{tab:rq1-maze}) \\
+    Sphere leftover $2\times2$ & stub/hints $\times$ minfit/uniform @ $5$k & policy $+2.68$/$+2.47$~pp ($10/10$); leftover $+0.00$/$-0.21$~pp (Table~\ref{tab:sphere-h1}) \\
+    Empty-archive soft & cold mixed $2\times2$ hints$-$stub & $+1.48\pm3.57$~pp (7/10)$^\ast$ \\
+    Hard gate & genetic filter vs.\ uniform & eval-indexed $+3.65$~pp @20k on the floor; mixed-stack cold sign-flip \\
+    \bottomrule
+  \end{tabular}%
+  }
+  \vspace{0.2em}
+  \noindent\small\textit{Note:} $^\ast$Descriptive; not distinguishable from zero at $n{=}10$.
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Main experimental conditions. Columns recover the central contrasts: emitters, soft/hard surrogate use, LLM on/off, \texttt{target\_selection}, proposal slots, realized sims, and LLM-call budget. Primary grid unless noted; archive $=$ $50\times50$ GridArchive with shared warm-start (maze differs).}
+  \label{tab:conditions}
+  \scriptsize
+  \fitcenter{%
+  \begin{tabular}{@{}llllllrrp{2.6cm}@{}}
+    \toprule
+    Label & Emitters & Surrogate & LLM & Target selection & Slots & Sims & LLM calls & Role \\
+    \midrule
+    \texttt{vanilla} & $50$R & off & off & n/a (random) & $32.5$k & $32.5$k & $0$ & Random floor \\
+    \texttt{genetic\_me} & $20$R+$30$G & off & off & minfit & $32.5$k & $32.5$k & $0$ & Historical non-LLM \\
+    \texttt{genetic\_me\_uniform} & $20$R+$30$G & off & off & uniform & $32.5$k & $32.5$k & $0$ & H2 control \\
+    \texttt{genetic\_me\_filter} & $20$R+$30$G & filter & off & uniform & $32.5$k & ${\sim}21.5$k & $0$ & H2 treatment \\
+    \texttt{stub} & mixed & stub const. & on & minfit & $32.5$k & $32.5$k & $6.5$k & Bundled control \\
+    \texttt{stub\_uniform} & mixed & stub const. & on & uniform & $32.5$k & $32.5$k & $6.5$k & Matched H1 control \\
+    \texttt{hints\_minfit} & mixed & live hints & on & minfit & $32.5$k & $32.5$k & $6.5$k & Policy$\times$hint cell \\
+    \texttt{hints} & mixed & live hints & on & uniform & $32.5$k & $32.5$k & $6.5$k & Bundled / H1 treat. \\
+    \texttt{filter} & mixed & filter & on & uniform & $32.5$k & ${\sim}21.5$k & $6.5$k & H3-prod (levels) \\
+    \texttt{cma\_me}/\texttt{cma\_mae} & $5\times$ ES & off & off & n/a (pyribs) & $32.5$k & $32.5$k & $0$ & H4 reference \\
+    \texttt{genetic} (maze) & $20$R+$30$G & off & off & uniform & $32.5$k & $32.5$k & $0$ & H5; 900-cell \\
+    \texttt{llm\_hints} (maze) & $20$R+$30$L & maze surr. & on & uniform & $32.5$k & $32.5$k & $19.5$k & H5 LLM arm \\
+    \bottomrule
+  \end{tabular}%
+  }
+  \vspace{0.25em}
+  \noindent\small\textit{Note:}
+  minfit $=\texttt{min\_fitness\_frontier}$; uniform $=\texttt{uniform\_frontier}$.
+  Mixed $=20$R+$20$G+$10$L.
+  Filter sims at ${\sim}33.5\%$ skip (genetic H2; LLM+\texttt{filter} similar order).
+  LLM calls $=$ emit attempts/seed ($10$ LLM slots $\times 650$ iters $=6{,}500$ on mixed; maze $30$L $\Rightarrow 19{,}500$).
+  \texttt{stub}/\texttt{hints} is the locked bundled contrast; matched H1 is \texttt{hints}$-$\texttt{stub\_uniform}; policy$\times$hint uses all four soft$\times$policy cells.
+  Calendar-blocked replication (\S\ref{sec:rq1-cf}): \texttt{stub\_minfit}/\texttt{live\_minfit}/\texttt{stub\_uniform}/\texttt{live\_uniform}/\texttt{shuffled\_uniform} on five independent floors.
+  Maze empty RQ1 $2\times2$ (\S\ref{sec:rq1-maze}): \texttt{llm\_stub\_minfit}/\texttt{llm\_stub\_uniform}/\texttt{llm\_hints\_minfit}/\texttt{llm\_hints\_uniform}; $20$R+$30$L; empty 900-cell archive; $5$k slots $=$ $5$k sims; ${\approx}2.94$k LLM emit attempts/seed; dated \texttt{gpt-4o-mini-2024-07-18}; call logs. Distinct from locked H5 \texttt{llm\_*} @ $32.5$k.
+  Sphere leftover $2\times2$ (appendix Table~\ref{tab:sphere-h1}): same four cells on Fontaine $D{=}20$; empty $100\times100$; $5$k; local deltas; dated \texttt{gpt-4o-mini-2024-07-18}; call logs. Distinct from Sphere H2 (Table~\ref{tab:sphere-h2}).
+  Sphere H2 (appendix Table~\ref{tab:sphere-h2}): Fontaine $D{=}20$ ME$+$Gaussian, not this grid. Dungeon factorial: appendix~\S\ref{sec:dungeon-appendix}, not a main-text domain.
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Arm-label map (appendix).}
+  \label{tab:arm-map}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llp{5.8cm}@{}}
+    \toprule
+    Label & Plain name & Meaning \\
+    \midrule
+    \texttt{stub} & LLM + constant placeholders & Historical control; \texttt{min\_fitness\_frontier} \\
+    \texttt{hints} & LLM + live scalar hints & Bundled treatment; \texttt{uniform\_frontier} \\
+    \texttt{stub\_uniform} & LLM + constants (matched policy) & Same target selection as \texttt{hints}; surrogate off \\
+    \texttt{hints\_minfit} & LLM + live hints (historical policy) & Completes policy$\times$hint $2\times2$; \texttt{min\_fitness\_frontier} \\
+    \texttt{filter} & LLM + scalars + acquisition & Skip low-acquisition proposals \\
+    \texttt{genetic\_me\_uniform} & Genetic ME (matched policy) & No LLM; \texttt{uniform\_frontier} \\
+    \texttt{genetic\_me\_filter} & Genetic ME + acquisition & No LLM; threshold filter \\
+    \texttt{vanilla} & Random-only ME & 50$\times$ random emitters \\
+    \texttt{cma\_me} / \texttt{cma\_mae} & pyribs CMA-ME / CMA-MAE & Continuous ES baselines \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\section{Per-seed paired deltas (bundled stack)}
+\label{sec:rq1-seeds-appendix}
+
+Table~\ref{tab:rq1-seeds} expands the bundled stub$\rightarrow$hints stack contrast (main-text Table~\ref{tab:rq1}) to per-seed coverage and fitness levels; it is archival detail, not a separate confirmatory family.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Bundled stack per-seed levels and paired hints $-$ stub ($n=10$; same contrast as Table~\ref{tab:rq1}).}
+  \label{tab:rq1-seeds}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}rrrrrrr@{}}
+    \toprule
+    Seed & Stub cov (\%) & Hints cov (\%) & $\Delta$cov & Stub fit & Hints fit & $\Delta$fit \\
+    \midrule
+    0 & 43.72 & 59.72 & $+16.00$ & 0.446 & 0.498 & $+0.052$ \\
+    1 & 46.08 & 59.24 & $+13.16$ & 0.455 & 0.500 & $+0.046$ \\
+    2 & 42.88 & 61.00 & $+18.12$ & 0.438 & 0.488 & $+0.050$ \\
+    3 & 44.32 & 61.60 & $+17.28$ & 0.449 & 0.506 & $+0.057$ \\
+    4 & 43.36 & 60.48 & $+17.12$ & 0.443 & 0.501 & $+0.059$ \\
+    5 & 44.24 & 60.52 & $+16.28$ & 0.445 & 0.498 & $+0.054$ \\
+    6 & 50.60 & 61.16 & $+10.56$ & 0.477 & 0.505 & $+0.028$ \\
+    7 & 44.56 & 59.12 & $+14.56$ & 0.449 & 0.493 & $+0.044$ \\
+    8 & 48.48 & 60.80 & $+12.32$ & 0.468 & 0.498 & $+0.030$ \\
+    9 & 44.92 & 60.44 & $+15.52$ & 0.455 & 0.501 & $+0.046$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\section{Full reproducibility pins}
+\label{sec:pins-appendix}
+
+\emph{Not required to follow the main argument.} Table~\ref{tab:pins-full} records protocol, software, window-pinned LLM endpoints, and secondary-domain pins used for replay.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Full reproducibility pins (protocol files, software, window-pinned LLM endpoints, secondary domains).}
+  \label{tab:pins-full}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}llp{6.0cm}@{}}
+    \toprule
+    Item & Pin & Notes \\
+    \midrule
+    Protocol (primary grid) & Q1 v2 + v3 & §§1--4 frozen 2026-07-12 (v3); v2 grid matrix \\
+    Protocol dungeon & Q1 v4 & Frozen 2026-07-17; appendix H5 @ 5k proposals \\
+    Maze batch (main-text H5) & H5 maze $n{=}10$ & five-arm @ 32.5k; see Data availability \\
+    Code revision (submission) & tag~\texttt{\SubmissionGitTag} / \texttt{\SubmissionGitShort} & Zenodo integrity snapshot \\
+    Seeds (primary grid) & $0,\ldots,9$ & Paired across conditions within tier \\
+    Proposal budget (primary grid) & 32{,}500 slots & $650\times50$; sims $=$ slots unless filter skips (${\sim}21.5$k) \\
+    Archive & $50\times50$ grid & Confirmatory; CVT = appendix only \\
+    Surrogate checkpoint & \texttt{nightly\_v3\_mc\_d005.pkl} & Schema~2.1, 24-D; MLP ens.\ 4; MC-drop $p{=}0.05$ \\
+    Hold-out (shared-checkpoint validity) & NMAE$=0.112$ $[0.107,0.117]$, MAE$_{\text{fit}}{=}0.029$, $R^2{=}0.94$ $[0.94,0.95]$ & Row-bootstrap CI (not run-clustered); cross-gate use MAE or fixed-denom.\ NMAE; archive metrics always simulated \\
+    LLM stack & v2 & $T{=}0.2$, \texttt{max\_tokens}{=}350, 4 workers; \texttt{executor.map} is slot-ordered (HTTP completion does not reorder archive updates) \\
+    Prompt (grid H1) & \texttt{2fc7bdc1:e2afd1e9} & System{:}user composite hash; templates in \texttt{prompts/} \\
+    H1 model & \texttt{qwen-turbo} (DashScope) & Window 2026-07-02\ldots2026-07-11; floating alias; no per-call I/O archive \\
+    Multi-prov.\ DeepSeek & \texttt{deepseek-v4-pro} & \texttt{llm\_spec\_hash=fd5f0d34f97f9df7}; seeds 0--9 \\
+    Multi-prov.\ OpenAI & \texttt{gpt-4o-mini} & Snapshot \texttt{gpt-4o-mini-2024-07-18}; \texttt{llm\_spec\_hash=b678837d32da4f49}; seeds 0--9 \\
+    pyribs & \texttt{ribs==0.11.0} & CMA-ME / CMA-MAE adapter \\
+    Dungeon surrogate & \texttt{checkpoint\_benchmark\_v2.pkl} & Separate from primary-grid nightly checkpoint \\
+    Dungeon prompt & \texttt{4d25cb08b88ea3f4} & Dungeon tile-LLM user/system pin \\
+    Maze filter gate & $\tau{=}0.685$, unc.\ cap $0.0141$ & Calibrated skip $\sim$27\% \\
+    Maze LLM prompt & \texttt{c5def71acc84f0db} & Maze emitter v2 (retry + coerce) \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\section{CVT archive sensitivity}
+\label{sec:cvt-sensitivity}
+
+\emph{Not required to follow the main argument.} Coverage is a tessellation-dependent construct: the same genotypes map to different niche counts under a $50\times50$ grid vs.\ a CVT. The confirmatory archive geometry was frozen as the $50\times50$ grid before primary-grid readout (protocol v2/v3); CVT is a post-lock \emph{sensitivity} package (\texttt{q1-cvt}), not an alternate confirmatory tessellation and not a re-registration of matched H1 TOST.
+
+\textbf{What transfers (bundled stack only; Table~\ref{tab:cvt}).}
+Sign of bundled hints$-$stub coverage: 10/10 on both archives. Terminal ranking of the three bundled arms is preserved in the mid-band sense: stub $\ll$ hints $\approx$ filter (grid ${\approx}45/60/59\%$; CVT ${\approx}37/59/59\%$). Filter evaluation reduction stays in-band (${\sim}31\%$ CVT vs.\ $33.5\%$ grid). Absolute $\Delta$cov is larger on CVT mainly because the stub baseline is lower---do not treat pp gaps as tessellation-invariant.
+
+\textbf{What does not transfer / was not tested.}
+Matched-policy H1 (\texttt{stub\_uniform} vs.\ \texttt{hints}) was \emph{not} re-run on CVT, so the soft-residual estimate / exploratory TOST summary is grid-scoped. We do not compare filled-region geometry (which niches light up) across archives. Artifact: \texttt{artifacts/Q1\_GRID\_CVT\_ANALYSIS.md}.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{CVT sensitivity on the \emph{bundled} stub/hints/filter stack only (paired $n{=}10$; descriptive). Matched H1 is not repeated on CVT.}
+  \label{tab:cvt}
+  \small
+  \fitcenter{%
+  \begin{tabular}{@{}lrrrrr@{}}
+    \toprule
+    Archive & Stub / hints / filter cov.\ (\%) & Hints$-$stub $\Delta$cov & Sign & Filter skip \\
+    \midrule
+    Grid (confirmatory) & $45.3$ / $60.4$ / $59.3$ & $+15.09 \pm 2.42$ & 10/10 & $33.5\%$ \\
+    CVT (sensitivity) & $37.4$ / $58.9$ / $59.1$ & $+21.51 \pm 0.79$ & 10/10 & $30.8\%$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\section{Archive heatmap panel (supplemental)}
+\label{sec:heatmap-panel}
+
+Figure~\ref{fig:heatmaps} is an \emph{illustrative} view of where the paired coverage gap lives on one outcome-selected seed, not a proof of a general spatial pattern: CMA-ME illuminates broad regions of behaviour space that hints leave empty---especially low-diversity bands and scattered interior holes---rather than only polishing already-filled high-fitness niches. Fitness colour is higher on average in the CMA panel, consistent with the fitness delta, but the dominant visual story is \emph{coverage}. Those gray bands are empty cells of the tessellation, not a certified infeasible mask: the same seed's CMA-ME panel occupies them, so raw coverage over $2500$ cells does not hide a uniformly unreachable region (\S\ref{sec:coverage-support}). Across all ten paired seeds the same geometry appears as occupancy probability and $\Delta P$ (Figure~\ref{fig:occupancy-n10}): CMA-ME occupies a broader $(S,D)$ support; gray there means never occupied in those ten archives. The gap is also visible along the evaluation axis (Figure~\ref{fig:anytime-ladder}): on seed~4, CMA-ME reaches $\sim$63\% coverage by 10{,}000 evaluations while hints are still $\sim$47\%. Aggregate evidence remains the $n{=}10$ paired $\Delta$cov, not the heatmap geometry.
+
+Figure~\ref{fig:heatmap-panel} shows \emph{illustrative} protocol seeds ordered by $|\texttt{hints}-\texttt{cma\_me}|$ $\Delta$cov---largest / mid / smallest $|\Delta|$ (seeds~4, 6, 1; most / mid / least negative signed $\Delta$)---outcome-selected illustrations, not a general spatial theorem. Same $[0,1]^2$ descriptor axes (Diversity $\rightarrow$, Stability $\rightarrow$), colour bar on a shared $[0,1]$ fitness scale, gray $=$ empty. Seed~4 is the main-text case ($\Delta$cov $-20.0$~pp); seeds~6 and~1 are $-16.0$ / $-9.4$~pp. Figure~\ref{fig:occupancy-n10} aggregates occupancy over all ten paired seeds.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig07_archive_heatmaps_panel_seeds4_6_1.pdf}
+  \caption{Illustrative supplemental archive heatmaps: hints vs.\ CMA-ME for protocol seeds~4, 6, and~1 (largest / mid / smallest $|\Delta\mathrm{cov}|$; \texttt{q1-full} / \texttt{q1-v3-pyribs}). Axes $[0,1]^2$ (Diversity $\rightarrow$, Stability $\rightarrow$). Shared elite-fitness colourbar $[0,1]$; gray $=$ empty niche, not certified infeasible (\S\ref{sec:coverage-support}). Rows = seed; columns = hints (left) and CMA-ME (right).}
+  \label{fig:heatmap-panel}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig07_occupancy_n10.pdf}
+  \caption{Occupancy across paired seeds $0$--$9$ (hints vs.\ \texttt{cma\_me}; collapsed warm-start). Top: $P(\mathrm{occupied})$, $\Delta P$ (\texttt{cma\_me}$-$hints). Bottom: $\mathbb{E}[f\mid\mathrm{occ}]$; gray $=$ never occupied in those ten archives, not certified infeasible. Axes $[0,1]^2$ (Diversity $\rightarrow$, Stability $\rightarrow$). Complements the outcome-selected seed panels (Figures~\ref{fig:heatmaps},~\ref{fig:heatmap-panel}); the $n{=}10$ paired $\Delta$cov remains the coverage contrast, not a spatial test.}
+  \label{fig:occupancy-n10}
+\end{figure}

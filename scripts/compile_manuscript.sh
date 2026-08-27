@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Compile artifacts/manuscript/draft_v0.tex and optionally split/glue at Appendix A.
+# Compile artifacts/manuscript/draft_v0.tex and optionally split/glue at
+# the Supplementary Material heading (after journal Appendices A--F).
 #
 # Usage:
 #   scripts/compile_manuscript.sh            # combined PDF only (default)
@@ -9,10 +10,10 @@
 #   scripts/compile_manuscript.sh both       # compile combined, then split (submission bundle)
 #
 # Outputs (under artifacts/manuscript/):
-#   draft_v0.pdf              combined (main + appendix)
-#   draft_v0_main.pdf         pages 1 .. appendix-start-1
-#   draft_v0_supplement.pdf   appendix-start .. end
-#   draft_v0.appsplit         first appendix page (written by LaTeX)
+#   draft_v0.pdf              combined (article + Supplementary Material)
+#   draft_v0_main.pdf         journal article: main text + Appendices A--F
+#   draft_v0_supplement.pdf   Supplementary Material (S1--S12)
+#   draft_v0.appsplit         first Supplementary page (written by LaTeX)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,12 +42,41 @@ pdf_page_count() {
   gs -q -dNODISPLAY -dNOSAFER -c "($1) (r) file runpdfbegin pdfpagecount = quit"
 }
 
+# First page whose text starts with the Supplementary Material heading.
+# LaTeX \\thepage at that source line can be early if appendix floats defer.
+find_sm_page() {
+  python3 - "$COMBINED" <<'PY'
+import subprocess, sys
+pdf = sys.argv[1]
+try:
+    info = subprocess.check_output(["pdfinfo", pdf], text=True)
+    total = int(next(line.split(":", 1)[1] for line in info.splitlines() if line.startswith("Pages:")))
+except Exception as e:
+    sys.stderr.write(f"page count failed: {e}\n")
+    sys.exit(1)
+for p in range(1, total + 1):
+    t = subprocess.check_output(
+        ["pdftotext", "-f", str(p), "-l", str(p), pdf, "-"],
+        text=True, errors="replace",
+    )
+    head = t.lstrip("\ufeff \t\r\n")
+    if head.startswith("Supplementary Material"):
+        print(p)
+        sys.exit(0)
+sys.stderr.write("Supplementary Material heading not found in PDF\n")
+sys.exit(1)
+PY
+}
+
 read_split_page() {
-  if [[ ! -f "$SPLITFILE" ]]; then
-    echo "missing $SPLITFILE — compile with 'all' or 'both' first" >&2
+  local start
+  start="$(find_sm_page)"
+  if [[ ! "$start" =~ ^[0-9]+$ ]] || [[ "$start" -lt 2 ]]; then
+    echo "bad Supplementary start page: '$start'" >&2
     exit 1
   fi
-  tr -d ' \t\r\n' <"$SPLITFILE"
+  printf '%s\n' "$start" >"$SPLITFILE"
+  printf '%s\n' "$start"
 }
 
 compile_combined() {
@@ -66,12 +96,12 @@ do_split() {
   local start total last_main
   start="$(read_split_page)"
   if [[ ! "$start" =~ ^[0-9]+$ ]] || [[ "$start" -lt 2 ]]; then
-    echo "bad appendix start page in $SPLITFILE: '$start'" >&2
+    echo "bad Supplementary start page in $SPLITFILE: '$start'" >&2
     exit 1
   fi
   total="$(pdf_page_count "$COMBINED")"
   last_main=$((start - 1))
-  echo "split: main pp. 1–${last_main}; supplement pp. ${start}–${total} (of ${total})"
+  echo "split: journal article pp. 1–${last_main} (main + Apps A–F); Supplementary Material pp. ${start}–${total} (of ${total})"
   gs_pages "$COMBINED" "$MAIN_PDF" 1 "$last_main"
   gs_pages "$COMBINED" "$SUPP_PDF" "$start" ""
   echo "wrote $MAIN_PDF"
