@@ -56,6 +56,7 @@ for f in \
   artifacts/Q1_COLD_START_SMOKE.md \
   artifacts/Q1_RQ1_CONTEMPORANEOUS_FACTORIAL.md \
   artifacts/Q1_RQ1_SECOND_DOMAIN.md \
+  artifacts/Q1_RQ1_SPHERE_DOMAIN.md \
   artifacts/Q1_H1_CHILD_REWRITE.md \
   artifacts/Q1_H1_PLACEBO_LOCK.md \
   artifacts/Q1_H1_PLACEBO_INTERLEAVED.md \
@@ -108,6 +109,8 @@ TIERS=(
   q1-rq1-contemporaneous
   q1-rq1-maze-factorial
   q1-v5-maze-genetic-minfit
+  q1-rq1-sphere-factorial
+  q1-sphere-genetic-policy
   q1-h1-child-rewrite-pilot
   q1-h1-placebo-pilot
   q1-h1-placebo-interleaved
@@ -132,13 +135,15 @@ for f in nightly_v3_mc_d005.pkl nightly_v3_mc_d005.summary.json \
     echo "WARN: missing artifacts/surrogate/checkpoints/${f}" >&2
   fi
 done
-# Sphere H2 MLP lives beside checkpoints/, not under checkpoints/
-if [[ -f artifacts/surrogate/sphere_h2_mlp.joblib ]]; then
-  echo "staging sphere_h2_mlp.joblib"
-  cp -a artifacts/surrogate/sphere_h2_mlp.joblib "${STAGE}/checkpoints/"
-else
-  echo "WARN: missing artifacts/surrogate/sphere_h2_mlp.joblib" >&2
-fi
+# Sphere MLPs live beside checkpoints/, not under checkpoints/
+for f in sphere_h2_mlp.joblib sphere_h1_mlp.joblib; do
+  if [[ -f "artifacts/surrogate/${f}" ]]; then
+    echo "staging ${f}"
+    cp -a "artifacts/surrogate/${f}" "${STAGE}/checkpoints/"
+  else
+    echo "WARN: missing artifacts/surrogate/${f}" >&2
+  fi
+done
 
 # --- offline surrogate / compose-gate / ablation JSON (H3 appendix + validity) ---
 SURROGATE_JSON=(
@@ -207,6 +212,7 @@ prospective OSF/Zenodo pre-registration of runs that already completed.
 | H2 ranking controls | after mixed-2x2 | \`q1-h2-ranking-controls\` |
 | Encoding appendix | descriptive | \`q1-cma-encoding-ablation\`, \`*-pbcma\`, \`*-discrete-cma\` |
 | Sphere H2 transfer | supplementary | \`q1-v3-sphere-h2\` + \`checkpoints/sphere_h2_mlp.joblib\` |
+| Sphere H1 leftover (appendix) | 2026-08-26 | \`q1-rq1-sphere-factorial\` + \`q1-sphere-genetic-policy\` + \`checkpoints/sphere_h1_mlp.joblib\` |
 | CVT sensitivity | descriptive | \`q1-cvt\` |
 | Compose-gate / hold-out | 2026-07-28 | \`surrogate/*.json\` |
 | H1 policy×hint missing cell | 2026-08-09 | \`q1-h1-policy-x-hint\` |
@@ -235,14 +241,14 @@ Curated snapshot of:
 
 - dated experiment protocol files (v2–v5) + task lists for H3 gray-zone,
   mixed-stack / cold 2x2, calendar-blocked RQ1, maze empty RQ1,
-  policy×hint, H2 ranking/oracle, Path A / placebo, and
+  Sphere H1 leftover, policy×hint, H2 ranking/oracle, Path A / placebo, and
   \`PROTOCOL_FREEZE_TIMELINE.md\`,
 - paper-relevant experiment tiers under \`experiments/\` (main claims **and**
   appendix packages that report numbers: dungeon CPU@32.5k, encoding / pbCMA,
-  anytime ladder, CVT, B3 sphere/rastrigin, Sphere H2, maze cost wall,
-  calendar-blocked RQ1, maze empty 2x2, mixed/cold 2x2,
+  anytime ladder, CVT, B3 sphere/rastrigin, Sphere H2, Sphere H1 leftover,
+  maze cost wall, calendar-blocked RQ1, maze empty 2x2, mixed/cold 2x2,
   policy×hint, H2 oracle replay, Path A / placebo),
-- surrogate checkpoints (\`nightly_v3_mc_d005\`, \`maze_v1\`, \`sphere_h2_mlp.joblib\`),
+- surrogate checkpoints (\`nightly_v3_mc_d005\`, \`maze_v1\`, \`sphere_h2_mlp.joblib\`, \`sphere_h1_mlp.joblib\`),
 - offline compose-gate / hold-out / filter-replay JSON under \`surrogate/\`,
 - maze wall-time microbench (\`mazes/walltime/\`),
 - warm-start archive (\`map_elites_nightly/baseline/\`),
@@ -263,8 +269,9 @@ Curated snapshot of:
 
 - Experiment tier paths mirror the repo: \`experiments/<tier>/\`.
 - Checkpoints that live under \`artifacts/surrogate/checkpoints/\` in the repo
-  are here under \`checkpoints/\`; \`sphere_h2_mlp.joblib\` is placed beside them
-  (in-repo path is \`artifacts/surrogate/sphere_h2_mlp.joblib\`).
+  are here under \`checkpoints/\`; Sphere MLPs (\`sphere_h2_mlp.joblib\`,
+  \`sphere_h1_mlp.joblib\`) are placed beside them (in-repo path is
+  \`artifacts/surrogate/<name>\`).
 - Compose-gate / hold-out JSON mirror \`artifacts/surrogate/\` → \`surrogate/\`.
 
 ## Reproduce analysis (high level)
