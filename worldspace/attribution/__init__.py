@@ -1,0 +1,68 @@
+"""Common controlled-attribution manifests, records, and admission guards."""
+
+from worldspace.attribution.hashing import canonical_json_bytes, canonical_sha256
+from worldspace.attribution.manifest import (
+    SCHEMA_VERSION,
+    AdapterCapabilities,
+    ArmManifest,
+    BudgetCaps,
+    BudgetTreatment,
+    ComponentSpec,
+    EstimandSpec,
+    RunManifest,
+    RunManifestCore,
+    StudyManifest,
+    TreatmentVector,
+    arm_treatment_hash,
+    differing_treatment_axes,
+    freeze_run_manifest,
+    scientific_treatment_hash,
+    study_manifest_hash,
+)
+from worldspace.attribution.records import (
+    ArtifactManifest,
+    ArchiveState,
+    BudgetCheckpoint,
+    BudgetCounters,
+    ProposalEvent,
+    RunSummary,
+)
+from worldspace.attribution.validation import (
+    AdmissionIssue,
+    AttributionAdmissionError,
+    admit_analysis_cohort,
+    require_study_capabilities,
+    validate_study_capabilities,
+)
+
+__all__ = [
+    "SCHEMA_VERSION",
+    "AdapterCapabilities",
+    "AdmissionIssue",
+    "ArmManifest",
+    "ArtifactManifest",
+    "ArchiveState",
+    "AttributionAdmissionError",
+    "BudgetCaps",
+    "BudgetCheckpoint",
+    "BudgetCounters",
+    "BudgetTreatment",
+    "ComponentSpec",
+    "EstimandSpec",
+    "ProposalEvent",
+    "RunManifest",
+    "RunManifestCore",
+    "RunSummary",
+    "StudyManifest",
+    "TreatmentVector",
+    "admit_analysis_cohort",
+    "arm_treatment_hash",
+    "canonical_json_bytes",
+    "canonical_sha256",
+    "differing_treatment_axes",
+    "freeze_run_manifest",
+    "require_study_capabilities",
+    "scientific_treatment_hash",
+    "study_manifest_hash",
+    "validate_study_capabilities",
+]
