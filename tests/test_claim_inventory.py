@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "build_claim_inventory.py"
@@ -142,3 +146,40 @@ class TestClaimInventory(unittest.TestCase):
         errors = claim_inventory.validate_registries(_minimal_registries())
 
         self.assertEqual(errors, [])
+
+    def test_readout_reports_validation_failure(self) -> None:
+        registries = _minimal_registries()
+        registries["comparisons"][0]["treatment_vector"].pop("budget")
+        errors = claim_inventory.validate_registries(registries)
+
+        readout = claim_inventory.render_readout(registries, errors)
+
+        self.assertIn("Registry validation: FAIL", readout)
+        self.assertIn("missing components ['budget']", readout)
+        self.assertIn("- [ ] registries validate", readout)
+
+    def test_main_writes_fail_readout_instead_of_skipping_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "comparisons.jsonl").write_text(
+                json.dumps({"record_type": "comparison", "comparison_id": "broken"})
+                + "\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch("sys.argv", ["build_claim_inventory.py", "--root", str(root)]),
+                patch("sys.stdout", stdout),
+                patch("sys.stderr", stderr),
+            ):
+                code = claim_inventory.main()
+
+            output = root / "CLAIM_INVENTORY.md"
+            self.assertEqual(code, 1)
+            self.assertTrue(output.is_file())
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("Registry validation: FAIL", text)
+            self.assertIn("Validation errors:", text)
+            self.assertIn("ERROR:", stderr.getvalue())
+            self.assertIn("Wrote", stdout.getvalue())

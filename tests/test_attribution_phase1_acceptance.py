@@ -18,6 +18,7 @@ from worldspace.attribution import (
     build_factorial_job_plan,
     ca_genotype_hash,
     current_domain_capabilities,
+    descriptive_contrast,
     maze_genotype_hash,
     reconcile_event_ledger,
 )
@@ -234,6 +235,84 @@ class TestPhase1Acceptance(unittest.TestCase):
                         minimum_complete_pairs=1,
                     )
                 self.assertIn(expected_code, str(caught.exception))
+
+    def test_anytime_auc_accepts_ca_partial_trace(self) -> None:
+        bundle = CaNormalizationAdapter().normalize(
+            _run_manifest(
+                "ca",
+                seed=0,
+                selector="min_fitness_frontier",
+                generator="llm",
+            ),
+            NativeRunInputs(FIXTURES / "ca_partial"),
+        )
+        self.assertNotEqual(bundle.summary.event_completeness, "summary_only")
+        self.assertGreaterEqual(
+            sum(1 for item in bundle.checkpoints if item.indexed_by == "proposal"),
+            2,
+        )
+        control = RunSummary.model_validate(
+            {
+                **bundle.summary.model_dump(mode="json"),
+                "run_id": "control-run",
+                "arm_id": "control",
+                "pair_id": "pair-0",
+            }
+        )
+        treatment = RunSummary.model_validate(
+            {
+                **bundle.summary.model_dump(mode="json"),
+                "run_id": "treatment-run",
+                "arm_id": "treatment",
+                "pair_id": "pair-0",
+            }
+        )
+        estimand = StudyManifest.model_validate(_block_a_study()).estimands[0]
+        payload = estimand.model_dump(mode="json")
+        payload["form"] = "anytime_auc"
+        payload["endpoint"] = "coverage"
+        payload["treatment_arm_ids"] = ["treatment"]
+        payload["control_arm_ids"] = ["control"]
+        payload["minimum_complete_pairs"] = 1
+        contrast = descriptive_contrast(
+            (control, treatment),
+            estimand=estimand.__class__.model_validate(payload),
+            checkpoints_by_run={
+                "control-run": bundle.checkpoints,
+                "treatment-run": bundle.checkpoints,
+            },
+        )
+        self.assertEqual(contrast.form, "anytime_auc")
+        self.assertIsNotNone(contrast.mean_difference)
+        self.assertAlmostEqual(contrast.mean_difference, 0.0, places=9)
+
+    def test_anytime_auc_rejects_maze_summary_only(self) -> None:
+        bundle = MazeNormalizationAdapter().normalize(
+            _run_manifest(
+                "maze",
+                seed=0,
+                selector="uniform_frontier",
+                generator="genetic",
+                gate="filter",
+            ),
+            NativeRunInputs(FIXTURES / "maze_summary_only"),
+        )
+        self.assertEqual(bundle.summary.event_completeness, "summary_only")
+        estimand = StudyManifest.model_validate(_block_a_study()).estimands[0]
+        payload = estimand.model_dump(mode="json")
+        payload["form"] = "anytime_auc"
+        payload["endpoint"] = "coverage"
+        payload["treatment_arm_ids"] = [bundle.summary.arm_id]
+        payload["control_arm_ids"] = [bundle.summary.arm_id]
+        with self.assertRaisesRegex(
+            AttributionAdmissionError,
+            "anytime_summary_only",
+        ):
+            descriptive_contrast(
+                (bundle.summary,),
+                estimand=estimand.__class__.model_validate(payload),
+                checkpoints_by_run={bundle.summary.run_id: bundle.checkpoints},
+            )
 
     def test_phase1_tooling_leaves_q1_configs_and_summaries_byte_unchanged(
         self,

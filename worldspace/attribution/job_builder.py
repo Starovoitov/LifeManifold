@@ -6,6 +6,7 @@ import random
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from worldspace.attribution.design import (
     DesignCell,
@@ -534,3 +535,34 @@ def _interleaved_execution_order(
                 sequence.append(by_seed[seed][arm_id].run_id)
         ordered[block_id] = tuple(sequence)
     return ordered
+
+
+def write_job_plan(plan: JobPlan, *, study_root: Path | None = None) -> Path:
+    """Serialize a frozen job plan without launching runs.
+
+    Writes ``job_plan.json`` and ``design_matrix.json`` under the study root
+    and one ``run_manifest.json`` in each run's declared output directory.
+    """
+    if plan.launched:
+        raise ValueError("refusing to write a launched job plan")
+    if study_root is None:
+        first_dir = Path(plan.runs[0].output_paths["run_dir"])
+        # {output_root}/{study_id}/{tier}/{domain}/{arm}/{run_id}
+        study_root = first_dir.parents[3]
+    study_root.mkdir(parents=True, exist_ok=True)
+    (study_root / "job_plan.json").write_text(
+        plan.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (study_root / "design_matrix.json").write_text(
+        plan.design.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+    for run in plan.runs:
+        run_dir = Path(run.output_paths["run_dir"])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "run_manifest.json").write_text(
+            run.model_dump_json(indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return study_root

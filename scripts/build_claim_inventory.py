@@ -452,30 +452,38 @@ def render_readout(
         f"{strata['adjacent']} adjacent)",
         f"- Extracted focal-vs-baseline contrasts: {len(comparisons)}",
         f"- Separate internal historical/design claims: {len(internal)}",
-        "",
-        "Raw query counts overlap and must not be interpreted as unique records.",
-        "The inventory charts one principal attribution-relevant contrast per "
-        "included report; it is not an exhaustive transcription of every result table.",
-        "",
-        "## Main inventory finding",
-        "",
-        f"- {sum(component_counts[c]['changed'] for c in ('selector', 'allocation'))} "
-        "selector/allocation changes are coded across the 58 principal contrasts "
-        "(components may co-occur). Bundled orchestration changes are common enough "
-        "that a generic `LLM vs baseline` label is not an adequate treatment.",
-        f"- Initialization is unclear in {component_counts['initialization']['unclear']}/"
-        f"{len(comparisons)} contrasts and repair/fallback in "
-        f"{component_counts['repair_fallback']['unclear']}/{len(comparisons)}.",
-        f"- Budget matching is explicit in only {component_counts['budget']['matched']}/"
-        f"{len(comparisons)} contrasts. Token and monetary axes are reported in "
-        f"{budget_counts['token']} and {budget_counts['monetary']} principal contrasts.",
-        f"- Exact numeric principal effects were charted for "
-        f"{sum(row.get('reported_result', {}).get('direction') != 'unclear' for row in comparisons)}/"
-        f"{len(comparisons)} contrasts; absent values remain `unclear`, not inferred.",
-        "",
-        "## Seed-recall gate",
-        "",
     ]
+    if errors:
+        lines.extend(
+            ["", "Validation errors:", ""] + [f"- {error}" for error in errors]
+        )
+    lines.extend(
+        [
+            "",
+            "Raw query counts overlap and must not be interpreted as unique records.",
+            "The inventory charts one principal attribution-relevant contrast per "
+            "included report; it is not an exhaustive transcription of every result table.",
+            "",
+            "## Main inventory finding",
+            "",
+            f"- {sum(component_counts[c]['changed'] for c in ('selector', 'allocation'))} "
+            "selector/allocation changes are coded across the 58 principal contrasts "
+            "(components may co-occur). Bundled orchestration changes are common enough "
+            "that a generic `LLM vs baseline` label is not an adequate treatment.",
+            f"- Initialization is unclear in {component_counts['initialization']['unclear']}/"
+            f"{len(comparisons)} contrasts and repair/fallback in "
+            f"{component_counts['repair_fallback']['unclear']}/{len(comparisons)}.",
+            f"- Budget matching is explicit in only {component_counts['budget']['matched']}/"
+            f"{len(comparisons)} contrasts. Token and monetary axes are reported in "
+            f"{budget_counts['token']} and {budget_counts['monetary']} principal contrasts.",
+            f"- Exact numeric principal effects were charted for "
+            f"{sum(row.get('reported_result', {}).get('direction') != 'unclear' for row in comparisons)}/"
+            f"{len(comparisons)} contrasts; absent values remain `unclear`, not inferred.",
+            "",
+            "## Seed-recall gate",
+            "",
+        ]
+    )
     lines.extend(
         _markdown_table(
             ["seed", "recovered"],
@@ -536,37 +544,49 @@ def render_readout(
         comparisons_by_paper.setdefault(str(comparison.get("paper_id")), []).append(
             comparison
         )
-    for paper in sorted(papers, key=lambda row: (row.get("year", 0), row["title"])):
+    for paper in sorted(
+        papers, key=lambda row: (row.get("year") or 0, str(row.get("title", "")))
+    ):
+        urls = paper.get("urls")
+        source_url = urls[0] if isinstance(urls, list) and urls else "missing"
         lines.extend(
             [
-                f"### {paper['title']} ({paper['year']})",
+                f"### {paper.get('title', 'untitled')} ({paper.get('year', '?')})",
                 "",
-                f"- Stratum: `{paper['stratum']}`",
-                f"- Domain/task: {paper['domain']} / {paper['task']}",
-                f"- Source: {paper['urls'][0]}",
+                f"- Stratum: `{paper.get('stratum', 'missing')}`",
+                f"- Domain/task: {paper.get('domain', 'missing')} / "
+                f"{paper.get('task', 'missing')}",
+                f"- Source: {source_url}",
             ]
         )
-        for comparison in comparisons_by_paper.get(paper["paper_id"], []):
-            vector = comparison["treatment_vector"]
+        for comparison in comparisons_by_paper.get(str(paper.get("paper_id")), []):
+            vector = comparison.get("treatment_vector")
+            if not isinstance(vector, dict):
+                vector = {}
             changed = [
                 component
                 for component in COMPONENTS
-                if vector[component]["status"] == "changed"
+                if isinstance(vector.get(component), dict)
+                and vector[component].get("status") == "changed"
             ]
             unclear = [
                 component
                 for component in COMPONENTS
-                if vector[component]["status"] == "unclear"
+                if isinstance(vector.get(component), dict)
+                and vector[component].get("status") == "unclear"
             ]
+            source = comparison.get("source")
+            evidence = source.get("section") if isinstance(source, dict) else "missing"
             lines.extend(
                 [
-                    f"- `{comparison['comparison_id']}`: "
-                    f"{comparison['focal_arm']} vs {comparison['baseline_arm']} — "
-                    f"{comparison['claim']}",
-                    f"  - Endpoint: {comparison['endpoint']}",
+                    f"- `{comparison.get('comparison_id', '?')}`: "
+                    f"{comparison.get('focal_arm', '?')} vs "
+                    f"{comparison.get('baseline_arm', '?')} — "
+                    f"{comparison.get('claim', '')}",
+                    f"  - Endpoint: {comparison.get('endpoint', 'missing')}",
                     "  - Changed: " + (", ".join(changed) if changed else "none coded"),
                     "  - Unclear: " + (", ".join(unclear) if unclear else "none"),
-                    f"  - Evidence: {comparison['source']['section']}",
+                    f"  - Evidence: {evidence}",
                 ]
             )
         lines.append("")
@@ -644,13 +664,14 @@ def main() -> int:
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
-        return 1
 
     if not args.validate_only:
         output = args.output or args.root / "CLAIM_INVENTORY.md"
         output.write_text(render_readout(registries, errors), encoding="utf-8")
         print(f"Wrote {output}")
     _strip_source_lines(registries)
+    if errors:
+        return 1
     print(
         "Validated "
         + ", ".join(f"{name}={len(rows)}" for name, rows in registries.items())

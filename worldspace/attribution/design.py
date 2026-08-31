@@ -143,13 +143,42 @@ class PairedDifference(AttributionModel):
     difference: float
 
 
+class InteractionDifference(AttributionModel):
+    """One pair's 2x2 interaction (A−B)−(C−D)."""
+
+    pair_id: NonEmptyStr
+    formula: NonEmptyStr
+    minuend_treatment_arm_id: NonEmptyStr
+    minuend_control_arm_id: NonEmptyStr
+    subtrahend_treatment_arm_id: NonEmptyStr
+    subtrahend_control_arm_id: NonEmptyStr
+    minuend: float
+    subtrahend: float
+    difference: float
+
+
+class ArmAnatomy(AttributionModel):
+    """Companion validity / fallback / insertion rates for one arm."""
+
+    arm_id: NonEmptyStr
+    n_events: int | None = Field(ge=0)
+    valid_proposal_rate: float | None
+    fallback_rate: float | None
+    fill_empty_count: int | None = Field(ge=0)
+    improve_count: int | None = Field(ge=0)
+    occupied_not_better_count: int | None = Field(ge=0)
+
+
 class DescriptiveContrast(AttributionModel):
     """Fixture-level descriptive readout for one estimand."""
 
     estimand_id: NonEmptyStr
     endpoint: NonEmptyStr
     budget_axis: BudgetAxis
+    form: Literal["terminal", "anytime_auc", "interaction"] = "terminal"
     cell_means: tuple[CellMean, ...]
     paired_differences: tuple[PairedDifference, ...]
+    interaction_differences: tuple[InteractionDifference, ...] = ()
+    anatomy: tuple[ArmAnatomy, ...] = ()
     mean_difference: float | None
     complete_pairs: int = Field(ge=0)

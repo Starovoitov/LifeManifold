@@ -3,6 +3,7 @@
 from worldspace.attribution.analysis import (
     admit_design_matrix_cohort,
     descriptive_contrast,
+    parse_interaction_formula,
 )
 from worldspace.attribution.capabilities import (
     ca_capabilities,
@@ -23,10 +24,12 @@ from worldspace.attribution.capture import (
     reconcile_event_ledger,
 )
 from worldspace.attribution.design import (
+    ArmAnatomy,
     CellMean,
     DescriptiveContrast,
     DesignCell,
     DesignMatrix,
+    InteractionDifference,
     JobPlan,
     PairedDifference,
     PlannedContrast,
@@ -44,6 +47,7 @@ from worldspace.attribution.job_builder import (
     InitialArchiveRef,
     JobBuildContext,
     build_factorial_job_plan,
+    write_job_plan,
 )
 from worldspace.attribution.manifest import (
     SCHEMA_VERSION,
@@ -83,6 +87,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "AdapterCapabilities",
     "AdmissionIssue",
+    "ArmAnatomy",
     "ArmManifest",
     "ArtifactManifest",
     "ArchiveState",
@@ -99,6 +104,7 @@ __all__ = [
     "DesignMatrix",
     "EstimandSpec",
     "InitialArchiveRef",
+    "InteractionDifference",
     "JobBuildContext",
     "JobPlan",
     "PairedDifference",
@@ -140,5 +146,7 @@ __all__ = [
     "dungeon_capabilities",
     "maze_capabilities",
     "maze_genotype_hash",
+    "parse_interaction_formula",
     "sphere_capabilities",
+    "write_job_plan",
 ]

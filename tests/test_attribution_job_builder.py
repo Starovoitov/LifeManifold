@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import copy
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 from worldspace.attribution import (
     AdapterCapabilities,
     ArchiveState,
     AttributionAdmissionError,
+    BudgetCheckpoint,
     BudgetCounters,
     InitialArchiveRef,
     JobBuildContext,
@@ -19,7 +23,9 @@ from worldspace.attribution import (
     arm_treatment_hash,
     build_factorial_job_plan,
     descriptive_contrast,
+    parse_interaction_formula,
     study_manifest_hash,
+    write_job_plan,
 )
 
 HASH_A = "a" * 64
@@ -169,6 +175,56 @@ def _block_a_study() -> dict[str, Any]:
     }
 
 
+def _block_a_interaction_study() -> dict[str, Any]:
+    """Prompt channel × selector 2x2 — Block A interaction fixture."""
+    arms = []
+    for prompt, selector, arm_id, role in (
+        ("constant", "uniform_frontier", "stub_uniform", "baseline"),
+        ("live", "uniform_frontier", "live_uniform", "control"),
+        ("constant", "min_fitness_frontier", "stub_minfit", "control"),
+        ("live", "min_fitness_frontier", "live_minfit", "focal"),
+    ):
+        differences: list[str] = []
+        if prompt == "live":
+            differences.append("prompt_channel")
+        if selector == "min_fitness_frontier":
+            differences.append("selector")
+        payload = _arm(
+            "ca",
+            arm_id=arm_id,
+            role=role,
+            selector=selector,
+            reference_arm_id="stub_uniform" if arm_id != "stub_uniform" else None,
+            expected_differences=differences or None,
+        )
+        payload["treatment"]["prompt_channel"] = _component(prompt)
+        arms.append(payload)
+    study = _block_a_study()
+    study["study_id"] = "block-a-interaction"
+    study["arms"] = arms
+    study["estimands"] = [
+        {
+            "estimand_id": "channel_x_selector",
+            "endpoint": "normalized_qd_score",
+            "form": "interaction",
+            "budget_axis": "proposal",
+            "treatment_arm_ids": ["live_minfit", "live_uniform"],
+            "control_arm_ids": ["stub_minfit", "stub_uniform"],
+            "paired_by": ["seed", "domain_instance_id"],
+            "alternative": "two_sided",
+            "margin": None,
+            "interaction_formula": (
+                "(live_minfit - stub_minfit) - (live_uniform - stub_uniform)"
+            ),
+            "confirmatory_family": None,
+            "multiplicity_rule": None,
+            "missing_policy": "complete_pairs_only",
+            "minimum_complete_pairs": 2,
+        }
+    ]
+    return study
+
+
 def _block_b_study() -> dict[str, Any]:
     """Generator calibration contrast — Block B."""
     baseline = _arm(
@@ -253,7 +309,7 @@ def _capabilities(domain: str) -> AdapterCapabilities:
         initialization_kinds=("empty",),
         selectors=("uniform_frontier", "min_fitness_frontier"),
         generators=("random", "genetic"),
-        prompt_channels=("not_applicable",),
+        prompt_channels=("not_applicable", "constant", "live"),
         repair_fallback_kinds=("identity",),
         gate_modes=("off",),
         replacement_kinds=("strict_single_elite",),
@@ -558,6 +614,259 @@ class TestFactorialJobBuilder(unittest.TestCase):
         expected = {arm.arm_id: arm_treatment_hash(arm) for arm in study.arms}
         for run in plan.runs:
             self.assertEqual(run.treatment_hash, expected[run.arm_id])
+
+    def test_block_a_interaction_is_two_by_two_difference_of_differences(self) -> None:
+        study = StudyManifest.model_validate(_block_a_interaction_study())
+        plan = build_factorial_job_plan(
+            study,
+            _capabilities("ca"),
+            _context_for(study),
+        )
+        self.assertEqual(len(plan.runs), 8)
+        qd_by_arm = {
+            "stub_uniform": 0.40,
+            "live_uniform": 0.50,
+            "stub_minfit": 0.45,
+            "live_minfit": 0.70,
+        }
+        rows = [
+            _summary_from_cell(
+                study,
+                run_id=cell.run_id,
+                arm_id=cell.arm_id,
+                pair_id=cell.pair_id,
+                seed=cell.seed,
+                treatment_hash=cell.treatment_hash,
+                run_manifest_hash=cell.run_manifest_hash,
+                qd=qd_by_arm[cell.arm_id] + 0.01 * cell.seed,
+            )
+            for cell in plan.design.cells
+        ]
+        admitted = admit_design_matrix_cohort(
+            rows,
+            study=study,
+            estimand=study.estimands[0],
+            design=plan.design,
+        )
+        contrast = descriptive_contrast(admitted, estimand=study.estimands[0])
+        self.assertEqual(contrast.form, "interaction")
+        self.assertEqual(contrast.complete_pairs, 2)
+        self.assertEqual(len(contrast.interaction_differences), 2)
+        self.assertAlmostEqual(contrast.mean_difference or 0.0, 0.015, places=9)
+        self.assertEqual(
+            parse_interaction_formula(study.estimands[0].interaction_formula or ""),
+            ("live_minfit", "stub_minfit", "live_uniform", "stub_uniform"),
+        )
+
+    def test_two_arm_block_a_cannot_form_interaction(self) -> None:
+        payload = _block_a_study()
+        payload["estimands"][0]["form"] = "interaction"
+        payload["estimands"][0][
+            "interaction_formula"
+        ] = "(minfit - uniform) - (missing_a - missing_b)"
+        study = StudyManifest.model_validate(payload)
+        plan = build_factorial_job_plan(
+            study,
+            _capabilities("ca"),
+            _context_for(study),
+        )
+        rows = [
+            _summary_from_cell(
+                study,
+                run_id=cell.run_id,
+                arm_id=cell.arm_id,
+                pair_id=cell.pair_id,
+                seed=cell.seed,
+                treatment_hash=cell.treatment_hash,
+                run_manifest_hash=cell.run_manifest_hash,
+                qd=0.5,
+            )
+            for cell in plan.design.cells
+        ]
+        with self.assertRaises(AttributionAdmissionError) as caught:
+            descriptive_contrast(rows, estimand=study.estimands[0])
+        self.assertIn("analysis.interaction_undeclared_arm", str(caught.exception))
+
+    def test_anytime_auc_from_proposal_checkpoints(self) -> None:
+        study = StudyManifest.model_validate(_block_a_study())
+        plan = build_factorial_job_plan(
+            study,
+            _capabilities("ca"),
+            _context_for(study),
+        )
+        payload = study.estimands[0].model_dump(mode="json")
+        payload["form"] = "anytime_auc"
+        payload["endpoint"] = "coverage"
+        estimand = study.estimands[0].__class__.model_validate(payload)
+        rows = []
+        checkpoints: dict[str, tuple[BudgetCheckpoint, ...]] = {}
+        for cell in plan.design.cells:
+            end_coverage = 0.5 if cell.arm_id == "minfit" else 0.25
+            rows.append(
+                _summary_from_cell(
+                    study,
+                    run_id=cell.run_id,
+                    arm_id=cell.arm_id,
+                    pair_id=cell.pair_id,
+                    seed=cell.seed,
+                    treatment_hash=cell.treatment_hash,
+                    run_manifest_hash=cell.run_manifest_hash,
+                    qd=1.0,
+                )
+            )
+            rows[-1] = RunSummary.model_validate(
+                {**rows[-1].model_dump(mode="json"), "event_completeness": "partial"}
+            )
+            checkpoints[cell.run_id] = _coverage_trace(
+                cell.run_id, end_coverage=end_coverage
+            )
+        contrast = descriptive_contrast(
+            rows,
+            estimand=estimand,
+            checkpoints_by_run=checkpoints,
+        )
+        self.assertEqual(contrast.form, "anytime_auc")
+        # (2-0) * (0 + end) / 2 = end
+        self.assertAlmostEqual(contrast.mean_difference or 0.0, 0.25, places=9)
+        anatomy = {item.arm_id: item.valid_proposal_rate for item in contrast.anatomy}
+        self.assertEqual(anatomy["uniform"], 1.0)
+
+    def test_anytime_auc_rejects_summary_only(self) -> None:
+        study = StudyManifest.model_validate(_block_a_study())
+        plan = build_factorial_job_plan(
+            study,
+            _capabilities("ca"),
+            _context_for(study),
+        )
+        payload = study.estimands[0].model_dump(mode="json")
+        payload["form"] = "anytime_auc"
+        payload["endpoint"] = "coverage"
+        estimand = study.estimands[0].__class__.model_validate(payload)
+        cell = plan.design.cells[0]
+        row = _summary_from_cell(
+            study,
+            run_id=cell.run_id,
+            arm_id=cell.arm_id,
+            pair_id=cell.pair_id,
+            seed=cell.seed,
+            treatment_hash=cell.treatment_hash,
+            run_manifest_hash=cell.run_manifest_hash,
+            qd=1.0,
+        )
+        with self.assertRaises(AttributionAdmissionError) as caught:
+            descriptive_contrast(
+                [row],
+                estimand=estimand,
+                checkpoints_by_run={cell.run_id: _coverage_trace(cell.run_id)},
+            )
+        self.assertIn("analysis.anytime_summary_only", str(caught.exception))
+
+    def test_write_job_plan_does_not_launch(self) -> None:
+        study = StudyManifest.model_validate(_block_a_study())
+        with tempfile.TemporaryDirectory() as tmp:
+            context = _context_for(study)
+            context = JobBuildContext(
+                output_root=tmp,
+                initial_archives=context.initial_archives,
+                dependency_hashes=context.dependency_hashes,
+                expected_artifacts=context.expected_artifacts,
+                unit_monetary_cost=context.unit_monetary_cost,
+                order_seed=context.order_seed,
+            )
+            plan = build_factorial_job_plan(study, _capabilities("ca"), context)
+            study_root = write_job_plan(plan)
+            self.assertFalse(plan.launched)
+            self.assertTrue((study_root / "job_plan.json").is_file())
+            self.assertTrue((study_root / "design_matrix.json").is_file())
+            written = json.loads((study_root / "job_plan.json").read_text())
+            self.assertIs(written["launched"], False)
+            for run in plan.runs:
+                manifest_path = Path(run.output_paths["run_dir"]) / "run_manifest.json"
+                self.assertTrue(manifest_path.is_file())
+
+    def test_cli_writes_native_capability_study(self) -> None:
+        import importlib.util
+
+        payload = _block_a_study()
+        payload["adapter_id"] = "ca-native"
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "build_attribution_jobs.py"
+        )
+        spec = importlib.util.spec_from_file_location("build_attribution_jobs", script)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            study_path = root / "study.json"
+            study_path.write_text(json.dumps(payload), encoding="utf-8")
+            code = module.main(
+                ["--study", str(study_path), "--output-root", str(root / "jobs")]
+            )
+            self.assertEqual(code, 0)
+            self.assertTrue(
+                (root / "jobs" / "block-a-selector" / "job_plan.json").is_file()
+            )
+
+
+def _coverage_trace(
+    run_id: str, *, end_coverage: float = 0.25
+) -> tuple[BudgetCheckpoint, ...]:
+    completeness = {
+        "proposal": "observed",
+        "valid_proposal": "unavailable",
+        "evaluation": "observed",
+        "llm_call_attempted": "unavailable",
+        "llm_call_completed": "unavailable",
+        "prompt_token": "unavailable",
+        "completion_token": "unavailable",
+        "token": "unavailable",
+        "evaluator_wall_time": "unavailable",
+        "llm_latency": "unavailable",
+        "wall_time": "unavailable",
+        "monetary": "unavailable",
+    }
+
+    def checkpoint(index: int, proposals: int, coverage: float) -> BudgetCheckpoint:
+        occupied = int(round(coverage * 4))
+        return BudgetCheckpoint(
+            run_id=run_id,
+            checkpoint_index=index,
+            indexed_by="proposal",
+            counters=BudgetCounters(
+                proposal_slots=proposals,
+                valid_proposals=None,
+                evaluator_attempts=proposals,
+                evaluator_completions=proposals,
+                llm_attempts=None,
+                llm_completions=None,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                evaluator_seconds=None,
+                llm_latency_seconds=None,
+                wall_seconds=None,
+                monetary_cost=None,
+            ),
+            source_completeness=completeness,
+            calls_allocated_by_operator={},
+            calls_used_by_operator={},
+            calls_remaining_by_operator={},
+            calls_forfeited_by_operator={},
+            archive=ArchiveState(
+                occupied_cells=occupied,
+                capacity=4,
+                coverage=occupied / 4,
+                raw_qd_score=coverage,
+                normalized_qd_score=coverage / 4,
+                maximum_elite_quality=None,
+                occupied_mean_quality=None,
+            ),
+        )
+
+    return (checkpoint(0, 0, 0.0), checkpoint(1, 2, end_coverage))
 
 
 if __name__ == "__main__":

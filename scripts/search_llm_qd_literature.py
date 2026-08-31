@@ -240,6 +240,25 @@ def _candidate_from_row(
     }
 
 
+def search_run_notes(
+    *,
+    returned: int,
+    reported: int,
+    status: str,
+    error: str | None,
+    amendment_1: bool,
+) -> str:
+    """Describe one search-run outcome without claiming an unused query variant."""
+    if status != "ok":
+        return f"search failed and is not formal: {error}"
+    if returned < reported:
+        return f"incomplete: returned={returned} of reported={reported}"
+    notes = f"returned={returned}"
+    if amendment_1:
+        notes += "; amendment=1"
+    return notes
+
+
 def allocate_raw_export_dir(
     root: Path,
     timestamp: datetime | None = None,
@@ -294,7 +313,8 @@ def main() -> int:
     }
 
     for source in args.sources:
-        if args.amendment_1 and source != "arxiv":
+        use_amendment_1 = bool(args.amendment_1 and source != "arxiv")
+        if use_amendment_1:
             source_queries = AMENDED_QUERIES[source]
         else:
             source_queries = tuple(
@@ -354,14 +374,12 @@ def main() -> int:
                     "result_count": total,
                     "formal": complete,
                     "export_path": str(raw_path),
-                    "notes": (
-                        f"returned={len(rows)}; amendment=1"
-                        if complete
-                        else (
-                            f"incomplete: returned={len(rows)} of reported={total}"
-                            if status == "ok"
-                            else f"search failed and is not formal: {error}"
-                        )
+                    "notes": search_run_notes(
+                        returned=len(rows),
+                        reported=total,
+                        status=status,
+                        error=error,
+                        amendment_1=use_amendment_1,
                     ),
                 }
             )

@@ -116,6 +116,7 @@ flowchart LR
 | `pipeline.py` | `stream_world_space_to_jsonl` |
 | `illuminators/` | MAP-Elites loop, archive, evaluation, emitters |
 | `surrogate/` | Features, buffer, `get_surrogate`, acquisition policies |
+| `attribution/` | Sidecar manifests, adapters, and analysis admission — **not** a new illuminator loop |
 | `mazes/`, `dungeons/`, `benchmarks/` | Parallel domains ([DOMAINS.md](DOMAINS.md)) — not main CLI |
 | `visualizer/` | **Deprecated** matplotlib PNG from pipeline JSONL traces |
 | `dashboard/` (repo root) | **Primary** Streamlit UI (archives, surrogate, metrics, acquisition log) |
@@ -256,3 +257,4 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [MAPELITES.md](MAPELITES.md) — quality-diversity search
 - [SURROGATE_MODEL.md](SURROGATE_MODEL.md) — surrogate + acquisition
 - [DOMAINS.md](DOMAINS.md) — maze / dungeon / sphere runners
+- [artifacts/controlled_attribution/PHASE1_FOUNDATION.md](../artifacts/controlled_attribution/PHASE1_FOUNDATION.md) — how to treat the attribution sidecar (not a paper protocol)
