@@ -23,7 +23,9 @@ class AttributionAdmissionError(ValueError):
 
     def __init__(self, issues: Iterable[AdmissionIssue]) -> None:
         self.issues = tuple(issues)
-        super().__init__("; ".join(f"{item.code}: {item.message}" for item in self.issues))
+        super().__init__(
+            "; ".join(f"{item.code}: {item.message}" for item in self.issues)
+        )
 
 
 def validate_study_capabilities(
@@ -245,8 +247,7 @@ def admit_analysis_cohort(
                         AdmissionIssue(
                             code=f"cohort.unpaired_{field}",
                             message=(
-                                f"pair {pair_id!r} contains multiple "
-                                f"{field} values"
+                                f"pair {pair_id!r} contains multiple " f"{field} values"
                             ),
                         )
                     )

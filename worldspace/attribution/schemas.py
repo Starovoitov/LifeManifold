@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from worldspace.attribution.design import DesignMatrix, JobPlan
 from worldspace.attribution.manifest import (
     AdapterCapabilities,
     RunManifest,
@@ -24,6 +25,8 @@ SCHEMA_MODELS = (
     BudgetCheckpoint,
     RunSummary,
     ArtifactManifest,
+    DesignMatrix,
+    JobPlan,
 )
 
 

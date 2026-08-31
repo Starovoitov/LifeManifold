@@ -1,0 +1,2 @@
+{"proposal":1,"iteration":0,"slot":0,"target_bin":[0,0],"target_was_empty":true,"candidate_hash":"maze-a","prediction":{"fitness":0.5,"uncertainty":0.1,"measures":{}},"decision":{"action":"eval","recommended_action":"eval","reason":"empty target","policy_version":"1"}}
+{"proposal":2,"iteration":0,"slot":1,"target_bin":[1,1],"target_was_empty":false,"candidate_hash":"maze-b","prediction":{"fitness":0.0,"uncertainty":0.1,"measures":{}},"decision":{"action":"skip","recommended_action":"skip","reason":"low prediction","policy_version":"1"}}

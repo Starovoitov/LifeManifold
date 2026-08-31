@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.2",
+  "scheduler": "fixture:ca",
+  "seed": 0,
+  "iterations": 1,
+  "evaluations": 2,
+  "filled_cells": 1,
+  "grid_resolution": 2,
+  "archive_type": "grid",
+  "n_cells": 4,
+  "coverage": 0.25,
+  "jsonl_raw_lines": 1,
+  "jsonl_collapsed_cells": 1,
+  "elapsed_seconds": 1.0,
+  "llm_enabled": true,
+  "surrogate_enabled": false,
+  "archive_jsonl": "map_elites_archive.jsonl",
+  "llm_emit_attempts": 2,
+  "llm_emit_fallbacks": 0,
+  "llm_fallback_rate_pct": 0.0,
+  "emit_llm_seconds": 0.5,
+  "eval_seconds": 0.25
+}

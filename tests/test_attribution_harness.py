@@ -272,9 +272,26 @@ def _summary(
         ),
         counter_completeness={
             "proposal": "observed",
+            "valid_proposal": "observed",
             "evaluation": "observed",
+            "llm_call_attempted": "observed",
+            "llm_call_completed": "observed",
+            "prompt_token": "observed",
+            "completion_token": "observed",
+            "token": "observed",
+            "evaluator_wall_time": "observed",
+            "llm_latency": "observed",
+            "wall_time": "observed",
+            "monetary": "observed",
         },
         final_archive=ArchiveState.model_validate(_archive_state()),
+        archive_metric_completeness={
+            "coverage": "observed",
+            "raw_qd_score": "observed",
+            "normalized_qd_score": "derived",
+            "maximum_elite_quality": "observed",
+            "occupied_mean_quality": "observed",
+        },
         completed=True,
         failure_reason=None,
     )
@@ -312,9 +329,7 @@ class TestAttributionHarness(unittest.TestCase):
 
     def test_adapter_cannot_silently_substitute_selector(self) -> None:
         payload = _study_payload("dungeon")
-        payload["arms"][1]["treatment"]["selector"] = _component(
-            "min_fitness_frontier"
-        )
+        payload["arms"][1]["treatment"]["selector"] = _component("min_fitness_frontier")
         payload["arms"][1]["expected_differences"] = ["generator", "selector"]
         study = StudyManifest.model_validate(payload)
         issues = validate_study_capabilities(study, _capabilities("dungeon"))
@@ -346,6 +361,9 @@ class TestAttributionHarness(unittest.TestCase):
             "evaluator": arm.evaluator,
             "treatment_hash": arm_treatment_hash(arm),
             "study_manifest_hash": study_manifest_hash(study),
+            "currency": "USD",
+            "price_table_id": "fixture-free",
+            "price_table_hash": HASH_B,
             "dependency_hashes": {"lock": HASH_B},
             "output_paths": {"run_dir": "output/fixture-ca/minfit/seed-0"},
             "expected_artifacts": ["run_summary.json"],
@@ -373,6 +391,8 @@ class TestAttributionHarness(unittest.TestCase):
                 "BudgetCheckpoint",
                 "RunSummary",
                 "ArtifactManifest",
+                "DesignMatrix",
+                "JobPlan",
             },
         )
         self.assertIn("treatment", bundle["RunManifest"]["properties"])

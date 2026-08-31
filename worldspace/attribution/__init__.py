@@ -1,6 +1,32 @@
 """Common controlled-attribution manifests, records, and admission guards."""
 
+from worldspace.attribution.analysis import (
+    admit_design_matrix_cohort,
+    descriptive_contrast,
+)
+from worldspace.attribution.capabilities import (
+    ca_capabilities,
+    current_domain_capabilities,
+    dungeon_capabilities,
+    maze_capabilities,
+    sphere_capabilities,
+)
+from worldspace.attribution.design import (
+    CellMean,
+    DescriptiveContrast,
+    DesignCell,
+    DesignMatrix,
+    JobPlan,
+    PairedDifference,
+    PlannedContrast,
+    ResourceProjection,
+)
 from worldspace.attribution.hashing import canonical_json_bytes, canonical_sha256
+from worldspace.attribution.job_builder import (
+    InitialArchiveRef,
+    JobBuildContext,
+    build_factorial_job_plan,
+)
 from worldspace.attribution.manifest import (
     SCHEMA_VERSION,
     AdapterCapabilities,
@@ -47,22 +73,40 @@ __all__ = [
     "BudgetCheckpoint",
     "BudgetCounters",
     "BudgetTreatment",
+    "CellMean",
     "ComponentSpec",
+    "DescriptiveContrast",
+    "DesignCell",
+    "DesignMatrix",
     "EstimandSpec",
+    "InitialArchiveRef",
+    "JobBuildContext",
+    "JobPlan",
+    "PairedDifference",
+    "PlannedContrast",
     "ProposalEvent",
+    "ResourceProjection",
     "RunManifest",
     "RunManifestCore",
     "RunSummary",
     "StudyManifest",
     "TreatmentVector",
     "admit_analysis_cohort",
+    "admit_design_matrix_cohort",
     "arm_treatment_hash",
+    "build_factorial_job_plan",
     "canonical_json_bytes",
     "canonical_sha256",
+    "descriptive_contrast",
     "differing_treatment_axes",
     "freeze_run_manifest",
     "require_study_capabilities",
     "scientific_treatment_hash",
     "study_manifest_hash",
     "validate_study_capabilities",
+    "ca_capabilities",
+    "current_domain_capabilities",
+    "dungeon_capabilities",
+    "maze_capabilities",
+    "sphere_capabilities",
 ]

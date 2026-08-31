@@ -36,6 +36,20 @@ BudgetAxis = Literal[
     "wall_time",
     "monetary",
 ]
+BUDGET_AXES: tuple[BudgetAxis, ...] = (
+    "proposal",
+    "valid_proposal",
+    "evaluation",
+    "llm_call_attempted",
+    "llm_call_completed",
+    "prompt_token",
+    "completion_token",
+    "token",
+    "evaluator_wall_time",
+    "llm_latency",
+    "wall_time",
+    "monetary",
+)
 TreatmentAxis = Literal[
     "initialization",
     "selector",
@@ -164,7 +178,10 @@ class EstimandSpec(AttributionModel):
             raise ValueError("estimand must identify treatment and control arms")
         if self.form == "interaction" and self.interaction_formula is None:
             raise ValueError("interaction estimand requires interaction_formula")
-        if self.alternative in {"equivalence", "non_inferiority"} and self.margin is None:
+        if (
+            self.alternative in {"equivalence", "non_inferiority"}
+            and self.margin is None
+        ):
             raise ValueError(f"{self.alternative} estimand requires a margin")
         return self
 
@@ -263,7 +280,11 @@ class AdapterCapabilities(AttributionModel):
             raise ValueError("capability collections must not be empty")
         if self.native_fitness_max <= self.native_fitness_min:
             raise ValueError("native fitness maximum must exceed minimum")
-        if not self.native_fitness_min <= self.empty_cell_fitness <= self.native_fitness_max:
+        if (
+            not self.native_fitness_min
+            <= self.empty_cell_fitness
+            <= self.native_fitness_max
+        ):
             raise ValueError("empty-cell fitness must lie within native fitness bounds")
         return self
 
@@ -317,9 +338,7 @@ class StudyManifest(AttributionModel):
                 )
         known_arms = set(arm_by_id)
         for estimand in self.estimands:
-            referenced = set(estimand.treatment_arm_ids) | set(
-                estimand.control_arm_ids
-            )
+            referenced = set(estimand.treatment_arm_ids) | set(estimand.control_arm_ids)
             unknown = referenced - known_arms
             if unknown:
                 raise ValueError(
@@ -355,6 +374,9 @@ class RunManifestCore(AttributionModel):
     evaluator: ComponentSpec
     treatment_hash: Sha256
     study_manifest_hash: Sha256
+    currency: NonEmptyStr
+    price_table_id: NonEmptyStr
+    price_table_hash: Sha256
     dependency_hashes: dict[str, Sha256]
     output_paths: dict[str, NonEmptyStr]
     expected_artifacts: tuple[NonEmptyStr, ...]

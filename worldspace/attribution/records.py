@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import math
-from typing import Literal, Self
+from collections.abc import Mapping
+from typing import Literal, Self, TypeVar
 
 from pydantic import Field, model_validator
 
 from worldspace.attribution.manifest import (
+    BUDGET_AXES,
     SCHEMA_VERSION,
     AttributionModel,
     BudgetAxis,
@@ -18,6 +20,21 @@ from worldspace.attribution.manifest import (
 
 EventCompleteness = Literal["full", "partial", "summary_only"]
 SourceCompleteness = Literal["observed", "derived", "unavailable"]
+KeyT = TypeVar("KeyT", bound=str)
+ArchiveMetric = Literal[
+    "coverage",
+    "raw_qd_score",
+    "normalized_qd_score",
+    "maximum_elite_quality",
+    "occupied_mean_quality",
+]
+ARCHIVE_METRICS: tuple[ArchiveMetric, ...] = (
+    "coverage",
+    "raw_qd_score",
+    "normalized_qd_score",
+    "maximum_elite_quality",
+    "occupied_mean_quality",
+)
 
 
 class ArchiveState(AttributionModel):
@@ -26,8 +43,8 @@ class ArchiveState(AttributionModel):
     occupied_cells: int = Field(ge=0)
     capacity: int = Field(ge=1)
     coverage: float = Field(ge=0.0, le=1.0)
-    raw_qd_score: float
-    normalized_qd_score: float
+    raw_qd_score: float | None
+    normalized_qd_score: float | None
     maximum_elite_quality: float | None
     occupied_mean_quality: float | None
 
@@ -172,6 +189,8 @@ class ProposalEvent(AttributionModel):
 
     @model_validator(mode="after")
     def _validate_transition(self) -> Self:
+        if self.before.raw_qd_score is None or self.after.raw_qd_score is None:
+            raise ValueError("proposal events require known before/after raw QD-score")
         observed = self.after.raw_qd_score - self.before.raw_qd_score
         if not math.isclose(
             observed,
@@ -260,6 +279,11 @@ class BudgetCheckpoint(AttributionModel):
 
     @model_validator(mode="after")
     def _validate_allocations(self) -> Self:
+        _require_exact_keys(
+            self.source_completeness,
+            set(BUDGET_AXES),
+            "budget checkpoint source_completeness",
+        )
         for name, values in (
             ("calls_allocated_by_operator", self.calls_allocated_by_operator),
             ("calls_used_by_operator", self.calls_used_by_operator),
@@ -296,11 +320,22 @@ class RunSummary(AttributionModel):
     final_counters: BudgetCounters
     counter_completeness: dict[BudgetAxis, SourceCompleteness]
     final_archive: ArchiveState
+    archive_metric_completeness: dict[ArchiveMetric, SourceCompleteness]
     completed: bool
     failure_reason: NonEmptyStr | None
 
     @model_validator(mode="after")
     def _validate_completion(self) -> Self:
+        _require_exact_keys(
+            self.counter_completeness,
+            set(BUDGET_AXES),
+            "run summary counter_completeness",
+        )
+        _require_exact_keys(
+            self.archive_metric_completeness,
+            set(ARCHIVE_METRICS),
+            "run summary archive_metric_completeness",
+        )
         if self.completed and self.failure_reason is not None:
             raise ValueError("completed run cannot have failure_reason")
         if not self.completed and self.failure_reason is None:
@@ -349,3 +384,15 @@ def _lte_if_known(
 ) -> None:
     if left is not None and right is not None and left > right:
         raise ValueError(f"{left_name} cannot exceed {right_name}")
+
+
+def _require_exact_keys(
+    value: Mapping[KeyT, object],
+    expected: set[KeyT],
+    label: str,
+) -> None:
+    observed = set(value)
+    if observed != expected:
+        missing = sorted(expected - observed)
+        extra = sorted(observed - expected)
+        raise ValueError(f"{label} keys mismatch: missing={missing}, extra={extra}")
