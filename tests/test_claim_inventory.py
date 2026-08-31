@@ -129,6 +129,15 @@ class TestClaimInventory(unittest.TestCase):
             any("missing components ['budget']" in error for error in errors)
         )
 
+    def test_non_dict_treatment_component_is_rejected(self) -> None:
+        registries = _minimal_registries()
+        broken = copy.deepcopy(registries)
+        broken["comparisons"][0]["treatment_vector"]["budget"] = "matched"
+
+        errors = claim_inventory.validate_registries(broken)
+
+        self.assertTrue(any("budget must be an object" in error for error in errors))
+
     def test_complete_fixture_validates(self) -> None:
         errors = claim_inventory.validate_registries(_minimal_registries())
 

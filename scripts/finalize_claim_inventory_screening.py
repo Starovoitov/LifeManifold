@@ -1144,6 +1144,45 @@ def match_inclusion(title: str) -> tuple[Any, ...] | None:
     return max(matches, key=lambda entry: len(norm(entry[0])))
 
 
+def inclusion_entry_from_supplementary(
+    supplementary: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    """Adapt a snowball row to the ``INCLUSIONS`` entry contract.
+
+    Position 0 is a human-readable fragment (the paper title); position 1 is
+    ``paper_id``. ``make_paper`` and ``make_comparison`` unpack that layout.
+    """
+    (
+        paper_id,
+        title,
+        _authors,
+        _year,
+        _venue,
+        stratum,
+        domain,
+        task,
+        focal,
+        baseline,
+        endpoint,
+        url,
+        locator,
+        pattern,
+    ) = supplementary
+    return (
+        title,
+        paper_id,
+        stratum,
+        domain,
+        task,
+        focal,
+        baseline,
+        endpoint,
+        url,
+        locator,
+        pattern,
+    )
+
+
 def make_paper(
     candidate: dict[str, Any], entry: tuple[Any, ...], screening_id: str
 ) -> dict[str, Any]:
@@ -1263,6 +1302,37 @@ def make_comparison(
     }
 
 
+def append_screening_note(row: dict[str, Any], addition: str) -> None:
+    existing = row.get("notes", "")
+    if not isinstance(existing, str):
+        existing = ""
+    row["notes"] = f"{existing} {addition}".strip()
+
+
+def audit_title_abstract_rows(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        if row["stage"] == "title_abstract" and row["decision"] in {
+            "include",
+            "unclear",
+        }:
+            row["audited"] = True
+            append_screening_note(row, "Full-text eligibility pass completed.")
+        elif (
+            row["stage"] == "title_abstract"
+            and row["decision"] == "exclude"
+            and row["reason_code"] != "duplicate"
+        ):
+            digest = int(
+                hashlib.sha256(row["screening_id"].encode()).hexdigest()[:8], 16
+            )
+            if digest % 10 == 0:
+                row["audited"] = True
+                append_screening_note(
+                    row,
+                    "Included in deterministic 10% exclusion consistency audit.",
+                )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -1278,26 +1348,7 @@ def main() -> int:
     existing_screening = [
         row for row in existing_screening if row.get("stage") == "title_abstract"
     ]
-    for row in existing_screening:
-        if row["stage"] == "title_abstract" and row["decision"] in {
-            "include",
-            "unclear",
-        }:
-            row["audited"] = True
-            row["notes"] += " Full-text eligibility pass completed."
-        elif (
-            row["stage"] == "title_abstract"
-            and row["decision"] == "exclude"
-            and row["reason_code"] != "duplicate"
-        ):
-            digest = int(
-                hashlib.sha256(row["screening_id"].encode()).hexdigest()[:8], 16
-            )
-            if digest % 10 == 0:
-                row["audited"] = True
-                row[
-                    "notes"
-                ] += " Included in deterministic 10% exclusion consistency audit."
+    audit_title_abstract_rows(existing_screening)
 
     papers: list[dict[str, Any]] = []
     comparisons: list[dict[str, Any]] = []
@@ -1393,19 +1444,7 @@ def main() -> int:
             "venue": venue,
             "abstract": "",
         }
-        entry = (
-            paper_id,
-            paper_id,
-            stratum,
-            domain,
-            task,
-            focal,
-            baseline,
-            endpoint,
-            url,
-            locator,
-            pattern,
-        )
+        entry = inclusion_entry_from_supplementary(supplementary)
         papers.append(make_paper(candidate, entry, screening_id))
         comparisons.append(make_comparison(candidate, entry))
 

@@ -30,8 +30,12 @@ from worldspace.attribution.adapters.io import (
 )
 from worldspace.attribution.capabilities import maze_capabilities
 from worldspace.attribution.capture import (
+    BUDGET_LEDGER_FILENAME,
     PROSPECTIVE_EVENT_FILENAME,
+    read_budget_ledger,
     read_prospective_events,
+    reconcile_budget_ledger,
+    reconcile_event_ledger,
 )
 from worldspace.attribution.hashing import canonical_sha256
 from worldspace.attribution.manifest import SCHEMA_VERSION, BudgetAxis, RunManifest
@@ -82,6 +86,7 @@ class MazeNormalizationAdapter:
         _validate_trace_terminal(trace_rows[-1], final_state, summary)
 
         prospective_path = inputs.path(PROSPECTIVE_EVENT_FILENAME)
+        ledger_path = inputs.path(BUDGET_LEDGER_FILENAME)
         if prospective_path.is_file():
             try:
                 events = read_prospective_events(
@@ -91,13 +96,30 @@ class MazeNormalizationAdapter:
             except ValueError as exc:
                 raise NormalizationError(str(exc)) from exc
             _validate_prospective_events(events, summary, final_state)
+            if not ledger_path.is_file():
+                raise NormalizationError(
+                    "prospective maze run is missing budget_ledger.jsonl"
+                )
+            try:
+                ledger_checkpoints = read_budget_ledger(
+                    ledger_path,
+                    run_id=manifest.run_id,
+                )
+                reconcile_budget_ledger(
+                    ledger_checkpoints,
+                    events,
+                    llm_applicable=bool(summary.get("llm_enabled")),
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
         else:
             events = ()
+            ledger_checkpoints = ()
         counters, counter_completeness = _terminal_counters(
             summary,
             events=events,
         )
-        checkpoints = checkpoints_from_trace(
+        checkpoints = ledger_checkpoints or checkpoints_from_trace(
             trace_rows,
             run_id=manifest.run_id,
             capacity=capacity,
@@ -128,6 +150,15 @@ class MazeNormalizationAdapter:
             completed=True,
             failure_reason=None,
         )
+        if events:
+            try:
+                reconcile_event_ledger(
+                    events,
+                    normalized_summary,
+                    llm_applicable=bool(summary.get("llm_enabled")),
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
         artifacts = build_artifact_manifest(
             manifest,
             existing_sources(
@@ -157,6 +188,14 @@ class MazeNormalizationAdapter:
                         "prospective_attribution_events",
                         ArtifactSource(
                             prospective_path,
+                            SCHEMA_VERSION,
+                            producer="attribution-sidecar",
+                        ),
+                    ),
+                    (
+                        "prospective_budget_ledger",
+                        ArtifactSource(
+                            ledger_path,
                             SCHEMA_VERSION,
                             producer="attribution-sidecar",
                         ),

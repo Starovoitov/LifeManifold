@@ -335,7 +335,6 @@ def _append_prospective_event(
     assert before is not None and after is not None
     fallback = draft.metadata.emitter_type == "llm_fallback"
     rewritten = draft.metadata.emitter_type == "llm_rewrite"
-    llm_configured = draft.emitter_kind == "llm"
     if eval_result is None:
         evaluation = {
             "attempted": False,
@@ -372,6 +371,7 @@ def _append_prospective_event(
             "delta_qd": float(after_qd - before_qd),
         }
     gate_decision = "skip" if eval_result is None else "evaluate"
+    llm_resources = _prospective_llm_resources(draft)
     capture.append_slot(
         iteration=iteration_index,
         slot=draft.candidate_id,
@@ -418,14 +418,7 @@ def _append_prospective_event(
         },
         evaluation=evaluation,
         resources={
-            "llm_calls_attempted": (
-                (1 if draft.llm_call_id is not None else None) if llm_configured else 0
-            ),
-            "llm_calls_completed": None if llm_configured else 0,
-            "prompt_tokens": None if llm_configured else 0,
-            "completion_tokens": None if llm_configured else 0,
-            "total_tokens": None if llm_configured else 0,
-            "llm_latency_seconds": None if llm_configured else 0.0,
+            **llm_resources,
             "evaluator_seconds": evaluator_seconds,
             "event_seconds": None,
             "monetary_cost": None,
@@ -433,6 +426,62 @@ def _append_prospective_event(
         },
         after=after,
     )
+
+
+def _prospective_llm_resources(draft: _SlotDraft) -> dict[str, int | float | None]:
+    if draft.emitter_kind != "llm":
+        return {
+            "llm_calls_attempted": 0,
+            "llm_calls_completed": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "llm_latency_seconds": 0.0,
+        }
+    if draft.llm_call_id is None:
+        return {
+            "llm_calls_attempted": None,
+            "llm_calls_completed": None,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "llm_latency_seconds": None,
+        }
+    from worldspace.generators.llm_call_log import get_llm_call_record
+
+    record = get_llm_call_record(draft.llm_call_id)
+    if record is None:
+        return {
+            "llm_calls_attempted": 1,
+            "llm_calls_completed": None,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "llm_latency_seconds": None,
+        }
+    usage = record.get("usage")
+    usage_map = usage if isinstance(usage, dict) else {}
+    latency_ms = record.get("latency_ms")
+    return {
+        "llm_calls_attempted": 1,
+        "llm_calls_completed": int(bool(record.get("ok"))),
+        "prompt_tokens": _optional_nonnegative_int(usage_map.get("prompt_tokens")),
+        "completion_tokens": _optional_nonnegative_int(
+            usage_map.get("completion_tokens")
+        ),
+        "total_tokens": _optional_nonnegative_int(usage_map.get("total_tokens")),
+        "llm_latency_seconds": (
+            float(latency_ms) / 1000.0
+            if isinstance(latency_ms, int | float) and latency_ms >= 0
+            else None
+        ),
+    }
+
+
+def _optional_nonnegative_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
 
 
 def _process_iteration_sequential(

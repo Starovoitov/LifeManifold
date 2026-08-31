@@ -166,6 +166,19 @@ def admit_analysis_cohort(
         raise AttributionAdmissionError(
             [AdmissionIssue("cohort.arms", "expected_arm_ids must not be empty")]
         )
+    invalid_types = [
+        type(row).__name__ for row in rows if not isinstance(row, RunSummary)
+    ]
+    if invalid_types:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    "cohort.invalid_record_type",
+                    "primary analysis accepts RunSummary records only; "
+                    f"received {invalid_types!r}",
+                )
+            ]
+        )
     if minimum_complete_pairs < 1:
         raise ValueError("minimum_complete_pairs must be at least one")
 

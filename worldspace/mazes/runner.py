@@ -524,7 +524,7 @@ def _append_prospective_maze_event(
     if capture is None:
         return
     from worldspace.attribution.capture import archive_state_from_archive
-    from worldspace.attribution.hashing import canonical_sha256
+    from worldspace.attribution.fingerprints import maze_genotype_hash
 
     assert before is not None
     after = archive_state_from_archive(archive)
@@ -576,12 +576,12 @@ def _append_prospective_maze_event(
         target_cell_id=str(target.cell_id),
         parent_id=target.parent.candidate_id if target.parent is not None else None,
         parent_genotype_hash=(
-            canonical_sha256(target.parent.spec.to_json_dict())
+            maze_genotype_hash(target.parent.spec)
             if target.parent is not None
             else None
         ),
         candidate_id=f"{emitted.spec.candidate_hash()}:{iteration}:{slot}",
-        candidate_genotype_hash=canonical_sha256(emitted.spec.to_json_dict()),
+        candidate_genotype_hash=maze_genotype_hash(emitted.spec),
         before=before,
         generation={
             "status": "generated",

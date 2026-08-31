@@ -12,10 +12,15 @@ from worldspace.attribution.capabilities import (
     sphere_capabilities,
 )
 from worldspace.attribution.capture import (
+    BUDGET_LEDGER_FILENAME,
     PROSPECTIVE_EVENT_FILENAME,
     ProspectiveEventCapture,
     archive_state_from_archive,
+    event_budget_counters,
+    read_budget_ledger,
     read_prospective_events,
+    reconcile_budget_ledger,
+    reconcile_event_ledger,
 )
 from worldspace.attribution.design import (
     CellMean,
@@ -26,6 +31,13 @@ from worldspace.attribution.design import (
     PairedDifference,
     PlannedContrast,
     ResourceProjection,
+)
+from worldspace.attribution.fingerprints import (
+    archive_fingerprint,
+    ca_genotype_hash,
+    canonical_ca_genotype,
+    canonical_maze_genotype,
+    maze_genotype_hash,
 )
 from worldspace.attribution.hashing import canonical_json_bytes, canonical_sha256
 from worldspace.attribution.job_builder import (
@@ -76,6 +88,7 @@ __all__ = [
     "ArchiveState",
     "AttributionAdmissionError",
     "BudgetCaps",
+    "BUDGET_LEDGER_FILENAME",
     "BudgetCheckpoint",
     "BudgetCounters",
     "BudgetTreatment",
@@ -102,15 +115,23 @@ __all__ = [
     "admit_analysis_cohort",
     "admit_design_matrix_cohort",
     "arm_treatment_hash",
+    "archive_fingerprint",
     "archive_state_from_archive",
     "build_factorial_job_plan",
     "canonical_json_bytes",
+    "canonical_ca_genotype",
+    "canonical_maze_genotype",
     "canonical_sha256",
+    "ca_genotype_hash",
     "descriptive_contrast",
     "differing_treatment_axes",
     "freeze_run_manifest",
+    "event_budget_counters",
     "require_study_capabilities",
     "read_prospective_events",
+    "read_budget_ledger",
+    "reconcile_budget_ledger",
+    "reconcile_event_ledger",
     "scientific_treatment_hash",
     "study_manifest_hash",
     "validate_study_capabilities",
@@ -118,5 +139,6 @@ __all__ = [
     "current_domain_capabilities",
     "dungeon_capabilities",
     "maze_capabilities",
+    "maze_genotype_hash",
     "sphere_capabilities",
 ]

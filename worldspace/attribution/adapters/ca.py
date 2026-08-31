@@ -27,8 +27,13 @@ from worldspace.attribution.adapters.io import (
 )
 from worldspace.attribution.capabilities import ca_capabilities
 from worldspace.attribution.capture import (
+    BUDGET_LEDGER_FILENAME,
     PROSPECTIVE_EVENT_FILENAME,
+    event_budget_counters,
+    read_budget_ledger,
     read_prospective_events,
+    reconcile_budget_ledger,
+    reconcile_event_ledger,
 )
 from worldspace.attribution.hashing import canonical_sha256
 from worldspace.attribution.manifest import SCHEMA_VERSION, BudgetAxis, RunManifest
@@ -119,6 +124,7 @@ class CaNormalizationAdapter:
         llm_path = inputs.path(LLM_CALL_FILENAME)
         llm_rows = read_jsonl_objects(llm_path) if llm_path.is_file() else ()
         prospective_path = inputs.path(PROSPECTIVE_EVENT_FILENAME)
+        ledger_path = inputs.path(BUDGET_LEDGER_FILENAME)
         if prospective_path.is_file():
             try:
                 events = read_prospective_events(
@@ -128,8 +134,25 @@ class CaNormalizationAdapter:
             except ValueError as exc:
                 raise NormalizationError(str(exc)) from exc
             _validate_prospective_events(events, summary, final_state)
+            if not ledger_path.is_file():
+                raise NormalizationError(
+                    "prospective CA run is missing budget_ledger.jsonl"
+                )
+            try:
+                ledger_checkpoints = read_budget_ledger(
+                    ledger_path,
+                    run_id=manifest.run_id,
+                )
+                reconcile_budget_ledger(
+                    ledger_checkpoints,
+                    events,
+                    llm_applicable=bool(summary.get("llm_enabled")),
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
             event_issues: tuple[NormalizationIssue, ...] = ()
         else:
+            ledger_checkpoints = ()
             events, event_issues = _normalize_proposals(
                 manifest,
                 summary,
@@ -155,7 +178,7 @@ class CaNormalizationAdapter:
             llm_rows=llm_rows,
             prospective=prospective_path.is_file(),
         )
-        checkpoints = (
+        checkpoints = ledger_checkpoints or (
             checkpoints_from_trace(
                 trace_rows,
                 run_id=manifest.run_id,
@@ -201,6 +224,15 @@ class CaNormalizationAdapter:
             completed=True,
             failure_reason=None,
         )
+        if prospective_path.is_file():
+            try:
+                reconcile_event_ledger(
+                    events,
+                    normalized_summary,
+                    llm_applicable=bool(summary.get("llm_enabled")),
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
         artifacts = build_artifact_manifest(
             manifest,
             existing_sources(
@@ -237,6 +269,14 @@ class CaNormalizationAdapter:
                         "prospective_attribution_events",
                         ArtifactSource(
                             prospective_path,
+                            SCHEMA_VERSION,
+                            producer="attribution-sidecar",
+                        ),
+                    ),
+                    (
+                        "prospective_budget_ledger",
+                        ArtifactSource(
+                            ledger_path,
                             SCHEMA_VERSION,
                             producer="attribution-sidecar",
                         ),
@@ -480,6 +520,11 @@ def _terminal_counters(
         llm_attempts = llm_completions = None
         token_counts = (None, None, None)
         llm_latency = None
+    prospective_ledger = (
+        event_budget_counters(events, llm_applicable=llm_enabled)
+        if prospective
+        else None
+    )
     counters = BudgetCounters(
         proposal_slots=proposals,
         valid_proposals=evaluations if prospective else None,
@@ -490,7 +535,11 @@ def _terminal_counters(
         prompt_tokens=token_counts[0],
         completion_tokens=token_counts[1],
         total_tokens=token_counts[2],
-        evaluator_seconds=_optional_float(summary.get("eval_seconds")),
+        evaluator_seconds=(
+            prospective_ledger.evaluator_seconds
+            if prospective_ledger is not None
+            else _optional_float(summary.get("eval_seconds"))
+        ),
         llm_latency_seconds=llm_latency,
         wall_seconds=_optional_float(summary.get("elapsed_seconds")),
         monetary_cost=None,

@@ -140,6 +140,10 @@ def _validate_treatment_vector(comparison: dict[str, Any], errors: list[str]) ->
     for component in COMPONENTS:
         assessment = vector.get(component)
         if not isinstance(assessment, dict):
+            if component in vector:
+                errors.append(
+                    f"comparison {comparison_id}: {component} must be an object"
+                )
             continue
         if set(assessment) != {"status", "focal", "baseline", "evidence"}:
             errors.append(

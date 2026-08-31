@@ -20,6 +20,7 @@ __all__ = [
     "LLM_CALL_LOG_SCHEMA",
     "append_llm_call_record",
     "configure_llm_call_log",
+    "get_llm_call_record",
     "llm_call_log_path",
     "messages_for_log",
     "resolve_llm_call_log_path",
@@ -30,11 +31,14 @@ LLM_CALL_LOG_SCHEMA = 2
 
 _lock = threading.Lock()
 _configured_path: Path | None = None
+_records_by_id: dict[str, dict[str, Any]] = {}
 
 
 def configure_llm_call_log(path: str | Path | None) -> Path | None:
     """Set the process-wide call-log path (or disable with ``None``)."""
     global _configured_path
+    with _lock:
+        _records_by_id.clear()
     if path is None:
         _configured_path = None
         return None
@@ -100,6 +104,13 @@ def messages_for_log(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def get_llm_call_record(call_id: str) -> dict[str, Any] | None:
+    """Return a shallow copy of one call record captured in this process."""
+    with _lock:
+        record = _records_by_id.get(call_id)
+        return dict(record) if record is not None else None
+
+
 def append_llm_call_record(record: dict[str, Any]) -> None:
     """Append one JSONL record if a log path is active."""
     path = resolve_llm_call_log_path()
@@ -115,6 +126,7 @@ def append_llm_call_record(record: dict[str, Any]) -> None:
     }
     line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
     with _lock:
+        _records_by_id[str(payload["call_id"])] = payload
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line)

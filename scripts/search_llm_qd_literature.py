@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -239,6 +240,33 @@ def _candidate_from_row(
     }
 
 
+def allocate_raw_export_dir(
+    root: Path,
+    timestamp: datetime | None = None,
+) -> tuple[datetime, str, Path]:
+    """Create a unique timestamped ``raw/<stamp>`` directory under ``root``.
+
+    The preferred name uses UTC second precision. A concurrent run in the same
+    second (or a replay of an existing stamp) gets a short unique suffix so
+    ``mkdir(..., exist_ok=False)`` does not abort the export.
+    """
+    executed_at = (timestamp or datetime.now(timezone.utc)).replace(microsecond=0)
+    base = executed_at.strftime("%Y%m%dT%H%M%SZ")
+    parent = root / "raw"
+    parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(32):
+        stamp = base if attempt == 0 else f"{base}-{uuid.uuid4().hex[:8]}"
+        raw_dir = parent / stamp
+        try:
+            raw_dir.mkdir(exist_ok=False)
+        except FileExistsError:
+            continue
+        return executed_at, stamp, raw_dir
+    raise RuntimeError(
+        f"could not allocate a unique raw export directory under {parent}"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -255,10 +283,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    timestamp = datetime.now(timezone.utc).replace(microsecond=0)
-    stamp = timestamp.strftime("%Y%m%dT%H%M%SZ")
-    raw_dir = args.root / "raw" / stamp
-    raw_dir.mkdir(parents=True, exist_ok=False)
+    timestamp, stamp, raw_dir = allocate_raw_export_dir(args.root)
     search_rows: list[dict[str, Any]] = []
     candidate_rows: list[dict[str, Any]] = []
     functions = {
