@@ -7,12 +7,13 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol, TextIO
+from typing import TYPE_CHECKING, Literal, Protocol, TextIO
 
 import numpy as np
 import yaml
 
 from worldspace.illuminators.archive_trace import write_archive_trace_line
+from worldspace.illuminators.archive import InsertResult
 from worldspace.illuminators.scheduler import TargetBin
 from worldspace.mazes.archive import MazeArchive, MazeElite
 from worldspace.mazes.emitters import (
@@ -24,11 +25,15 @@ from worldspace.mazes.emitters import (
     emit_random,
     select_target_cell,
 )
-from worldspace.mazes.evaluation import evaluate_maze
+from worldspace.mazes.evaluation import MazeEvaluation, evaluate_maze
 from worldspace.mazes.spec import MazeSpec
 from worldspace.mazes.surrogate import MazePrediction
 from worldspace.surrogate.acquisition import decide, effective_action
 from worldspace.surrogate.acquisition_config import AcquisitionConfig
+
+if TYPE_CHECKING:
+    from worldspace.attribution.capture import ProspectiveEventCapture
+    from worldspace.attribution.records import ArchiveState
 
 MazeEmitterKind = Literal["random", "genetic", "llm"]
 MazeCondition = Literal[
@@ -204,6 +209,7 @@ def run_maze_qd(
     output_dir: Path,
     predictor: MazePredictor | None = None,
     llm_emitter: MazeLlmEmitterProtocol | None = None,
+    attribution_capture: ProspectiveEventCapture | None = None,
 ) -> MazeRunResult:
     """Run one exact-proposal maze seed and write the standard artifacts."""
     config.validate()
@@ -285,9 +291,16 @@ def run_maze_qd(
                 for slot, emitted in zip(llm_slots, llm_results, strict=True):
                     emitted_batch[slot] = emitted
 
-            for slot, target, _, _, parent_prediction in plans:
+            for (
+                slot,
+                target,
+                configured_kind,
+                _,
+                parent_prediction,
+            ) in plans:
                 emitted = emitted_batch[slot]
                 assert emitted is not None
+                before = _prospective_archive_state(archive, attribution_capture)
                 prediction = parent_prediction
                 if predictor is not None:
                     prediction = predictor.predict(emitted.spec)
@@ -341,11 +354,29 @@ def run_maze_qd(
                 )
                 if action == "skip":
                     skipped += 1
+                    _append_prospective_maze_event(
+                        attribution_capture,
+                        archive=archive,
+                        iteration=iteration,
+                        slot=slot,
+                        configured_kind=configured_kind,
+                        realized_kind=emitted.emitter_type,
+                        target=target,
+                        emitted=emitted,
+                        before=before,
+                        decision_payload=decision_payload,
+                        evaluation=None,
+                        insert=None,
+                        incumbent_fitness=None,
+                        evaluator_seconds=None,
+                    )
                     continue
+                eval_started = time.perf_counter()
                 evaluation = evaluate_maze(
                     emitted.spec,
                     sim_cost_ms=config.sim_cost_ms,
                 )
+                evaluator_seconds = time.perf_counter() - eval_started
                 evaluations += 1
                 elite = MazeElite(
                     bin=archive.bin_for_measures(evaluation.measures),
@@ -356,7 +387,27 @@ def run_maze_qd(
                     parent_id=emitted.parent_id,
                     emitter_type=emitted.emitter_type,
                 )
-                archive.try_insert(elite)
+                incumbent = archive.get_cell(archive.cell_id_from_bin(elite.bin))
+                incumbent_fitness = (
+                    float(incumbent.fitness) if incumbent is not None else None
+                )
+                insert = archive.try_insert(elite)
+                _append_prospective_maze_event(
+                    attribution_capture,
+                    archive=archive,
+                    iteration=iteration,
+                    slot=slot,
+                    configured_kind=configured_kind,
+                    realized_kind=emitted.emitter_type,
+                    target=target,
+                    emitted=emitted,
+                    before=before,
+                    decision_payload=decision_payload,
+                    evaluation=evaluation,
+                    insert=insert,
+                    incumbent_fitness=incumbent_fitness,
+                    evaluator_seconds=evaluator_seconds,
+                )
             _write_trace(
                 trace_file,
                 archive,
@@ -440,6 +491,142 @@ def run_maze_qd(
         encoding="utf-8",
     )
     return result
+
+
+def _prospective_archive_state(
+    archive: MazeArchive,
+    capture: ProspectiveEventCapture | None,
+) -> ArchiveState | None:
+    if capture is None:
+        return None
+    from worldspace.attribution.capture import archive_state_from_archive
+
+    return archive_state_from_archive(archive)
+
+
+def _append_prospective_maze_event(
+    capture: ProspectiveEventCapture | None,
+    *,
+    archive: MazeArchive,
+    iteration: int,
+    slot: int,
+    configured_kind: MazeEmitterKind,
+    realized_kind: str,
+    target: MazeTarget,
+    emitted: MazeEmitterResult,
+    before: ArchiveState | None,
+    decision_payload: dict[str, object] | None,
+    evaluation: MazeEvaluation | None,
+    insert: InsertResult | None,
+    incumbent_fitness: float | None,
+    evaluator_seconds: float | None,
+) -> None:
+    if capture is None:
+        return
+    from worldspace.attribution.capture import archive_state_from_archive
+    from worldspace.attribution.hashing import canonical_sha256
+
+    assert before is not None
+    after = archive_state_from_archive(archive)
+    fallback = configured_kind == "llm" and not realized_kind.startswith("llm")
+    if evaluation is None:
+        evaluation_payload: dict[str, object] = {
+            "attempted": False,
+            "completed": False,
+            "evaluator_seed": None,
+            "fitness": None,
+            "descriptors": None,
+            "realized_cell_id": None,
+            "incumbent_fitness": None,
+            "insertion": "not_evaluated",
+            "delta_qd": 0.0,
+        }
+    else:
+        assert insert is not None
+        realized_bin = archive.bin_for_measures(evaluation.measures)
+        if insert.improved:
+            insertion = "improve"
+        elif insert.accepted:
+            insertion = "fill_empty"
+        else:
+            insertion = "occupied_not_better"
+        before_qd = before.raw_qd_score
+        after_qd = after.raw_qd_score
+        assert before_qd is not None and after_qd is not None
+        evaluation_payload = {
+            "attempted": True,
+            "completed": True,
+            "evaluator_seed": None,
+            "fitness": evaluation.fitness,
+            "descriptors": {
+                "path_length": evaluation.measures[0],
+                "branching": evaluation.measures[1],
+            },
+            "realized_cell_id": str(archive.cell_id_from_bin(realized_bin)),
+            "incumbent_fitness": incumbent_fitness,
+            "insertion": insertion,
+            "delta_qd": float(after_qd - before_qd),
+        }
+    llm_configured = configured_kind == "llm"
+    capture.append_slot(
+        iteration=iteration,
+        slot=slot,
+        configured_operator=configured_kind,
+        realized_operator=realized_kind,
+        target_cell_id=str(target.cell_id),
+        parent_id=target.parent.candidate_id if target.parent is not None else None,
+        parent_genotype_hash=(
+            canonical_sha256(target.parent.spec.to_json_dict())
+            if target.parent is not None
+            else None
+        ),
+        candidate_id=f"{emitted.spec.candidate_hash()}:{iteration}:{slot}",
+        candidate_genotype_hash=canonical_sha256(emitted.spec.to_json_dict()),
+        before=before,
+        generation={
+            "status": "generated",
+            "parse_valid": None,
+            "structurally_valid": True,
+            "duplicate": None,
+            "repair_attempts": 0,
+            "repair_outcome": None,
+            "fallback": fallback,
+            "fallback_cause": "native_emitter_fallback" if fallback else None,
+            "step_metrics": {},
+        },
+        gate={
+            "mode": (
+                capture.manifest.treatment.gate.kind
+                if decision_payload is not None
+                else "off"
+            ),
+            "decision": "skip" if evaluation is None else "evaluate",
+            "reason": (
+                str(decision_payload["reason"])
+                if decision_payload is not None
+                else "gate disabled"
+            ),
+            "policy_version": (
+                str(decision_payload["policy_version"])
+                if decision_payload is not None
+                else "not_applicable"
+            ),
+        },
+        evaluation=evaluation_payload,
+        resources={
+            "llm_calls_attempted": None if llm_configured else 0,
+            "llm_calls_completed": None if llm_configured else 0,
+            "prompt_tokens": None if llm_configured else 0,
+            "completion_tokens": None if llm_configured else 0,
+            "total_tokens": None if llm_configured else 0,
+            "llm_latency_seconds": None if llm_configured else 0.0,
+            "evaluator_seconds": evaluator_seconds,
+            "event_seconds": None,
+            "monetary_cost": None,
+            "price_table_id": capture.manifest.price_table_id,
+        },
+        after=after,
+    )
 
 
 def _metrics(

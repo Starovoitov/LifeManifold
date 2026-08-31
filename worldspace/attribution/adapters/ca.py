@@ -26,8 +26,12 @@ from worldspace.attribution.adapters.io import (
     read_jsonl_objects,
 )
 from worldspace.attribution.capabilities import ca_capabilities
+from worldspace.attribution.capture import (
+    PROSPECTIVE_EVENT_FILENAME,
+    read_prospective_events,
+)
 from worldspace.attribution.hashing import canonical_sha256
-from worldspace.attribution.manifest import BudgetAxis, RunManifest
+from worldspace.attribution.manifest import SCHEMA_VERSION, BudgetAxis, RunManifest
 from worldspace.attribution.records import (
     ArchiveMetric,
     ArchiveState,
@@ -114,16 +118,28 @@ class CaNormalizationAdapter:
         )
         llm_path = inputs.path(LLM_CALL_FILENAME)
         llm_rows = read_jsonl_objects(llm_path) if llm_path.is_file() else ()
-        events, event_issues = _normalize_proposals(
-            manifest,
-            summary,
-            proposal_rows,
-            llm_rows,
-            capacity=capacity,
-            resolution=resolution,
-            initial_cells=initial_cells,
-            final_state=final_state,
-        )
+        prospective_path = inputs.path(PROSPECTIVE_EVENT_FILENAME)
+        if prospective_path.is_file():
+            try:
+                events = read_prospective_events(
+                    prospective_path,
+                    manifest=manifest,
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
+            _validate_prospective_events(events, summary, final_state)
+            event_issues: tuple[NormalizationIssue, ...] = ()
+        else:
+            events, event_issues = _normalize_proposals(
+                manifest,
+                summary,
+                proposal_rows,
+                llm_rows,
+                capacity=capacity,
+                resolution=resolution,
+                initial_cells=initial_cells,
+                final_state=final_state,
+            )
         issues.extend(event_issues)
         if bool(summary.get("llm_enabled")) and not llm_rows:
             issues.append(
@@ -137,6 +153,7 @@ class CaNormalizationAdapter:
             proposal_rows=proposal_rows,
             events=events,
             llm_rows=llm_rows,
+            prospective=prospective_path.is_file(),
         )
         checkpoints = (
             checkpoints_from_trace(
@@ -172,7 +189,11 @@ class CaNormalizationAdapter:
             study_manifest_hash=manifest.study_manifest_hash,
             run_manifest_hash=manifest.run_manifest_hash,
             treatment_hash=manifest.treatment_hash,
-            event_completeness="partial" if events else "summary_only",
+            event_completeness=(
+                "full"
+                if prospective_path.is_file()
+                else "partial" if events else "summary_only"
+            ),
             final_counters=counters,
             counter_completeness=counter_completeness,
             final_archive=final_state,
@@ -210,6 +231,14 @@ class CaNormalizationAdapter:
                             llm_path,
                             "2",
                             privacy_class="private",
+                        ),
+                    ),
+                    (
+                        "prospective_attribution_events",
+                        ArtifactSource(
+                            prospective_path,
+                            SCHEMA_VERSION,
+                            producer="attribution-sidecar",
                         ),
                     ),
                     (
@@ -427,10 +456,15 @@ def _terminal_counters(
     proposal_rows: tuple[dict[str, Any], ...],
     events: tuple[ProposalEvent, ...],
     llm_rows: tuple[dict[str, Any], ...],
+    prospective: bool = False,
 ) -> tuple[BudgetCounters, dict[BudgetAxis, SourceCompleteness]]:
     evaluations = _required_int(summary, "evaluations")
     proposals = (
-        len(proposal_rows) if events and len(proposal_rows) == evaluations else None
+        len(events)
+        if prospective
+        else (
+            len(proposal_rows) if events and len(proposal_rows) == evaluations else None
+        )
     )
     llm_enabled = bool(summary.get("llm_enabled"))
     if llm_enabled:
@@ -448,7 +482,7 @@ def _terminal_counters(
         llm_latency = None
     counters = BudgetCounters(
         proposal_slots=proposals,
-        valid_proposals=None,
+        valid_proposals=evaluations if prospective else None,
         evaluator_attempts=evaluations,
         evaluator_completions=evaluations,
         llm_attempts=llm_attempts,
@@ -465,7 +499,7 @@ def _terminal_counters(
     unavailable = "unavailable"
     completeness: dict[BudgetAxis, SourceCompleteness] = {
         "proposal": observed if proposals is not None else unavailable,
-        "valid_proposal": unavailable,
+        "valid_proposal": observed if prospective else unavailable,
         "evaluation": observed,
         "llm_call_attempted": (observed if llm_attempts is not None else unavailable),
         "llm_call_completed": (
@@ -482,6 +516,30 @@ def _terminal_counters(
         "monetary": unavailable,
     }
     return counters, completeness
+
+
+def _validate_prospective_events(
+    events: tuple[ProposalEvent, ...],
+    summary: Mapping[str, Any],
+    final_state: ArchiveState,
+) -> None:
+    if not events:
+        raise NormalizationError("prospective CA event log must not be empty")
+    evaluations = sum(event.evaluation.completed for event in events)
+    if evaluations != _required_int(summary, "evaluations"):
+        raise NormalizationError(
+            "prospective CA event evaluations disagree with native summary"
+        )
+    terminal = events[-1].after
+    if terminal.occupied_cells != final_state.occupied_cells:
+        raise NormalizationError(
+            "prospective CA terminal occupancy disagrees with native archive"
+        )
+    assert_close(
+        terminal.raw_qd_score,
+        final_state.raw_qd_score,
+        label="prospective CA terminal QD-score",
+    )
 
 
 def _normalize_proposals(

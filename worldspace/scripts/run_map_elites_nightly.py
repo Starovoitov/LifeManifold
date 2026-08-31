@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from worldspace.illuminators.illuminator import MapElitesIlluminator
 from worldspace.illuminators.nightly_report import (
@@ -31,6 +31,9 @@ from worldspace.illuminators.scheduler import (
 )
 
 ArchiveTypeName = Literal["grid", "cvt"]
+
+if TYPE_CHECKING:
+    from worldspace.attribution.capture import ProspectiveEventCapture
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "map_elites_nightly"
@@ -125,6 +128,7 @@ def run_map_elites_nightly(
     steps: int = _DEFAULT_STEPS,
     iterations: int | None = None,
     load_archive_path: str | Path | None = None,
+    attribution_capture: ProspectiveEventCapture | None = None,
 ) -> NightlyRunReport:
     """Execute one illuminator run and write summary artifacts (not removed after return)."""
     sched_path = Path(scheduler_path or DEFAULT_NIGHTLY_SCHEDULER_PATH)
@@ -142,6 +146,7 @@ def run_map_elites_nightly(
         steps=steps,
         iterations=iterations,
         load_archive_path=load_archive_path,
+        attribution_capture=attribution_capture,
     )
     elapsed = time.perf_counter() - started
 

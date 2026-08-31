@@ -6,7 +6,7 @@ import shutil
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -39,6 +39,9 @@ from worldspace.illuminators.scheduler import (
     load_scheduler,
     surrogate_config_from_scheduler,
 )
+
+if TYPE_CHECKING:
+    from worldspace.attribution.capture import ProspectiveEventCapture
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,7 @@ class MapElitesIlluminator:
         require_surrogate_quality_gate: bool = False,
         surrogate_checkpoint_override: str | Path | None = None,
         surrogate_buffer_path_override: str | Path | None = None,
+        attribution_capture: ProspectiveEventCapture | None = None,
     ) -> MapElitesRunResult:
         """Run MAP-Elites for ``iterations × batch_size`` candidate slots."""
         config = load_scheduler(
@@ -186,6 +190,7 @@ class MapElitesIlluminator:
                 retrain_state=retrain_state,
                 surrogate_archive=surrogate_archive,
                 proposal_log=proposal_log,
+                attribution_capture=attribution_capture,
             )
         finally:
             surrogate_archive.close()

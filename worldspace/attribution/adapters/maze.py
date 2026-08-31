@@ -29,12 +29,17 @@ from worldspace.attribution.adapters.io import (
     read_jsonl_objects,
 )
 from worldspace.attribution.capabilities import maze_capabilities
+from worldspace.attribution.capture import (
+    PROSPECTIVE_EVENT_FILENAME,
+    read_prospective_events,
+)
 from worldspace.attribution.hashing import canonical_sha256
-from worldspace.attribution.manifest import BudgetAxis, RunManifest
+from worldspace.attribution.manifest import SCHEMA_VERSION, BudgetAxis, RunManifest
 from worldspace.attribution.records import (
     ArchiveMetric,
     ArchiveState,
     BudgetCounters,
+    ProposalEvent,
     RunSummary,
     SourceCompleteness,
 )
@@ -76,7 +81,22 @@ class MazeNormalizationAdapter:
             raise NormalizationError("maze archive trace must not be empty")
         _validate_trace_terminal(trace_rows[-1], final_state, summary)
 
-        counters, counter_completeness = _terminal_counters(summary)
+        prospective_path = inputs.path(PROSPECTIVE_EVENT_FILENAME)
+        if prospective_path.is_file():
+            try:
+                events = read_prospective_events(
+                    prospective_path,
+                    manifest=manifest,
+                )
+            except ValueError as exc:
+                raise NormalizationError(str(exc)) from exc
+            _validate_prospective_events(events, summary, final_state)
+        else:
+            events = ()
+        counters, counter_completeness = _terminal_counters(
+            summary,
+            events=events,
+        )
         checkpoints = checkpoints_from_trace(
             trace_rows,
             run_id=manifest.run_id,
@@ -100,7 +120,7 @@ class MazeNormalizationAdapter:
             study_manifest_hash=manifest.study_manifest_hash,
             run_manifest_hash=manifest.run_manifest_hash,
             treatment_hash=manifest.treatment_hash,
-            event_completeness="summary_only",
+            event_completeness="full" if events else "summary_only",
             final_counters=counters,
             counter_completeness=counter_completeness,
             final_archive=final_state,
@@ -133,6 +153,14 @@ class MazeNormalizationAdapter:
                             privacy_class="private",
                         ),
                     ),
+                    (
+                        "prospective_attribution_events",
+                        ArtifactSource(
+                            prospective_path,
+                            SCHEMA_VERSION,
+                            producer="attribution-sidecar",
+                        ),
+                    ),
                 )
             ),
         )
@@ -141,11 +169,14 @@ class MazeNormalizationAdapter:
                 "maze.native_identity_manifest_only",
                 "native summary does not carry evaluator or treatment hashes",
             ),
-            NormalizationIssue(
-                "maze.events_summary_only",
-                "native maze logs lack evaluation and insertion outcomes per slot",
-            ),
         ]
+        if not events:
+            issues.append(
+                NormalizationIssue(
+                    "maze.events_summary_only",
+                    "native maze logs lack evaluation and insertion outcomes per slot",
+                )
+            )
         if bool(summary.get("llm_enabled")) and not llm_path.is_file():
             issues.append(
                 NormalizationIssue(
@@ -156,7 +187,7 @@ class MazeNormalizationAdapter:
         return NormalizedRunBundle(
             summary=normalized_summary,
             checkpoints=checkpoints,
-            events=(),
+            events=events,
             artifacts=artifacts,
             issues=tuple(issues),
         )
@@ -288,6 +319,8 @@ def _validate_trace_terminal(
 
 def _terminal_counters(
     summary: Mapping[str, Any],
+    *,
+    events: tuple[ProposalEvent, ...] = (),
 ) -> tuple[BudgetCounters, dict[BudgetAxis, SourceCompleteness]]:
     proposals = _required_int(summary, "proposals")
     evaluations = _required_int(summary, "evaluations")
@@ -300,6 +333,19 @@ def _terminal_counters(
     # When LLM is disabled, leave counters null so completeness is unavailable
     # rather than marking synthetic zeros as observed.
     llm_attempts = _optional_int(summary.get("llm_calls")) if llm_enabled else None
+    evaluated_events = tuple(event for event in events if event.evaluation.attempted)
+    evaluator_seconds = (
+        sum(
+            float(event.resources.evaluator_seconds)
+            for event in evaluated_events
+            if event.resources.evaluator_seconds is not None
+        )
+        if evaluated_events
+        and all(
+            event.resources.evaluator_seconds is not None for event in evaluated_events
+        )
+        else None
+    )
     counters = BudgetCounters(
         proposal_slots=proposals,
         # Skipped slots consumed a proposal budget but were never valid/evaluated.
@@ -311,7 +357,7 @@ def _terminal_counters(
         prompt_tokens=None,
         completion_tokens=None,
         total_tokens=None,
-        evaluator_seconds=None,
+        evaluator_seconds=evaluator_seconds,
         llm_latency_seconds=None,
         wall_seconds=_optional_float(summary.get("elapsed_seconds")),
         monetary_cost=None,
@@ -328,12 +374,47 @@ def _terminal_counters(
         "prompt_token": unavailable,
         "completion_token": unavailable,
         "token": unavailable,
-        "evaluator_wall_time": unavailable,
+        "evaluator_wall_time": (
+            observed if evaluator_seconds is not None else unavailable
+        ),
         "llm_latency": unavailable,
         "wall_time": (observed if counters.wall_seconds is not None else unavailable),
         "monetary": unavailable,
     }
     return counters, completeness
+
+
+def _validate_prospective_events(
+    events: tuple[ProposalEvent, ...],
+    summary: Mapping[str, Any],
+    final_state: ArchiveState,
+) -> None:
+    if not events:
+        raise NormalizationError("prospective maze event log must not be empty")
+    if len(events) != _required_int(summary, "proposals"):
+        raise NormalizationError(
+            "prospective maze event proposals disagree with native summary"
+        )
+    evaluations = sum(event.evaluation.completed for event in events)
+    skipped = sum(not event.evaluation.attempted for event in events)
+    if evaluations != _required_int(summary, "evaluations"):
+        raise NormalizationError(
+            "prospective maze event evaluations disagree with native summary"
+        )
+    if skipped != _required_int(summary, "skipped"):
+        raise NormalizationError(
+            "prospective maze skipped slots disagree with native summary"
+        )
+    terminal = events[-1].after
+    if terminal.occupied_cells != final_state.occupied_cells:
+        raise NormalizationError(
+            "prospective maze terminal occupancy disagrees with native archive"
+        )
+    assert_close(
+        terminal.raw_qd_score,
+        final_state.raw_qd_score,
+        label="prospective maze terminal QD-score",
+    )
 
 
 def _archive_completeness() -> dict[ArchiveMetric, SourceCompleteness]:

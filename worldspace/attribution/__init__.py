@@ -11,6 +11,12 @@ from worldspace.attribution.capabilities import (
     maze_capabilities,
     sphere_capabilities,
 )
+from worldspace.attribution.capture import (
+    PROSPECTIVE_EVENT_FILENAME,
+    ProspectiveEventCapture,
+    archive_state_from_archive,
+    read_prospective_events,
+)
 from worldspace.attribution.design import (
     CellMean,
     DescriptiveContrast,
@@ -84,7 +90,9 @@ __all__ = [
     "JobPlan",
     "PairedDifference",
     "PlannedContrast",
+    "PROSPECTIVE_EVENT_FILENAME",
     "ProposalEvent",
+    "ProspectiveEventCapture",
     "ResourceProjection",
     "RunManifest",
     "RunManifestCore",
@@ -94,6 +102,7 @@ __all__ = [
     "admit_analysis_cohort",
     "admit_design_matrix_cohort",
     "arm_treatment_hash",
+    "archive_state_from_archive",
     "build_factorial_job_plan",
     "canonical_json_bytes",
     "canonical_sha256",
@@ -101,6 +110,7 @@ __all__ = [
     "differing_treatment_axes",
     "freeze_run_manifest",
     "require_study_capabilities",
+    "read_prospective_events",
     "scientific_treatment_hash",
     "study_manifest_hash",
     "validate_study_capabilities",

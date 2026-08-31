@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, replace
+from time import perf_counter
 
 import numpy as np
 
@@ -51,6 +52,7 @@ class EvalResult:
     fitness: float
     bin: tuple[int, int]
     early_extinct: bool
+    evaluator_seconds: float = 0.0
 
 
 @dataclass
@@ -62,6 +64,7 @@ class SimulationOutcome:
     measures: dict[str, float]
     fitness: float
     early_extinct: bool
+    evaluator_seconds: float = 0.0
 
 
 def canonical_seed(world_spec: WorldSpec) -> int:
@@ -188,6 +191,7 @@ def simulate_candidate(
     performance: SimulatorPerformanceOptions | None = None,
 ) -> SimulationOutcome:
     """Run simulation only (no archive binning); safe for worker processes."""
+    started = perf_counter()
     spec = replace(world_spec)
     if enforce_min_steps:
         spec.steps = max(spec.steps, ILLUMINATOR_MIN_STEPS)
@@ -214,6 +218,7 @@ def simulate_candidate(
         measures=measures,
         fitness=fitness,
         early_extinct=simulation.early_extinct,
+        evaluator_seconds=perf_counter() - started,
     )
 
 
@@ -236,6 +241,7 @@ def eval_result_from_simulation(
         fitness=simulation.fitness,
         bin=bin_ij,
         early_extinct=simulation.early_extinct,
+        evaluator_seconds=simulation.evaluator_seconds,
     )
 
 

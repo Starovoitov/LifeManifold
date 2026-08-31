@@ -77,6 +77,8 @@ from worldspace.surrogate.canonical_hash import world_spec_canonical_hash
 from worldspace.surrogate.types import SurrogatePrediction
 
 if TYPE_CHECKING:
+    from worldspace.attribution.capture import ProspectiveEventCapture
+    from worldspace.attribution.records import ArchiveState
     from worldspace.illuminators.proposal_log import ProposalLogWriterProtocol
     from worldspace.surrogate.buffer import SurrogateBuffer
     from worldspace.surrogate.retrain import RetrainState
@@ -168,6 +170,7 @@ def run_iteration(
     surrogate: SurrogateProtocol | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
     proposal_log: ProposalLogWriterProtocol | None = None,
+    attribution_capture: ProspectiveEventCapture | None = None,
     eval_pool: ParallelEvalPool | None = None,
     llm_pool: ParallelLlmPool | None = None,
     iteration_timing_file: TextIO | None = None,
@@ -219,6 +222,7 @@ def run_iteration(
             surrogate_buffer=surrogate_buffer,
             surrogate_archive=surrogate_archive,
             proposal_log=proposal_log,
+            attribution_capture=attribution_capture,
             acquisition_active=acquisition_active,
             eval_pool=eval_pool,
             rng=rng,
@@ -236,6 +240,7 @@ def run_iteration(
             surrogate=surrogate,
             surrogate_archive=surrogate_archive,
             proposal_log=proposal_log,
+            attribution_capture=attribution_capture,
             acquisition_active=acquisition_active,
             rng=rng,
         )
@@ -298,6 +303,138 @@ def _append_proposal_log(
     )
 
 
+def _prospective_archive_state(
+    archive: ArchiveProtocol,
+    capture: ProspectiveEventCapture | None,
+) -> ArchiveState | None:
+    if capture is None:
+        return None
+    from worldspace.attribution.capture import archive_state_from_archive
+
+    return archive_state_from_archive(archive)
+
+
+def _append_prospective_event(
+    capture: ProspectiveEventCapture | None,
+    *,
+    archive: ArchiveProtocol,
+    draft: _SlotDraft,
+    iteration_index: int,
+    before: ArchiveState | None,
+    after: ArchiveState | None,
+    decision: AcquisitionDecision | None,
+    acquisition_mode: str,
+    eval_result: EvalResult | None,
+    insert: InsertResult | None,
+    incumbent_fitness: float | None,
+    evaluator_seconds: float | None,
+) -> None:
+    """Append one opt-in normalized event without changing native artifacts."""
+    if capture is None:
+        return
+    assert before is not None and after is not None
+    fallback = draft.metadata.emitter_type == "llm_fallback"
+    rewritten = draft.metadata.emitter_type == "llm_rewrite"
+    llm_configured = draft.emitter_kind == "llm"
+    if eval_result is None:
+        evaluation = {
+            "attempted": False,
+            "completed": False,
+            "evaluator_seed": None,
+            "fitness": None,
+            "descriptors": None,
+            "realized_cell_id": None,
+            "incumbent_fitness": None,
+            "insertion": "not_evaluated",
+            "delta_qd": 0.0,
+        }
+    else:
+        assert insert is not None
+        if insert.improved:
+            insertion = "improve"
+        elif insert.accepted:
+            insertion = "fill_empty"
+        else:
+            insertion = "occupied_not_better"
+        before_qd = getattr(before, "raw_qd_score")
+        after_qd = getattr(after, "raw_qd_score")
+        evaluation = {
+            "attempted": True,
+            "completed": True,
+            "evaluator_seed": draft.spec.seed,
+            "fitness": float(eval_result.fitness),
+            "descriptors": {
+                key: float(value) for key, value in eval_result.measures.items()
+            },
+            "realized_cell_id": str(archive.cell_id_from_bin(eval_result.bin)),
+            "incumbent_fitness": incumbent_fitness,
+            "insertion": insertion,
+            "delta_qd": float(after_qd - before_qd),
+        }
+    gate_decision = "skip" if eval_result is None else "evaluate"
+    capture.append_slot(
+        iteration=iteration_index,
+        slot=draft.candidate_id,
+        configured_operator=str(draft.emitter_kind),
+        realized_operator=draft.metadata.emitter_type,
+        target_cell_id=str(draft.target_cell.cell_id),
+        parent_id=draft.metadata.parent_id,
+        parent_genotype_hash=(
+            world_spec_canonical_hash(draft.parent_world_spec)
+            if draft.parent_world_spec is not None
+            else None
+        ),
+        candidate_id=(
+            f"{capture.manifest.run_id}:{iteration_index}:{draft.candidate_id}"
+        ),
+        candidate_genotype_hash=world_spec_canonical_hash(draft.spec),
+        before=before,
+        generation={
+            "status": "generated",
+            "parse_valid": (
+                draft.llm_parse_outcome.lower() in {"ok", "success", "parsed", "valid"}
+                if draft.llm_parse_outcome is not None
+                else None
+            ),
+            "structurally_valid": True,
+            "duplicate": None,
+            "repair_attempts": 1 if rewritten else 0,
+            "repair_outcome": "child_rewrite" if rewritten else None,
+            "fallback": fallback,
+            "fallback_cause": (
+                draft.llm_parse_outcome or "native_emitter_fallback"
+                if fallback
+                else None
+            ),
+            "step_metrics": {},
+        },
+        gate={
+            "mode": acquisition_mode,
+            "decision": gate_decision,
+            "reason": decision.reason if decision is not None else "gate disabled",
+            "policy_version": (
+                decision.policy_version if decision is not None else "not_applicable"
+            ),
+        },
+        evaluation=evaluation,
+        resources={
+            "llm_calls_attempted": (
+                (1 if draft.llm_call_id is not None else None) if llm_configured else 0
+            ),
+            "llm_calls_completed": None if llm_configured else 0,
+            "prompt_tokens": None if llm_configured else 0,
+            "completion_tokens": None if llm_configured else 0,
+            "total_tokens": None if llm_configured else 0,
+            "llm_latency_seconds": None if llm_configured else 0.0,
+            "evaluator_seconds": evaluator_seconds,
+            "event_seconds": None,
+            "monetary_cost": None,
+            "price_table_id": capture.manifest.price_table_id,
+        },
+        after=after,
+    )
+
+
 def _process_iteration_sequential(
     config: SchedulerConfig,
     archive: ArchiveProtocol,
@@ -311,6 +448,7 @@ def _process_iteration_sequential(
     surrogate: SurrogateProtocol | None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
     proposal_log: ProposalLogWriterProtocol | None,
+    attribution_capture: ProspectiveEventCapture | None,
     acquisition_active: bool,
     rng: np.random.Generator,
 ) -> tuple[IterationStats, list[SlotOutcome]]:
@@ -324,6 +462,7 @@ def _process_iteration_sequential(
     jsonl_schema_version = _jsonl_schema_version_for_archive(archive)
 
     for draft, prediction in zip(drafts, predictions):
+        before = _prospective_archive_state(archive, attribution_capture)
         decision: AcquisitionDecision | None = None
         runtime_action = "eval"
 
@@ -359,6 +498,20 @@ def _process_iteration_sequential(
                     decision=decision,
                     acquisition_mode=config.acquisition.mode,
                 )
+            _append_prospective_event(
+                attribution_capture,
+                archive=archive,
+                draft=draft,
+                iteration_index=iteration_index,
+                before=before,
+                after=before,
+                decision=decision,
+                acquisition_mode=config.acquisition.mode,
+                eval_result=None,
+                insert=None,
+                incumbent_fitness=None,
+                evaluator_seconds=None,
+            )
             outcomes.append(
                 SlotOutcome(
                     candidate_id=draft.candidate_id,
@@ -420,6 +573,20 @@ def _process_iteration_sequential(
             incumbent_fitness=incumbent_fitness,
             prediction=prediction,
             target_selection=config.target_selection,
+        )
+        _append_prospective_event(
+            attribution_capture,
+            archive=archive,
+            draft=draft,
+            iteration_index=iteration_index,
+            before=before,
+            after=_prospective_archive_state(archive, attribution_capture),
+            decision=decision,
+            acquisition_mode=config.acquisition.mode,
+            eval_result=eval_result,
+            insert=insert,
+            incumbent_fitness=incumbent_fitness,
+            evaluator_seconds=eval_result.evaluator_seconds,
         )
 
         if (
@@ -486,6 +653,7 @@ def _process_iteration_parallel(
     surrogate_buffer: SurrogateBuffer | None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None,
     proposal_log: ProposalLogWriterProtocol | None,
+    attribution_capture: ProspectiveEventCapture | None,
     acquisition_active: bool,
     eval_pool: ParallelEvalPool | None,
     rng: np.random.Generator,
@@ -526,6 +694,7 @@ def _process_iteration_parallel(
         draft = item.draft
         prediction = item.prediction
         decision = item.decision
+        before = _prospective_archive_state(archive, attribution_capture)
 
         if item.runtime_action == "skip":
             assert prediction is not None and decision is not None
@@ -542,6 +711,20 @@ def _process_iteration_parallel(
                     decision=decision,
                     acquisition_mode=config.acquisition.mode,
                 )
+            _append_prospective_event(
+                attribution_capture,
+                archive=archive,
+                draft=draft,
+                iteration_index=iteration_index,
+                before=before,
+                after=before,
+                decision=decision,
+                acquisition_mode=config.acquisition.mode,
+                eval_result=None,
+                insert=None,
+                incumbent_fitness=None,
+                evaluator_seconds=None,
+            )
             outcomes.append(
                 SlotOutcome(
                     candidate_id=draft.candidate_id,
@@ -596,6 +779,20 @@ def _process_iteration_parallel(
             incumbent_fitness=incumbent_fitness,
             prediction=prediction,
             target_selection=config.target_selection,
+        )
+        _append_prospective_event(
+            attribution_capture,
+            archive=archive,
+            draft=draft,
+            iteration_index=iteration_index,
+            before=before,
+            after=_prospective_archive_state(archive, attribution_capture),
+            decision=decision,
+            acquisition_mode=config.acquisition.mode,
+            eval_result=eval_result,
+            insert=insert,
+            incumbent_fitness=incumbent_fitness,
+            evaluator_seconds=eval_result.evaluator_seconds,
         )
 
         if (
@@ -1034,6 +1231,7 @@ def run_scheduler(
     retrain_state: RetrainState | None = None,
     surrogate_archive: SurrogateArchiveWriterProtocol | None = None,
     proposal_log: ProposalLogWriterProtocol | None = None,
+    attribution_capture: ProspectiveEventCapture | None = None,
 ) -> RunCounters:
     """Run ``config.iterations`` batches and return updated global counters."""
     if counters is None:
@@ -1057,18 +1255,19 @@ def run_scheduler(
         trace_path = run_dir / ARCHIVE_TRACE_FILENAME
         trace_file = trace_path.open("w", encoding="utf-8")
         filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
+        initial_trace: dict[str, object] = {
+            "iteration": 0,
+            "evaluations": counters.candidates_evaluated,
+            "filled_cells": filled,
+            "coverage": round(coverage, 6),
+            "mean_best_fitness": (round(mean_fit, 6) if mean_fit is not None else None),
+            "qd_score": round(qd_score, 6),
+        }
+        if attribution_capture is not None:
+            initial_trace["proposals"] = len(attribution_capture.events)
         write_archive_trace_line(
             trace_file,
-            {
-                "iteration": 0,
-                "evaluations": counters.candidates_evaluated,
-                "filled_cells": filled,
-                "coverage": round(coverage, 6),
-                "mean_best_fitness": (
-                    round(mean_fit, 6) if mean_fit is not None else None
-                ),
-                "qd_score": round(qd_score, 6),
-            },
+            initial_trace,
         )
     try:
         for iteration_index in range(1, config.iterations + 1):
@@ -1086,24 +1285,28 @@ def run_scheduler(
                 surrogate=surrogate,
                 surrogate_archive=surrogate_archive,
                 proposal_log=proposal_log,
+                attribution_capture=attribution_capture,
                 eval_pool=eval_pool,
                 llm_pool=llm_pool,
                 iteration_timing_file=timing_file,
             )
             if trace_file is not None:
                 filled, coverage, mean_fit, qd_score = archive_trace_metrics(archive)
+                iteration_trace: dict[str, object] = {
+                    "iteration": iteration_index,
+                    "evaluations": counters.candidates_evaluated,
+                    "filled_cells": filled,
+                    "coverage": round(coverage, 6),
+                    "mean_best_fitness": (
+                        round(mean_fit, 6) if mean_fit is not None else None
+                    ),
+                    "qd_score": round(qd_score, 6),
+                }
+                if attribution_capture is not None:
+                    iteration_trace["proposals"] = len(attribution_capture.events)
                 write_archive_trace_line(
                     trace_file,
-                    {
-                        "iteration": iteration_index,
-                        "evaluations": counters.candidates_evaluated,
-                        "filled_cells": filled,
-                        "coverage": round(coverage, 6),
-                        "mean_best_fitness": (
-                            round(mean_fit, 6) if mean_fit is not None else None
-                        ),
-                        "qd_score": round(qd_score, 6),
-                    },
+                    iteration_trace,
                 )
             if surrogate_buffer is not None:
                 surrogate_buffer.flush()
