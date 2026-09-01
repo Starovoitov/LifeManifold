@@ -1,0 +1,4 @@
+Parent cell as a JSON object with six operations in the edge order above:
+{parent_json}
+
+Propose a neighboring cell: change one or more operations. Returning the parent unchanged is not useful. Return the ops JSON object only.

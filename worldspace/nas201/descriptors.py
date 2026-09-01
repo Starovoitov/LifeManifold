@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from worldspace.nas201.table import Nas201SearchRecord
 
@@ -90,6 +92,25 @@ def bin_edges_from_records(
         log_flops_max=max(log_flops),
         n_architectures=len(rows),
         source_sha256=source_sha256,
+    )
+
+
+def load_frozen_bin_edges(path: Path) -> Nas201BinEdges:
+    """Load P2.1-frozen edges. Do not recompute min/max from the table."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("frozen bin-edge file must be a JSON object")
+    source = payload.get("nats_meta_sha256") or payload.get("source_sha256")
+    if not source:
+        raise ValueError("frozen bin-edge file missing source sha256")
+    return Nas201BinEdges(
+        resolution=int(payload["resolution"]),
+        log_params_min=float(payload["log_params_min"]),
+        log_params_max=float(payload["log_params_max"]),
+        log_flops_min=float(payload["log_flops_min"]),
+        log_flops_max=float(payload["log_flops_max"]),
+        n_architectures=int(payload["n_architectures"]),
+        source_sha256=str(source),
     )
 
 
