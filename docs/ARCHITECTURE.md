@@ -258,3 +258,5 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [SURROGATE_MODEL.md](SURROGATE_MODEL.md) — surrogate + acquisition
 - [DOMAINS.md](DOMAINS.md) — maze / dungeon / sphere runners
 - [artifacts/controlled_attribution/PHASE1_FOUNDATION.md](../artifacts/controlled_attribution/PHASE1_FOUNDATION.md) — how to treat the attribution sidecar (not a paper protocol)
+- [artifacts/controlled_attribution/PHASE2_FOUNDATION.md](../artifacts/controlled_attribution/PHASE2_FOUNDATION.md) — public-task feasibility design (not a protocol; adapters not implemented)
+- [artifacts/controlled_attribution/PHASE2_NAS_P2_1.md](../artifacts/controlled_attribution/PHASE2_NAS_P2_1.md) — NAS pin and lookup smoke (design data; no LLM)
