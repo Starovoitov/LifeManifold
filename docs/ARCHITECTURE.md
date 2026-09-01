@@ -262,3 +262,4 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [artifacts/controlled_attribution/PHASE2_NAS_P2_1.md](../artifacts/controlled_attribution/PHASE2_NAS_P2_1.md) — NAS pin and lookup smoke (design data; no LLM)
 - [artifacts/controlled_attribution/PHASE2_NAS_P2_2.md](../artifacts/controlled_attribution/PHASE2_NAS_P2_2.md) — NAS isolated LLM proposals (design data)
 - [artifacts/controlled_attribution/PHASE2_PCG_P2_3.md](../artifacts/controlled_attribution/PHASE2_PCG_P2_3.md) — PCG pin and lookup-free smoke (design data; no LLM)
+- [artifacts/controlled_attribution/PHASE2_PCG_P2_4.md](../artifacts/controlled_attribution/PHASE2_PCG_P2_4.md) — PCG isolated LLM proposals (design data)

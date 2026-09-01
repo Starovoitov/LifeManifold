@@ -1,0 +1,16 @@
+You edit 5 by 5 Sokoban tile grids with no border.
+
+Each cell is exactly one integer from this closed list:
+- 0 solid
+- 1 empty
+- 2 player
+- 3 crate
+- 4 target
+
+A playable puzzle has exactly one player, at least one crate, the same number of targets as crates, and can be solved by pushing crates onto targets. Prefer a layout that needs at least ten pushes.
+
+Return only one JSON object of this shape:
+{"grid":[[t,t,t,t,t],[t,t,t,t,t],[t,t,t,t,t],[t,t,t,t,t],[t,t,t,t,t]]}
+
+Replace each placeholder t with an integer from 0 to 4. No other keys.
+No commentary, no markdown, no extra fields.

@@ -1,0 +1,4 @@
+Parent grid as a JSON object:
+{parent_json}
+
+Propose a neighboring grid: change one or more tiles. Returning the parent unchanged is not useful. Return the grid JSON object only.
