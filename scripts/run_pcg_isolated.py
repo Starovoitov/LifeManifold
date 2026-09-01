@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2.4 isolated sokoban-v0 LLM proposals. P7 prompt scan runs before any API call."""
+"""Isolated sokoban-v0 LLM proposals. Prompt scan runs before any API call."""
 
 from __future__ import annotations
 
@@ -28,13 +28,17 @@ from worldspace.pcg.isolated import (
     run_isolated_batch,
 )
 from worldspace.pcg.llm_emitter import DEFAULT_LLM_SPEC, PcgSokobanLlmEmitter
-from worldspace.pcg.p7 import PromptP7Error, assert_p7_templates
+from worldspace.pcg.prompt_scan import SokobanPromptError, assert_prompt_templates
 from worldspace.pcg.spec import SOKOBAN_V0
 
 DEFAULT_EDGES = ROOT / "artifacts/controlled_attribution/pcg/sokoban_v0_bin_edges.json"
-DEFAULT_OUTPUT = ROOT / "artifacts/controlled_attribution/pcg/p2_4_isolated.json"
-DEFAULT_PROPOSALS = ROOT / "artifacts/controlled_attribution/pcg/p2_4_proposals.jsonl"
-DEFAULT_CALL_LOG = ROOT / "artifacts/controlled_attribution/pcg/p2_4_llm_call_log.jsonl"
+DEFAULT_OUTPUT = ROOT / "artifacts/controlled_attribution/pcg/pcg_isolated.json"
+DEFAULT_PROPOSALS = (
+    ROOT / "artifacts/controlled_attribution/pcg/pcg_isolated_proposals.jsonl"
+)
+DEFAULT_CALL_LOG = (
+    ROOT / "artifacts/controlled_attribution/pcg/pcg_isolated_llm_call_log.jsonl"
+)
 
 
 def _rel(path: Path) -> str:
@@ -53,19 +57,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--proposals", type=Path, default=DEFAULT_PROPOSALS)
     parser.add_argument("--call-log", type=Path, default=DEFAULT_CALL_LOG)
-    parser.add_argument("--p7-only", action="store_true")
+    parser.add_argument("--prompt-scan-only", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        templates = assert_p7_templates()
-    except PromptP7Error as error:
+        templates = assert_prompt_templates()
+    except SokobanPromptError as error:
         print(str(error), file=sys.stderr)
         return 3
     prompt_sha = hashlib.sha256(
         f"{templates['system']}\n---\n{templates['user']}".encode()
     ).hexdigest()
-    print(json.dumps({"p7": "pass", "prompt_sha256": prompt_sha}, indent=2))
-    if args.p7_only:
+    print(json.dumps({"prompt_scan": "pass", "prompt_sha256": prompt_sha}, indent=2))
+    if args.prompt_scan_only:
         return 0
 
     edges = load_frozen_bin_edges(args.edges)
@@ -87,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
     )
     report = {
-        "slice": "P2.4",
+        "stage": "pcg_isolated",
         "llm": True,
         "problem_name": SOKOBAN_V0.problem_name,
         "family": "pcg_benchmark",
@@ -98,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         "pinned_version": PINNED_VERSION,
         "pinned_license": PINNED_LICENSE,
         "reserved_seed": args.seed,
-        "p7": "pass",
+        "prompt_scan": "pass",
         "prompt_sha256": prompt_sha,
         "prompt_version": emitter.prompt_version,
         "llm_spec": _rel(args.llm_spec),
@@ -108,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "frozen_bin_path": _rel(args.edges),
         "frozen_bin_n_samples": edges.n_samples,
-        "g5_sokoban_not_reread": True,
+        "selector_jaccard_sokoban_not_reread": True,
         **summary,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

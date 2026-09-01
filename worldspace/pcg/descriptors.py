@@ -112,7 +112,7 @@ def dump_frozen_bin_edges(edges: PcgBinEdges, path: Path) -> None:
                 "axis1_max": edges.axis1_max,
                 "n_samples": edges.n_samples,
                 "problem_name": edges.problem_name,
-                "slice": "P2.3",
+                "stage": "pcg_smoke",
             },
             indent=2,
             sort_keys=True,

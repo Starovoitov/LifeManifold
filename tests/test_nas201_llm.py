@@ -1,4 +1,4 @@
-"""N4 prompt scan, NAS LLM parse/fallback, and isolated-batch gates."""
+"""NAS prompt scan, LLM parse/fallback, and isolated-batch gates."""
 
 from __future__ import annotations
 
@@ -13,7 +13,11 @@ import numpy as np
 from worldspace.nas201.descriptors import Nas201BinEdges, load_frozen_bin_edges
 from worldspace.nas201.isolated import run_isolated_batch
 from worldspace.nas201.llm_emitter import Nas201LlmEmitter, parse_nas201_response
-from worldspace.nas201.n4 import PromptN4Error, assert_n4_templates, n4_violations
+from worldspace.nas201.prompt_scan import (
+    Nas201PromptError,
+    assert_prompt_templates,
+    prompt_violations,
+)
 from worldspace.nas201.spec import Nas201Spec, hamming_ops
 from worldspace.nas201.table import Nas201SearchRecord
 
@@ -55,27 +59,27 @@ def _edges() -> Nas201BinEdges:
     )
 
 
-class TestNas201N4(unittest.TestCase):
-    def test_committed_templates_pass_n4(self) -> None:
-        templates = assert_n4_templates()
+class TestNas201PromptScan(unittest.TestCase):
+    def test_committed_templates_pass_prompt_scan(self) -> None:
+        templates = assert_prompt_templates()
         self.assertIn("{parent_json}", templates["user"])
-        self.assertEqual(n4_violations(templates["system"]), [])
-        self.assertEqual(n4_violations(templates["user"]), [])
+        self.assertEqual(prompt_violations(templates["system"]), [])
+        self.assertEqual(prompt_violations(templates["user"]), [])
 
-    def test_n4_rejects_accuracy_and_example_cell(self) -> None:
-        self.assertIn("accuracy", n4_violations("maximize accuracy of the cell"))
-        self.assertIn("dataset_goal", n4_violations("optimize CIFAR-10"))
-        self.assertIn("leaderboard", n4_violations("beat the leaderboard"))
+    def test_prompt_scan_rejects_accuracy_and_example_cell(self) -> None:
+        self.assertIn("accuracy", prompt_violations("maximize accuracy of the cell"))
+        self.assertIn("dataset_goal", prompt_violations("optimize CIFAR-10"))
+        self.assertIn("leaderboard", prompt_violations("beat the leaderboard"))
         example = (
             '["nor_conv_3x3","nor_conv_3x3","avg_pool_3x3",'
             '"skip_connect","nor_conv_3x3","skip_connect"]'
         )
-        self.assertIn("few_shot_cell_example", n4_violations(example))
+        self.assertIn("few_shot_cell_example", prompt_violations(example))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bad.txt"
             path.write_text("optimize CIFAR accuracy\n", encoding="utf-8")
-            with self.assertRaises(PromptN4Error):
-                assert_n4_templates(path, path)
+            with self.assertRaises(Nas201PromptError):
+                assert_prompt_templates(path, path)
 
 
 class TestNas201LlmParse(unittest.TestCase):
@@ -203,8 +207,8 @@ class TestNas201IsolatedGates(unittest.TestCase):
             seed=201101,
         )
         self.assertEqual(len(records), 8)
-        self.assertTrue(summary["gates"]["G3_parse"])
-        self.assertTrue(summary["gates"]["G4_emitter_not_fallback"])
+        self.assertTrue(summary["gates"]["parse"])
+        self.assertTrue(summary["gates"]["emitter_not_fallback"])
         self.assertGreater(summary["mean_hamming_parse_valid"], 0.0)
 
     def test_frozen_edges_loader_does_not_recompute(self) -> None:

@@ -1,4 +1,4 @@
-"""P2.1 NAS-Bench-201 feasibility smoke: random/genetic, no LLM."""
+"""NAS-Bench-201 feasibility smoke: random/genetic, no LLM."""
 
 from __future__ import annotations
 

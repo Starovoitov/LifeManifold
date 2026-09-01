@@ -1,4 +1,4 @@
-"""P2.4 isolated LLM proposals for sokoban-v0 (no archive feedback, identity repair)."""
+"""Isolated LLM proposals for sokoban-v0 (no archive feedback, identity repair)."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from worldspace.pcg.spec import SOKOBAN_V0
 
 ISOLATED_PROPOSALS = 50
 RESERVED_ISOLATED_SEED = 201_401
-G3_MIN_SCHEMA_VALID = 0.50
-G4_MAX_FALLBACK_AMONG_PARSE_VALID = 0.80
+MIN_SCHEMA_VALID_RATE = 0.50
+MAX_FALLBACK_AMONG_PARSE_VALID = 0.80
 
-# Illustrative confirmatory horizons for G7 (not a protocol freeze).
-G7_SEEDS = 20
-G7_BLOCK_A_CELLS = 4
-G7_EXAMPLE_HORIZONS = (50, 200, 500)
+# Illustrative confirmatory cost-order horizons (not a protocol freeze).
+COST_ORDER_SEEDS = 20
+COST_ORDER_CELLS = 4
+COST_ORDER_HORIZONS = (50, 200, 500)
 
 
 @dataclass(frozen=True)
@@ -170,15 +170,15 @@ def summarize_isolated(
     mean_latency_ms = sum(latency) / len(latency) if latency else 0.0
     mean_eval_ms = sum(eval_latency) / len(eval_latency) if eval_latency else 0.0
     api_calls = sum(row.api_calls for row in records)
-    g3 = schema_valid_rate >= G3_MIN_SCHEMA_VALID
-    g4 = (
+    parse_ok = schema_valid_rate >= MIN_SCHEMA_VALID_RATE
+    emitter_ok = (
         bool(parse_valid)
-        and fallback_among_parse_rate < G4_MAX_FALLBACK_AMONG_PARSE_VALID
+        and fallback_among_parse_rate < MAX_FALLBACK_AMONG_PARSE_VALID
         and mean_hamming > 0.0
     )
-    g7 = {
-        "block_a_seeds": G7_SEEDS,
-        "block_a_cells": G7_BLOCK_A_CELLS,
+    cost_order = {
+        "block_a_seeds": COST_ORDER_SEEDS,
+        "block_a_cells": COST_ORDER_CELLS,
         "horizon_not_frozen": True,
         "mean_total_tokens_per_proposal": mean_total_tokens,
         "mean_latency_ms_per_proposal": mean_latency_ms,
@@ -186,24 +186,31 @@ def summarize_isolated(
         "api_calls_this_batch": api_calls,
         "illustrative_orders": {
             str(horizon): {
-                "llm_calls": G7_SEEDS * G7_BLOCK_A_CELLS * horizon,
+                "llm_calls": COST_ORDER_SEEDS * COST_ORDER_CELLS * horizon,
                 "tokens": (
                     None
                     if mean_total_tokens is None
-                    else G7_SEEDS * G7_BLOCK_A_CELLS * horizon * mean_total_tokens
+                    else COST_ORDER_SEEDS
+                    * COST_ORDER_CELLS
+                    * horizon
+                    * mean_total_tokens
                 ),
                 "wall_hours": (
-                    G7_SEEDS
-                    * G7_BLOCK_A_CELLS
+                    COST_ORDER_SEEDS
+                    * COST_ORDER_CELLS
                     * horizon
                     * mean_latency_ms
                     / 3_600_000.0
                 ),
                 "eval_hours": (
-                    G7_SEEDS * G7_BLOCK_A_CELLS * horizon * mean_eval_ms / 3_600_000.0
+                    COST_ORDER_SEEDS
+                    * COST_ORDER_CELLS
+                    * horizon
+                    * mean_eval_ms
+                    / 3_600_000.0
                 ),
             }
-            for horizon in G7_EXAMPLE_HORIZONS
+            for horizon in COST_ORDER_HORIZONS
         },
         "monetary": None,
     }
@@ -232,11 +239,11 @@ def summarize_isolated(
         "response_model": emitter.last_response_model,
         "emitter_audit": emitter.audit.to_dict(),
         "gates": {
-            "G3_parse": g3,
-            "G4_emitter_not_fallback": g4,
-            "P7_zero_shot": True,
+            "parse": parse_ok,
+            "emitter_not_fallback": emitter_ok,
+            "zero_shot_prompt": True,
         },
-        "g7_cost_order": g7,
+        "cost_order": cost_order,
     }
 
 

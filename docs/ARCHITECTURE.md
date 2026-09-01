@@ -258,8 +258,7 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [SURROGATE_MODEL.md](SURROGATE_MODEL.md) — surrogate + acquisition
 - [DOMAINS.md](DOMAINS.md) — maze / dungeon / sphere runners
 - [artifacts/controlled_attribution/PHASE1_FOUNDATION.md](../artifacts/controlled_attribution/PHASE1_FOUNDATION.md) — how to treat the attribution sidecar (not a paper protocol)
-- [artifacts/controlled_attribution/PHASE2_FOUNDATION.md](../artifacts/controlled_attribution/PHASE2_FOUNDATION.md) — public-task feasibility design (not a protocol; adapters not implemented)
-- [artifacts/controlled_attribution/PHASE2_NAS_P2_1.md](../artifacts/controlled_attribution/PHASE2_NAS_P2_1.md) — NAS pin and lookup smoke (design data; no LLM)
-- [artifacts/controlled_attribution/PHASE2_NAS_P2_2.md](../artifacts/controlled_attribution/PHASE2_NAS_P2_2.md) — NAS isolated LLM proposals (design data)
-- [artifacts/controlled_attribution/PHASE2_PCG_P2_3.md](../artifacts/controlled_attribution/PHASE2_PCG_P2_3.md) — PCG pin and lookup-free smoke (design data; no LLM)
-- [artifacts/controlled_attribution/PHASE2_PCG_P2_4.md](../artifacts/controlled_attribution/PHASE2_PCG_P2_4.md) — PCG isolated LLM proposals (design data)
+- [artifacts/controlled_attribution/PHASE2_FOUNDATION.md](../artifacts/controlled_attribution/PHASE2_FOUNDATION.md) — public-task feasibility design (not a protocol)
+- `scripts/run_nas201_smoke.py` / `scripts/run_nas201_isolated.py` — NAS lookup smoke and isolated LLM proposals
+- `scripts/run_pcg_smoke.py` / `scripts/run_pcg_isolated.py` — PCG smoke and isolated LLM proposals
+- `scripts/run_feasibility_decision.py` — GO / REVISE / DROP from those reports (not a protocol freeze)

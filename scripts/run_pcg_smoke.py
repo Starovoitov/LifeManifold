@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2.3 PCG Benchmark pin + random/genetic smoke (no LLM, repair off)."""
+"""PCG Benchmark pin + random/genetic smoke (no LLM, repair off)."""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ from worldspace.pcg.env import (
 )
 from worldspace.pcg.evaluation import evaluate_fitness_measures
 from worldspace.pcg.smoke import (
-    G2_REPEAT_CONTENTS,
-    G2_REPEATS,
-    G5_MAX_JACCARD,
-    G6_MAX_COVERAGE,
+    DETERMINISM_CONTENTS,
+    DETERMINISM_REPEATS,
+    MAX_SELECTOR_JACCARD,
+    MAX_SMOKE_COVERAGE,
     RANDOM_EDGE_SAMPLES,
     RESERVED_SOKOBAN_SEED,
     RESERVED_ZELDA_SEED,
@@ -76,23 +76,23 @@ def _dependency_versions() -> dict[str, str]:
     return versions
 
 
-def _g2_determinism(
+def _determinism(
     env: BenchmarkPcgEnv,
     task: PcgTask,
     specs: list[PcgSpec],
 ) -> dict[str, object]:
-    chosen = specs[:G2_REPEAT_CONTENTS]
+    chosen = specs[:DETERMINISM_CONTENTS]
     mismatches = 0
     for spec in chosen:
         qualities = []
-        for _ in range(G2_REPEATS):
+        for _ in range(DETERMINISM_REPEATS):
             quality, _, _ = evaluate_fitness_measures(spec, env, task)
             qualities.append(quality)
         if max(qualities) - min(qualities) > 1e-12:
             mismatches += 1
     return {
         "n_contents": len(chosen),
-        "repeats": G2_REPEATS,
+        "repeats": DETERMINISM_REPEATS,
         "mismatched_contents": mismatches,
         "deterministic": mismatches == 0,
     }
@@ -208,14 +208,18 @@ def run_problem(
     from worldspace.pcg.evaluation import evaluate_payload
 
     miss = evaluate_payload(["bad"], _Spy(), frozen, task)
-    g2 = _g2_determinism(env, task, random_specs)
-    p1 = env.problem_name == task.problem_name
-    p4 = True
-    p5 = not missing_keys
-    p6 = True
-    p8 = invalid is None and spy_calls["n"] == 0 and miss.structurally_valid is False
-    g5 = jaccard < G5_MAX_JACCARD
-    g6 = coverage_uniform < G6_MAX_COVERAGE and coverage_minfit < G6_MAX_COVERAGE
+    determinism = _determinism(env, task, random_specs)
+    pinned = env.problem_name == task.problem_name
+    quality_is_fitness = True
+    info_keys_ok = not missing_keys
+    repair_identity = True
+    invalid_skips_search = (
+        invalid is None and spy_calls["n"] == 0 and miss.structurally_valid is False
+    )
+    selector_jaccard_ok = jaccard < MAX_SELECTOR_JACCARD
+    coverage_headroom = (
+        coverage_uniform < MAX_SMOKE_COVERAGE and coverage_minfit < MAX_SMOKE_COVERAGE
+    )
     edges_path = out_dir / f"{task.problem_name.replace('-', '_')}_bin_edges.json"
     dump_frozen_bin_edges(frozen, edges_path)
     return {
@@ -252,7 +256,7 @@ def run_problem(
             "empty_bins": occupancy.count(0),
             "occupied_bins": sum(item > 0 for item in occupancy),
         },
-        "g2": g2,
+        "determinism": determinism,
         "invalid_parse_calls_evaluator": spy_calls["n"],
         "random_smoke": _result_dict(random_result),
         "genetic_uniform": _result_dict(uniform_result),
@@ -261,16 +265,16 @@ def run_problem(
         "rebinned_coverage_uniform": coverage_uniform,
         "rebinned_coverage_min_fitness": coverage_minfit,
         "gates": {
-            "P1_pin_make": p1,
-            "P4_quality_fitness": p4,
-            "P5_info_keys": p5,
-            "P6_repair_off": p6,
-            "P8_invalid_skips_astar": p8,
-            "G1_mit": PINNED_LICENSE == "MIT",
-            "G2_deterministic": g2["deterministic"],
-            "G5_selector_jaccard": g5,
-            "G6_coverage_headroom": g6,
-            "G8_no_holdout_in_quality": True,
+            "pinned_env": pinned,
+            "quality_is_fitness": quality_is_fitness,
+            "info_keys": info_keys_ok,
+            "repair_identity": repair_identity,
+            "invalid_skips_search": invalid_skips_search,
+            "license": PINNED_LICENSE == "MIT",
+            "deterministic": determinism["deterministic"],
+            "selector_jaccard": selector_jaccard_ok,
+            "coverage_headroom": coverage_headroom,
+            "no_holdout_in_quality": True,
         },
     }
 
@@ -283,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {
-        "slice": "P2.3",
+        "stage": "pcg_smoke",
         "llm": False,
         "repair": "identity",
         "family": "pcg_benchmark",
@@ -297,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     sokoban_crash_or_license = not all(
         report["sokoban"]["gates"][key]  # type: ignore[index]
-        for key in ("P1_pin_make", "G1_mit")
+        for key in ("pinned_env", "license")
     )
     if args.skip_zelda or sokoban_crash_or_license:
         report["zelda"] = None
@@ -310,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             evaluations=args.evaluations,
         )
         report["zelda_skipped"] = False
-    out = args.output_dir / "p2_3_smoke.json"
+    out = args.output_dir / "pcg_smoke.json"
     out.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

@@ -148,7 +148,7 @@ class TestNas201Lookup(unittest.TestCase):
         self.assertIsNotNone(result.record)
         self.assertFalse(hasattr(result.record, "test_accuracy"))
 
-    def test_n5_occupancy_flags_collapsed_bins(self) -> None:
+    def test_occupancy_flags_collapsed_bins(self) -> None:
         collapsed = [
             _record(
                 index,

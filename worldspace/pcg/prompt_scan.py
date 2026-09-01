@@ -1,7 +1,7 @@
-"""P7: P2.4 prompt text is zero-shot tile grammar, no documented levels.
+"""Refuse Sokoban prompts that are not zero-shot tile grammar.
 
-Scan committed templates *before* any LLM batch. A failed scan is REVISE of
-the prompt; do not read the batch as GO.
+Scan committed templates before any LLM batch. A failed scan means REVISE the
+prompt; do not read the batch as GO.
 """
 
 from __future__ import annotations
@@ -48,11 +48,11 @@ _FIVE_BY_FIVE = re.compile(
 )
 
 
-class PromptP7Error(ValueError):
-    """Raised when a P2.4 prompt template violates the P7 text contract."""
+class SokobanPromptError(ValueError):
+    """Raised when a Sokoban prompt template is not zero-shot tile grammar."""
 
 
-def p7_violations(text: str) -> list[str]:
+def prompt_violations(text: str) -> list[str]:
     """Return human-readable violation labels (empty if the text is allowed)."""
     found: list[str] = []
     for label, pattern in FORBIDDEN_PATTERNS:
@@ -68,26 +68,30 @@ def p7_violations(text: str) -> list[str]:
     return found
 
 
-def assert_p7_prompt_safe(text: str, *, source: str) -> None:
-    labels = p7_violations(text)
+def assert_prompt_safe(text: str, *, source: str) -> None:
+    labels = prompt_violations(text)
     if labels:
-        raise PromptP7Error(f"P7 failed for {source}: {', '.join(labels)}")
+        raise SokobanPromptError(
+            f"Sokoban prompt scan failed for {source}: {', '.join(labels)}"
+        )
 
 
-def assert_p7_templates(
+def assert_prompt_templates(
     system_path: Path = DEFAULT_SYSTEM_PROMPT,
     user_path: Path = DEFAULT_USER_PROMPT,
 ) -> dict[str, str]:
-    """Load templates, refuse a live batch if P7 fails."""
+    """Load templates and refuse a live batch if the prompt scan fails."""
     system = system_path.read_text(encoding="utf-8")
     user = user_path.read_text(encoding="utf-8")
-    assert_p7_prompt_safe(system, source=str(system_path))
-    assert_p7_prompt_safe(user, source=str(user_path))
+    assert_prompt_safe(system, source=str(system_path))
+    assert_prompt_safe(user, source=str(user_path))
     return {"system": system, "user": user}
 
 
-def assert_p7_runtime_user_prompt(text: str, *, source: str) -> None:
+def assert_runtime_user_prompt(text: str, *, source: str) -> None:
     """Filled user prompt: parent grid JSON is allowed; prestige cues are not."""
     found = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(text)]
     if found:
-        raise PromptP7Error(f"P7 failed for {source}: {', '.join(found)}")
+        raise SokobanPromptError(
+            f"Sokoban prompt scan failed for {source}: {', '.join(found)}"
+        )

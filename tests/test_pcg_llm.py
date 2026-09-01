@@ -1,4 +1,4 @@
-"""P7 prompt scan, sokoban LLM parse/fallback, copy-rate, and isolated-batch gates."""
+"""Sokoban prompt scan, LLM parse/fallback, copy-rate, and isolated-batch gates."""
 
 from __future__ import annotations
 
@@ -15,7 +15,11 @@ from worldspace.pcg.descriptors import PcgBinEdges
 from worldspace.pcg.emitters import random_spec
 from worldspace.pcg.isolated import run_isolated_batch
 from worldspace.pcg.llm_emitter import PcgSokobanLlmEmitter, parse_sokoban_response
-from worldspace.pcg.p7 import PromptP7Error, assert_p7_templates, p7_violations
+from worldspace.pcg.prompt_scan import (
+    SokobanPromptError,
+    assert_prompt_templates,
+    prompt_violations,
+)
 from worldspace.pcg.spec import PcgSpec, SOKOBAN_V0, hamming_tiles
 
 
@@ -75,25 +79,29 @@ def _child_from_parent(parent: PcgSpec) -> PcgSpec:
     return PcgSpec.from_task_grid(SOKOBAN_V0, grid)
 
 
-class TestPcgP7(unittest.TestCase):
-    def test_committed_templates_pass_p7(self) -> None:
-        templates = assert_p7_templates()
+class TestSokobanPromptScan(unittest.TestCase):
+    def test_committed_templates_pass_prompt_scan(self) -> None:
+        templates = assert_prompt_templates()
         self.assertIn("{parent_json}", templates["user"])
-        self.assertEqual(p7_violations(templates["system"]), [])
-        self.assertEqual(p7_violations(templates["user"]), [])
+        self.assertEqual(prompt_violations(templates["system"]), [])
+        self.assertEqual(prompt_violations(templates["user"]), [])
         self.assertNotIn("[[0,1,4,0,0]", templates["system"].replace(" ", ""))
 
-    def test_p7_rejects_fitness_and_readme_grid(self) -> None:
-        self.assertIn("fitness_or_qd", p7_violations("maximize fitness of the grid"))
-        self.assertIn("few_shot_language", p7_violations("here is an example level"))
+    def test_prompt_scan_rejects_fitness_and_readme_grid(self) -> None:
+        self.assertIn(
+            "fitness_or_qd", prompt_violations("maximize fitness of the grid")
+        )
+        self.assertIn(
+            "few_shot_language", prompt_violations("here is an example level")
+        )
         example = json.dumps([list(row) for row in README_SOKOBAN_V0_GRIDS[0]])
-        self.assertIn("few_shot_grid_example", p7_violations(example))
-        self.assertIn("readme_example_grid", p7_violations(example))
+        self.assertIn("few_shot_grid_example", prompt_violations(example))
+        self.assertIn("readme_example_grid", prompt_violations(example))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bad.txt"
             path.write_text("few-shot Microban grid\n", encoding="utf-8")
-            with self.assertRaises(PromptP7Error):
-                assert_p7_templates(path, path)
+            with self.assertRaises(SokobanPromptError):
+                assert_prompt_templates(path, path)
 
 
 class TestPcgLlmParse(unittest.TestCase):
@@ -226,11 +234,11 @@ class TestPcgIsolatedGates(unittest.TestCase):
             self.fail("isolated summary gates must be a dict")
         if not isinstance(hamming, float):
             self.fail("mean_hamming_parse_valid must be a float")
-        self.assertTrue(gates["G3_parse"])
-        self.assertTrue(gates["G4_emitter_not_fallback"])
+        self.assertTrue(gates["parse"])
+        self.assertTrue(gates["emitter_not_fallback"])
         self.assertGreater(hamming, 0.0)
         self.assertEqual(summary["copy_readme"], 0)
-        self.assertTrue(gates["P7_zero_shot"])
+        self.assertTrue(gates["zero_shot_prompt"])
 
 
 if __name__ == "__main__":

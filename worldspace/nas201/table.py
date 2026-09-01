@@ -1,7 +1,7 @@
 """Search-only NAS-Bench-201 compact table (cifar10-valid / hp 200).
 
 The compact rows MUST NOT contain test-set metrics. Hold-out CIFAR-10 test
-readout is a separate function that P2.1 smoke does not call.
+readout is a separate function that lookup smoke does not call.
 """
 
 from __future__ import annotations

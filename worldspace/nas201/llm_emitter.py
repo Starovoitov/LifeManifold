@@ -16,11 +16,11 @@ from worldspace.generators import llm_retry_backoff_seconds
 from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
 from worldspace.generators.llm_call_log import get_llm_call_record
 from worldspace.nas201.emitters import Nas201EmitterResult, mutate_one_edge
-from worldspace.nas201.n4 import (
+from worldspace.nas201.prompt_scan import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
-    assert_n4_runtime_user_prompt,
-    assert_n4_templates,
+    assert_prompt_templates,
+    assert_runtime_user_prompt,
 )
 from worldspace.nas201.spec import Nas201Spec, hamming_ops, try_parse_ops_payload
 
@@ -91,7 +91,7 @@ class Nas201LlmEmitter:
         user_prompt_path: Path = DEFAULT_USER_PROMPT,
         max_retries: int = 2,
     ) -> None:
-        templates = assert_n4_templates(system_prompt_path, user_prompt_path)
+        templates = assert_prompt_templates(system_prompt_path, user_prompt_path)
         self.llm_spec_path = Path(llm_spec_path)
         self.config = load_llm_config(self.llm_spec_path)
         self.call_llm_text = call_llm_text
@@ -111,7 +111,7 @@ class Nas201LlmEmitter:
         proposal_index: int = 0,
     ) -> Nas201LlmProposal:
         prompt = self.user_prompt.format(parent_json=parent.canonical_json())
-        assert_n4_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
+        assert_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
         self.audit.attempts += 1
         started = time.perf_counter()
         child: Nas201Spec | None = None
@@ -130,7 +130,7 @@ class Nas201LlmEmitter:
             try:
                 api_calls += 1
                 self.audit.api_calls += 1
-                call_id = f"nas201-p2.2-{proposal_index}-{request_index}-{uuid.uuid4().hex[:8]}"
+                call_id = f"nas201-isolated-{proposal_index}-{request_index}-{uuid.uuid4().hex[:8]}"
                 raw = self._request(prompt, call_id=call_id)
                 child = parse_nas201_response(raw)
                 usage = _usage_from_call_id(call_id)
@@ -208,7 +208,7 @@ class Nas201LlmEmitter:
             top_p=self.config.top_p,
             max_tokens=max(self.config.max_tokens, 200),
             system_content=self.system_prompt,
-            audit_context={"llm_call_id": call_id, "slice": "P2.2"},
+            audit_context={"llm_call_id": call_id, "stage": "nas201_isolated"},
         )
 
 

@@ -15,7 +15,7 @@ DEFAULT_RESOLUTION = 20
 
 @dataclass(frozen=True)
 class Nas201BinEdges:
-    """Equal-width edges computed from a pinned table; freeze after P2.1."""
+    """Equal-width edges computed from a pinned table; freeze after lookup smoke."""
 
     resolution: int
     log_params_min: float
@@ -96,7 +96,7 @@ def bin_edges_from_records(
 
 
 def load_frozen_bin_edges(path: Path) -> Nas201BinEdges:
-    """Load P2.1-frozen edges. Do not recompute min/max from the table."""
+    """Load frozen bin edges. Do not recompute min/max from the table."""
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("frozen bin-edge file must be a JSON object")

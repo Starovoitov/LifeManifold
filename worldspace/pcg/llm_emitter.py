@@ -17,11 +17,11 @@ from worldspace.generators.llm_call_log import get_llm_call_record
 from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
 from worldspace.pcg.copy_audit import copy_readme_example
 from worldspace.pcg.emitters import PcgEmitterResult, mutate_one_tile
-from worldspace.pcg.p7 import (
+from worldspace.pcg.prompt_scan import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
-    assert_p7_runtime_user_prompt,
-    assert_p7_templates,
+    assert_prompt_templates,
+    assert_runtime_user_prompt,
 )
 from worldspace.pcg.spec import PcgSpec, SOKOBAN_V0, hamming_tiles, try_parse_grid
 
@@ -96,7 +96,7 @@ class PcgSokobanLlmEmitter:
         user_prompt_path: Path = DEFAULT_USER_PROMPT,
         max_retries: int = 2,
     ) -> None:
-        templates = assert_p7_templates(system_prompt_path, user_prompt_path)
+        templates = assert_prompt_templates(system_prompt_path, user_prompt_path)
         self.llm_spec_path = Path(llm_spec_path)
         self.config = load_llm_config(self.llm_spec_path)
         self.call_llm_text = call_llm_text
@@ -117,12 +117,12 @@ class PcgSokobanLlmEmitter:
         proposal_index: int = 0,
     ) -> PcgLlmProposal:
         if parent.problem_name != SOKOBAN_V0.problem_name:
-            raise ValueError("P2.4 emitter is sokoban-v0 only")
+            raise ValueError("sokoban LLM emitter is sokoban-v0 only")
         parent_json = json.dumps(
             {"grid": parent.to_nested_list()}, separators=(",", ":")
         )
         prompt = self.user_prompt.format(parent_json=parent_json)
-        assert_p7_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
+        assert_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
         self.audit.attempts += 1
         started = time.perf_counter()
         child: PcgSpec | None = None
@@ -142,9 +142,7 @@ class PcgSokobanLlmEmitter:
             try:
                 api_calls += 1
                 self.audit.api_calls += 1
-                call_id = (
-                    f"pcg-p2.4-{proposal_index}-{request_index}-{uuid.uuid4().hex[:8]}"
-                )
+                call_id = f"pcg-isolated-{proposal_index}-{request_index}-{uuid.uuid4().hex[:8]}"
                 raw = self._request(prompt, call_id=call_id)
                 child = parse_sokoban_response(raw)
                 usage, response_model = _usage_and_model_from_call_id(call_id)
@@ -232,7 +230,7 @@ class PcgSokobanLlmEmitter:
             top_p=self.config.top_p,
             max_tokens=max(self.config.max_tokens, 200),
             system_content=self.system_prompt,
-            audit_context={"llm_call_id": call_id, "slice": "P2.4"},
+            audit_context={"llm_call_id": call_id, "stage": "pcg_isolated"},
         )
 
 

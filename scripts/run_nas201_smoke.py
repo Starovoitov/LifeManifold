@@ -1,4 +1,4 @@
-"""P2.1 NAS-Bench-201 pin + lookup smoke (no LLM, no test-set fitness)."""
+"""NAS-Bench-201 pin + lookup smoke (no LLM, no test-set fitness)."""
 
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ from worldspace.nas201.spec import OPERATIONS, N_EDGES, Nas201Spec
 from worldspace.nas201.table import CompactNas201Table, SpyLookup
 
 EXPECTED_N = 15625
-N5_MAX_BIN_FRACTION = 0.50
-G5_MAX_JACCARD = 0.80
-G6_MAX_COVERAGE = 0.95
+MAX_BIN_OCCUPANCY_FRACTION = 0.50
+MAX_SELECTOR_JACCARD = 0.80
+MAX_SMOKE_COVERAGE = 0.95
 LOOKUP_SAMPLE = 200
 
 
@@ -67,7 +67,7 @@ def _result_dict(result) -> dict[str, object]:
     }
 
 
-def run_p2_1(
+def run_nas201_lookup_smoke(
     table: CompactNas201Table,
     *,
     pth_sha256: str | None,
@@ -143,23 +143,25 @@ def run_p2_1(
         minfit_archive.occupied_bins(),
     )
 
-    n1 = full_hits == EXPECTED_N and len(table) == EXPECTED_N
-    n2 = len(unique_hashes) == EXPECTED_N and len(unique_indices) == EXPECTED_N
-    n3 = (
+    full_lookup = full_hits == EXPECTED_N and len(table) == EXPECTED_N
+    unique_canonical_hash = (
+        len(unique_hashes) == EXPECTED_N and len(unique_indices) == EXPECTED_N
+    )
+    search_split_only = (
         table.meta.search_dataset == "cifar10-valid"
         and table.meta.search_hp == "200"
         and table.meta.search_split == "x-valid"
         and table.meta.contains_test_metrics is False
     )
-    n5 = max_frac <= N5_MAX_BIN_FRACTION
-    g5 = jaccard < G5_MAX_JACCARD
-    g6 = (
-        uniform_result.coverage < G6_MAX_COVERAGE
-        and minfit_result.coverage < G6_MAX_COVERAGE
+    no_bin_over_half = max_frac <= MAX_BIN_OCCUPANCY_FRACTION
+    selector_jaccard_ok = jaccard < MAX_SELECTOR_JACCARD
+    coverage_headroom = (
+        uniform_result.coverage < MAX_SMOKE_COVERAGE
+        and minfit_result.coverage < MAX_SMOKE_COVERAGE
     )
 
     return {
-        "slice": "P2.1",
+        "stage": "nas201_lookup_smoke",
         "llm": False,
         "reserved_seed": seed,
         "pth_sha256": pth_sha256,
@@ -183,9 +185,9 @@ def run_p2_1(
             "empty_bins": counts.count(0),
             "occupied_bins": sum(1 for item in counts if item > 0),
         },
-        "n1_full_space_lookup_hits": full_hits,
-        "n1_random_200_lookup_hits": sample_hits,
-        "n2_unique_hashes": len(unique_hashes),
+        "full_space_lookup_hits": full_hits,
+        "random_200_lookup_hits": sample_hits,
+        "unique_hashes": len(unique_hashes),
         "miss_policy": {
             "invalid_parse_calls_lookup": len(spy.calls),
             "invalid_structurally_valid": invalid.structurally_valid,
@@ -197,12 +199,12 @@ def run_p2_1(
         "genetic_min_fitness": _result_dict(minfit_result),
         "selector_niche_jaccard": jaccard,
         "gates": {
-            "N1_full_lookup": n1,
-            "N2_unique_canonical_hash": n2,
-            "N3_search_split_only": n3,
-            "N5_no_bin_over_half": n5,
-            "G5_selector_jaccard": g5,
-            "G6_coverage_headroom": g6,
+            "full_lookup": full_lookup,
+            "unique_canonical_hash": unique_canonical_hash,
+            "search_split_only": search_split_only,
+            "no_bin_over_half": no_bin_over_half,
+            "selector_jaccard": selector_jaccard_ok,
+            "coverage_headroom": coverage_headroom,
         },
     }
 
@@ -216,7 +218,9 @@ class _EmptyLookup:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="P2.1 NAS-Bench-201 feasibility smoke")
+    parser = argparse.ArgumentParser(
+        description="NAS-Bench-201 feasibility lookup smoke"
+    )
     parser.add_argument("--jsonl", type=Path, required=True)
     parser.add_argument("--meta", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -237,7 +241,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    report = run_p2_1(table, pth_sha256=pth_sha256, evaluations=args.evaluations)
+    report = run_nas201_lookup_smoke(
+        table, pth_sha256=pth_sha256, evaluations=args.evaluations
+    )
     report["lookup_backend"] = meta_extra.get("lookup_backend")
     report["nats_meta_sha256"] = table.meta.source_sha256
     report["official_nas201_pth_sha256"] = official_pth
@@ -250,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     gates = report["gates"]
     if not isinstance(gates, dict):
-        raise TypeError("P2.1 report gates must be a dict")
+        raise TypeError("NAS lookup-smoke report gates must be a dict")
     print(json.dumps(gates, indent=2))
     print(f"wrote {args.output}")
     return 0 if all(gates.values()) else 1

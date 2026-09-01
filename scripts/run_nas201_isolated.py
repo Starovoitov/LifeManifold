@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2.2 isolated NAS LLM proposals. N4 prompt scan runs before any API call."""
+"""Isolated NAS LLM proposals. Prompt scan runs before any API call."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from worldspace.nas201.isolated import (
     run_isolated_batch,
 )
 from worldspace.nas201.llm_emitter import DEFAULT_LLM_SPEC, Nas201LlmEmitter
-from worldspace.nas201.n4 import PromptN4Error, assert_n4_templates
+from worldspace.nas201.prompt_scan import Nas201PromptError, assert_prompt_templates
 from worldspace.nas201.table import CompactNas201Table
 
 DEFAULT_JSONL = (
@@ -33,12 +33,12 @@ DEFAULT_META = (
     / "artifacts/controlled_attribution/nas201/nas201_compact_cifar10_valid.meta.json"
 )
 DEFAULT_EDGES = ROOT / "artifacts/controlled_attribution/nas201/nas201_bin_edges.json"
-DEFAULT_OUTPUT = ROOT / "artifacts/controlled_attribution/nas201/p2_2_isolated.json"
+DEFAULT_OUTPUT = ROOT / "artifacts/controlled_attribution/nas201/nas201_isolated.json"
 DEFAULT_PROPOSALS = (
-    ROOT / "artifacts/controlled_attribution/nas201/p2_2_proposals.jsonl"
+    ROOT / "artifacts/controlled_attribution/nas201/nas201_isolated_proposals.jsonl"
 )
 DEFAULT_CALL_LOG = (
-    ROOT / "artifacts/controlled_attribution/nas201/p2_2_llm_call_log.jsonl"
+    ROOT / "artifacts/controlled_attribution/nas201/nas201_isolated_llm_call_log.jsonl"
 )
 
 
@@ -53,19 +53,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--proposals", type=Path, default=DEFAULT_PROPOSALS)
     parser.add_argument("--call-log", type=Path, default=DEFAULT_CALL_LOG)
-    parser.add_argument("--n4-only", action="store_true")
+    parser.add_argument("--prompt-scan-only", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        templates = assert_n4_templates()
-    except PromptN4Error as error:
+        templates = assert_prompt_templates()
+    except Nas201PromptError as error:
         print(str(error), file=sys.stderr)
         return 3
     prompt_sha = hashlib.sha256(
         f"{templates['system']}\n---\n{templates['user']}".encode()
     ).hexdigest()
-    print(json.dumps({"n4": "pass", "prompt_sha256": prompt_sha}, indent=2))
-    if args.n4_only:
+    print(json.dumps({"prompt_scan": "pass", "prompt_sha256": prompt_sha}, indent=2))
+    if args.prompt_scan_only:
         return 0
 
     configure_llm_call_log(args.call_log)
@@ -80,10 +80,10 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
     )
     report = {
-        "slice": "P2.2",
+        "stage": "nas201_isolated",
         "llm": True,
         "reserved_seed": args.seed,
-        "n4": "pass",
+        "prompt_scan": "pass",
         "prompt_sha256": prompt_sha,
         "prompt_version": emitter.prompt_version,
         "llm_spec": str(args.llm_spec),

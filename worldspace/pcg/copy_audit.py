@@ -1,7 +1,7 @@
 """Exact-match copy audit vs documented sokoban-v0 example grids.
 
-P2.4 is zero-shot: prompts must not contain these grids. The batch still
-flags a child that equals a README example.
+Isolated proposals are zero-shot: prompts must not contain these grids. The
+batch still flags a child that equals a README example.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""P2.3 PCG random/genetic smoke: no LLM, repair identity."""
+"""PCG random/genetic smoke: no LLM, repair identity."""
 
 from __future__ import annotations
 
@@ -26,10 +26,10 @@ SMOKE_INITIAL_RANDOM = 20
 RANDOM_EDGE_SAMPLES = 256
 RESERVED_SOKOBAN_SEED = 201_301
 RESERVED_ZELDA_SEED = 201_351
-G5_MAX_JACCARD = 0.80
-G6_MAX_COVERAGE = 0.95
-G2_REPEAT_CONTENTS = 20
-G2_REPEATS = 10
+MAX_SELECTOR_JACCARD = 0.80
+MAX_SMOKE_COVERAGE = 0.95
+DETERMINISM_CONTENTS = 20
+DETERMINISM_REPEATS = 10
 
 
 @dataclass(frozen=True)

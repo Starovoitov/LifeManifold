@@ -1,7 +1,7 @@
-"""N4: P2.2 prompt text must not mention metrics, datasets, or leaderboards.
+"""Refuse NAS prompts that mention metrics, datasets, or leaderboards.
 
-Scan committed templates *before* any LLM batch. A failed scan is REVISE of
-the prompt; do not read the batch as GO.
+Scan committed templates before any LLM batch. A failed scan means REVISE the
+prompt; do not read the batch as GO.
 """
 
 from __future__ import annotations
@@ -46,11 +46,11 @@ _ARCH_STRING_EXAMPLE = re.compile(
 )
 
 
-class PromptN4Error(ValueError):
-    """Raised when a P2.2 prompt template violates the N4 text contract."""
+class Nas201PromptError(ValueError):
+    """Raised when a NAS prompt template mentions metrics, datasets, or leaderboards."""
 
 
-def n4_violations(text: str) -> list[str]:
+def prompt_violations(text: str) -> list[str]:
     """Return human-readable violation labels (empty if the text is allowed)."""
     found: list[str] = []
     for label, pattern in FORBIDDEN_PATTERNS:
@@ -63,26 +63,30 @@ def n4_violations(text: str) -> list[str]:
     return found
 
 
-def assert_n4_prompt_safe(text: str, *, source: str) -> None:
-    labels = n4_violations(text)
+def assert_prompt_safe(text: str, *, source: str) -> None:
+    labels = prompt_violations(text)
     if labels:
-        raise PromptN4Error(f"N4 failed for {source}: {', '.join(labels)}")
+        raise Nas201PromptError(
+            f"NAS prompt scan failed for {source}: {', '.join(labels)}"
+        )
 
 
-def assert_n4_templates(
+def assert_prompt_templates(
     system_path: Path = DEFAULT_SYSTEM_PROMPT,
     user_path: Path = DEFAULT_USER_PROMPT,
 ) -> dict[str, str]:
-    """Load templates, refuse a live batch if N4 fails."""
+    """Load templates and refuse a live batch if the prompt scan fails."""
     system = system_path.read_text(encoding="utf-8")
     user = user_path.read_text(encoding="utf-8")
-    assert_n4_prompt_safe(system, source=str(system_path))
-    assert_n4_prompt_safe(user, source=str(user_path))
+    assert_prompt_safe(system, source=str(system_path))
+    assert_prompt_safe(user, source=str(user_path))
     return {"system": system, "user": user}
 
 
-def assert_n4_runtime_user_prompt(text: str, *, source: str) -> None:
+def assert_runtime_user_prompt(text: str, *, source: str) -> None:
     """Filled user prompt: still no metrics/datasets; parent ops JSON is allowed."""
     found = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(text)]
     if found:
-        raise PromptN4Error(f"N4 failed for {source}: {', '.join(found)}")
+        raise Nas201PromptError(
+            f"NAS prompt scan failed for {source}: {', '.join(found)}"
+        )
