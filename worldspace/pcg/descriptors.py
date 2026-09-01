@@ -99,7 +99,9 @@ def load_frozen_bin_edges(path: Path) -> PcgBinEdges:
     )
 
 
-def dump_frozen_bin_edges(edges: PcgBinEdges, path: Path) -> None:
+def dump_frozen_bin_edges(
+    edges: PcgBinEdges, path: Path, *, stage: str = "pcg_smoke"
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -112,7 +114,7 @@ def dump_frozen_bin_edges(edges: PcgBinEdges, path: Path) -> None:
                 "axis1_max": edges.axis1_max,
                 "n_samples": edges.n_samples,
                 "problem_name": edges.problem_name,
-                "stage": "pcg_smoke",
+                "stage": stage,
             },
             indent=2,
             sort_keys=True,

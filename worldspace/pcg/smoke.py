@@ -1,8 +1,8 @@
-"""PCG random/genetic smoke: no LLM, repair identity."""
+"""PCG random/genetic smoke: no LLM. Repair is a named factor, default identity."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -17,6 +17,7 @@ from worldspace.pcg.emitters import (
     select_target_cell,
 )
 from worldspace.pcg.evaluation import PcgEnvLike, evaluate_spec
+from worldspace.pcg.repair import RepairKind, RepairMeta, apply_repair
 from worldspace.pcg.spec import PcgSpec, PcgTask
 
 PcgGenerator = Literal["random", "genetic"]
@@ -26,6 +27,8 @@ SMOKE_INITIAL_RANDOM = 20
 RANDOM_EDGE_SAMPLES = 256
 RESERVED_SOKOBAN_SEED = 201_301
 RESERVED_ZELDA_SEED = 201_351
+RESERVED_PAIR_SOKOBAN_SEED = 201_501
+RESERVED_PAIR_ZELDA_SEED = 201_551
 MAX_SELECTOR_JACCARD = 0.80
 MAX_SMOKE_COVERAGE = 0.95
 DETERMINISM_CONTENTS = 20
@@ -48,6 +51,13 @@ class PcgSmokeResult:
     coverage: float
     qd_score: float
     occupied_bins: tuple[tuple[int, int], ...]
+    repair_kind: RepairKind
+    tiles_changed_mean: float
+    astar_eligible: int
+    quality_min: float | None
+    quality_max: float | None
+    measure0_min: float | None
+    measure0_max: float | None
 
 
 def niche_jaccard(
@@ -72,6 +82,7 @@ def run_pcg_smoke(
     initial_random: int = SMOKE_INITIAL_RANDOM,
     initial_archive: PcgArchive | None = None,
     sample_from_env: bool = False,
+    repair_kind: RepairKind = "identity",
 ) -> tuple[PcgSmokeResult, PcgArchive]:
     rng = np.random.default_rng(seed)
     archive = (
@@ -81,17 +92,28 @@ def run_pcg_smoke(
     eval_count = 0
     invalid = 0
     playable = 0
+    tiles_changed = 0
+    astar_eligible = 0
+    qualities: list[float] = []
+    measure0: list[float] = []
     if initial_archive is None:
         for _ in range(initial_random):
             sampled = _maybe_sample(env, sample_from_env)
             emitted = emit_random(task, rng, sampled=sampled)
+            emitted, meta = _apply_named_repair(emitted, repair_kind)
             proposals += 1
-            outcome = _insert(
+            outcome, fitness, first_measure = _insert(
                 emitted.spec, emitted, archive, env, edges, task, proposals
             )
             eval_count += 1
             invalid += int(outcome == "invalid")
             playable += int(outcome == "playable")
+            tiles_changed += meta["tiles_changed"]
+            astar_eligible += int(bool(meta.get("astar_eligible")))
+            if fitness is not None:
+                qualities.append(fitness)
+            if first_measure is not None:
+                measure0.append(first_measure)
     for _ in range(evaluations):
         if generator == "random":
             sampled = _maybe_sample(env, sample_from_env)
@@ -99,11 +121,20 @@ def run_pcg_smoke(
         else:
             target = select_target_cell(archive, rng, target_selection=selector)
             emitted = emit_genetic(target, rng, task)
+        emitted, meta = _apply_named_repair(emitted, repair_kind)
         proposals += 1
-        outcome = _insert(emitted.spec, emitted, archive, env, edges, task, proposals)
+        outcome, fitness, first_measure = _insert(
+            emitted.spec, emitted, archive, env, edges, task, proposals
+        )
         eval_count += 1
         invalid += int(outcome == "invalid")
         playable += int(outcome == "playable")
+        tiles_changed += meta["tiles_changed"]
+        astar_eligible += int(bool(meta.get("astar_eligible")))
+        if fitness is not None:
+            qualities.append(fitness)
+        if first_measure is not None:
+            measure0.append(first_measure)
     result = PcgSmokeResult(
         problem_name=task.problem_name,
         generator=generator,
@@ -119,6 +150,13 @@ def run_pcg_smoke(
         coverage=archive.coverage(),
         qd_score=archive.qd_score(),
         occupied_bins=tuple(sorted(archive.occupied_bins())),
+        repair_kind=repair_kind,
+        tiles_changed_mean=(tiles_changed / float(proposals) if proposals else 0.0),
+        astar_eligible=astar_eligible,
+        quality_min=min(qualities) if qualities else None,
+        quality_max=max(qualities) if qualities else None,
+        measure0_min=min(measure0) if measure0 else None,
+        measure0_max=max(measure0) if measure0 else None,
     )
     return result, archive
 
@@ -131,12 +169,14 @@ def seeded_initial_archive(
     seed: int,
     n_random: int = SMOKE_INITIAL_RANDOM,
     sample_from_env: bool = False,
+    repair_kind: RepairKind = "identity",
 ) -> PcgArchive:
     rng = np.random.default_rng(seed)
     archive = PcgArchive(edges)
     for index in range(n_random):
         sampled = _maybe_sample(env, sample_from_env)
         emitted = emit_random(task, rng, sampled=sampled)
+        emitted, _meta = _apply_named_repair(emitted, repair_kind)
         _insert(emitted.spec, emitted, archive, env, edges, task, index + 1)
     return archive
 
@@ -158,16 +198,16 @@ def _insert(
     edges: PcgBinEdges,
     task: PcgTask,
     proposal_index: int,
-) -> str:
+) -> tuple[str, float | None, float | None]:
     evaluation = evaluate_spec(spec, env, edges, task)
     if not evaluation.structurally_valid:
-        return "invalid"
+        return "invalid", None, None
     if (
         evaluation.fitness is None
         or evaluation.measures is None
         or evaluation.bin is None
     ):
-        return "invalid"
+        return "invalid", None, None
     elite = PcgElite(
         bin=evaluation.bin,
         fitness=evaluation.fitness,
@@ -179,4 +219,12 @@ def _insert(
         playable=evaluation.playable,
     )
     archive.try_insert(elite)
-    return "playable" if evaluation.playable else "hit"
+    outcome = "playable" if evaluation.playable else "hit"
+    return outcome, evaluation.fitness, evaluation.measures[0]
+
+
+def _apply_named_repair(
+    emitted: PcgEmitterResult, repair_kind: RepairKind
+) -> tuple[PcgEmitterResult, RepairMeta]:
+    spec, meta = apply_repair(emitted.spec, repair_kind)
+    return replace(emitted, spec=spec), meta

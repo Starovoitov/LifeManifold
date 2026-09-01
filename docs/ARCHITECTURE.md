@@ -260,5 +260,5 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - [artifacts/controlled_attribution/PHASE1_FOUNDATION.md](../artifacts/controlled_attribution/PHASE1_FOUNDATION.md) — how to treat the attribution sidecar (not a paper protocol)
 - [artifacts/controlled_attribution/PHASE2_FOUNDATION.md](../artifacts/controlled_attribution/PHASE2_FOUNDATION.md) — public-task feasibility design (not a protocol)
 - `scripts/run_nas201_smoke.py` / `scripts/run_nas201_isolated.py` — NAS lookup smoke and isolated LLM proposals
-- `scripts/run_pcg_smoke.py` / `scripts/run_pcg_isolated.py` — PCG smoke and isolated LLM proposals
+- `scripts/run_pcg_smoke.py` / `scripts/run_pcg_isolated.py` / `scripts/run_pcg_repair_pair.py` — PCG smoke, isolated LLM, and identity vs structural_counts pair
 - `scripts/run_feasibility_decision.py` — GO / REVISE / DROP from those reports (not a protocol freeze)
