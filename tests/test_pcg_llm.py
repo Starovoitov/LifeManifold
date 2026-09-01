@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import numpy as np
@@ -39,12 +40,20 @@ class _ToyEnv:
     def __init__(self) -> None:
         self.calls = 0
 
-    def quality(self, contents: object) -> tuple[float, float, dict[str, object]]:
+    def info(self, contents: object) -> dict[str, Any]:
+        return self._info(contents)
+
+    def quality(self, contents: object) -> tuple[float, float, dict[str, Any]]:
         self.calls += 1
-        grid = contents
+        info = self._info(contents)
+        quality = min(1.0, 0.05 * (int(info["players"]) + 1))
+        return 0.0, quality, info
+
+    def _info(self, contents: object) -> dict[str, Any]:
+        grid = cast(list[list[int]], contents)
         crates = sum(tile == 3 for row in grid for tile in row)
         players = sum(tile == 2 for row in grid for tile in row)
-        info = {
+        return {
             "players": players,
             "crates": crates,
             "targets": crates,
@@ -52,8 +61,6 @@ class _ToyEnv:
             "heuristic": -1,
             "solution": [],
         }
-        quality = min(1.0, 0.05 * (players + 1))
-        return 0.0, quality, info
 
 
 def _parent() -> PcgSpec:
@@ -239,6 +246,44 @@ class TestPcgIsolatedGates(unittest.TestCase):
         self.assertGreater(hamming, 0.0)
         self.assertEqual(summary["copy_readme"], 0)
         self.assertTrue(gates["zero_shot_prompt"])
+        self.assertEqual(records[0].repair_kind, "identity")
+        self.assertEqual(records[0].tiles_changed_by_repair, 0)
+        self.assertEqual(records[0].hamming_before_repair, records[0].hamming)
+
+    def test_structural_counts_repairs_parents_and_measures_post_repair_hamming(
+        self,
+    ) -> None:
+        class _Neighbor:
+            def __call__(self, **kwargs: object) -> str:
+                prompt = str(kwargs["prompt"])
+                blob = prompt.split("JSON object:\n", 1)[1].split("\n\n", 1)[0]
+                parent = parse_sokoban_response(blob)
+                grid = [list(row) for row in parent.grid]
+                grid[0][0] = 0 if grid[0][0] != 0 else 1
+                return json.dumps({"grid": grid})
+
+        emitter = PcgSokobanLlmEmitter(call_llm_text=_Neighbor(), max_retries=0)
+        records, summary = run_isolated_batch(
+            _ToyEnv(),
+            _edges(),
+            emitter,
+            n_proposals=6,
+            seed=201601,
+            repair_kind="structural_counts",
+        )
+        self.assertEqual(len(records), 6)
+        self.assertEqual(summary["repair_kind"], "structural_counts")
+        self.assertEqual(summary["astar_eligible"], 6)
+        for row in records:
+            self.assertEqual(row.repair_kind, "structural_counts")
+            self.assertTrue(row.astar_eligible)
+            self.assertGreaterEqual(row.hamming, 0)
+        hamming = summary["mean_hamming_parse_valid"]
+        if not isinstance(hamming, float):
+            self.fail("mean_hamming_parse_valid must be a float")
+        self.assertGreater(hamming, 0.0)
+        self.assertTrue(summary["gates"]["parse"])  # type: ignore[index]
+        self.assertTrue(summary["gates"]["emitter_not_fallback"])  # type: ignore[index]
 
 
 if __name__ == "__main__":
