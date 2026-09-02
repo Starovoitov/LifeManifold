@@ -1,4 +1,4 @@
-"""JSON Schema bundle for Phase 1 attribution records."""
+"""JSON Schema bundle for attribution records."""
 
 from __future__ import annotations
 

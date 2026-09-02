@@ -1,4 +1,4 @@
-"""NAS-Bench-201 lookup domain for Phase 2 feasibility (sidecar native runner)."""
+"""NAS-Bench-201 lookup domain for feasibility (sidecar native runner)."""
 
 from worldspace.nas201.spec import Nas201Spec
 from worldspace.nas201.table import (

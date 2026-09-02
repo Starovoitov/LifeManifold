@@ -248,11 +248,19 @@ class TestSyntheticNormalizationFixtures(unittest.TestCase):
 
     def test_all_current_domains_publish_capabilities(self) -> None:
         declarations = current_domain_capabilities()
-        self.assertEqual(set(declarations), {"ca", "maze", "dungeon", "sphere"})
+        self.assertEqual(
+            set(declarations),
+            {"ca", "maze", "dungeon", "sphere", "nas201", "pcg_sokoban"},
+        )
         self.assertEqual(declarations["dungeon"].selectors, ("uniform_frontier",))
         self.assertTrue(declarations["ca"].supports_warm_start)
         self.assertFalse(declarations["maze"].supports_warm_start)
         self.assertEqual(declarations["sphere"].native_fitness_max, 100.0)
+        self.assertIn("state_aware_median", declarations["nas201"].allocation_kinds)
+        self.assertIn(
+            "structural_counts",
+            declarations["pcg_sokoban"].repair_fallback_kinds,
+        )
 
 
 class TestNormalizationSmokeRuns(unittest.TestCase):

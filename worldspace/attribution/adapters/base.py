@@ -52,7 +52,7 @@ class NormalizedRunBundle:
 
 
 class ReadOnlyNormalizationAdapter(Protocol):
-    """Minimal Phase 1.1 adapter surface."""
+    """Minimal adapter surface."""
 
     def capabilities(self) -> AdapterCapabilities: ...
 

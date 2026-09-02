@@ -1,4 +1,4 @@
-"""PCG Benchmark native domain for Phase 2 feasibility (no sidecar adapter)."""
+"""PCG Benchmark native domain for feasibility (no sidecar adapter)."""
 
 from worldspace.pcg.spec import SOKOBAN_V0, ZELDA_V0, PcgSpec
 

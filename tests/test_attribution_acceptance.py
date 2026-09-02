@@ -1,4 +1,4 @@
-"""Executable closing guards for Phase 1 acceptance criteria."""
+"""Executable closing guards for attribution harness acceptance criteria."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def _digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-class TestPhase1Acceptance(unittest.TestCase):
+class TestAttributionAcceptance(unittest.TestCase):
     def test_authoritative_genotype_and_archive_fingerprint_goldens(self) -> None:
         ca = WorldSpec(
             birth=[1, 3],
@@ -283,8 +283,10 @@ class TestPhase1Acceptance(unittest.TestCase):
             },
         )
         self.assertEqual(contrast.form, "anytime_auc")
-        self.assertIsNotNone(contrast.mean_difference)
-        self.assertAlmostEqual(contrast.mean_difference, 0.0, places=9)
+        difference = contrast.mean_difference
+        self.assertIsNotNone(difference)
+        assert difference is not None
+        self.assertAlmostEqual(difference, 0.0, places=9)
 
     def test_anytime_auc_rejects_maze_summary_only(self) -> None:
         bundle = MazeNormalizationAdapter().normalize(
@@ -314,7 +316,7 @@ class TestPhase1Acceptance(unittest.TestCase):
                 checkpoints_by_run={bundle.summary.run_id: bundle.checkpoints},
             )
 
-    def test_phase1_tooling_leaves_q1_configs_and_summaries_byte_unchanged(
+    def test_attribution_tooling_leaves_q1_configs_and_summaries_byte_unchanged(
         self,
     ) -> None:
         schedulers = sorted((ROOT / "worldspace" / "specs").glob("*scheduler*.yaml"))

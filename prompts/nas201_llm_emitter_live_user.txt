@@ -1,0 +1,9 @@
+Parent cell as a JSON object with six operations in the edge order above:
+{parent_json}
+
+Parent search metrics for that cell only (not a goal to maximize here):
+parent_valid_accuracy={parent_valid_accuracy}
+parent_log_params={parent_log_params}
+parent_log_flops={parent_log_flops}
+
+Propose a neighboring cell: change one or more operations. Returning the parent unchanged is not useful. Return the ops JSON object only.

@@ -10,6 +10,8 @@ from worldspace.attribution.capabilities import (
     current_domain_capabilities,
     dungeon_capabilities,
     maze_capabilities,
+    nas201_capabilities,
+    pcg_sokoban_capabilities,
     sphere_capabilities,
 )
 from worldspace.attribution.capture import (
@@ -146,7 +148,9 @@ __all__ = [
     "dungeon_capabilities",
     "maze_capabilities",
     "maze_genotype_hash",
+    "nas201_capabilities",
     "parse_interaction_formula",
+    "pcg_sokoban_capabilities",
     "sphere_capabilities",
     "write_job_plan",
 ]

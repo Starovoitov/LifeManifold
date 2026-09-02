@@ -260,3 +260,4 @@ Prompts (not duplicated here): `prompts/` — MAP-Elites `map_elites_llm_emitter
 - `scripts/run_nas201_smoke.py` / `scripts/run_nas201_isolated.py` — NAS lookup smoke and isolated LLM proposals
 - `scripts/run_pcg_smoke.py` / `scripts/run_pcg_isolated.py` / `scripts/run_pcg_repair_pair.py` / `scripts/run_pcg_isolated_repair.py` — PCG smoke, isolated LLM, identity vs structural_counts pair, and isolated LLM under named repair
 - `scripts/run_feasibility_decision.py` — GO / REVISE / DROP from those reports (not a protocol freeze)
+- `scripts/build_confirmatory_jobs.py` — emit selector-channel / generator / allocation job plans (never launch)

@@ -1,0 +1,10 @@
+Parent grid as a JSON object:
+{parent_json}
+
+Parent metrics for that grid only (no QD or cohort stats):
+parent_fitness={parent_fitness}
+parent_measure_0={parent_measure_0}
+parent_measure_1={parent_measure_1}
+parent_playable={parent_playable}
+
+Propose a neighboring grid: change one or more tiles. Returning the parent unchanged is not useful. Return the grid JSON object only.
