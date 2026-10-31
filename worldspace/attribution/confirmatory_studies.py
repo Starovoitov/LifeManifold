@@ -155,6 +155,18 @@ def selector_channel_study(domain: DomainId) -> StudyManifest:
         study_suffix="selector-channel",
         arms=arms,
         estimands=[
+            _paired_auc_estimand(
+                estimand_id="selector_at_constant",
+                treatment_arm_ids=["A-const-minfit"],
+                control_arm_ids=["A-const-uniform"],
+                confirmatory_family="F-A",
+            ),
+            _paired_auc_estimand(
+                estimand_id="channel_at_uniform",
+                treatment_arm_ids=["A-live-uniform"],
+                control_arm_ids=["A-const-uniform"],
+                confirmatory_family="F-A",
+            ),
             {
                 "estimand_id": "channel_x_selector",
                 "endpoint": "qd_score_anytime_auc",
@@ -169,11 +181,11 @@ def selector_channel_study(domain: DomainId) -> StudyManifest:
                     "(A-live-minfit - A-const-minfit) - "
                     "(A-live-uniform - A-const-uniform)"
                 ),
-                "confirmatory_family": "F-A",
-                "multiplicity_rule": "holm",
+                "confirmatory_family": None,
+                "multiplicity_rule": "descriptive",
                 "missing_policy": "complete_pairs_only",
                 "minimum_complete_pairs": 20,
-            }
+            },
         ],
     )
 
@@ -215,22 +227,18 @@ def generator_study(domain: DomainId) -> StudyManifest:
         study_suffix="generator",
         arms=arms,
         estimands=[
-            {
-                "estimand_id": "generator",
-                "endpoint": "qd_score_anytime_auc",
-                "form": "anytime_auc",
-                "budget_axis": "proposal",
-                "treatment_arm_ids": ["B-llm", "B-genetic"],
-                "control_arm_ids": ["B-random"],
-                "paired_by": ["seed", "domain_instance_id"],
-                "alternative": "two_sided",
-                "margin": None,
-                "interaction_formula": None,
-                "confirmatory_family": "F-B",
-                "multiplicity_rule": "holm",
-                "missing_policy": "complete_pairs_only",
-                "minimum_complete_pairs": 20,
-            }
+            _paired_auc_estimand(
+                estimand_id="llm_minus_genetic",
+                treatment_arm_ids=["B-llm"],
+                control_arm_ids=["B-genetic"],
+                confirmatory_family="F-B",
+            ),
+            _paired_auc_estimand(
+                estimand_id="llm_minus_random",
+                treatment_arm_ids=["B-llm"],
+                control_arm_ids=["B-random"],
+                confirmatory_family="F-B",
+            ),
         ],
     )
 
@@ -264,22 +272,12 @@ def allocation_study(domain: DomainId) -> StudyManifest:
         study_suffix="allocation",
         arms=arms,
         estimands=[
-            {
-                "estimand_id": "allocation",
-                "endpoint": "qd_score_anytime_auc",
-                "form": "anytime_auc",
-                "budget_axis": "proposal",
-                "treatment_arm_ids": ["C-state-aware-median"],
-                "control_arm_ids": ["C-static"],
-                "paired_by": ["seed", "domain_instance_id"],
-                "alternative": "two_sided",
-                "margin": None,
-                "interaction_formula": None,
-                "confirmatory_family": "F-C",
-                "multiplicity_rule": "holm",
-                "missing_policy": "complete_pairs_only",
-                "minimum_complete_pairs": 20,
-            }
+            _paired_auc_estimand(
+                estimand_id="allocation",
+                treatment_arm_ids=["C-state-aware-median"],
+                control_arm_ids=["C-static"],
+                confirmatory_family="F-C",
+            ),
         ],
     )
 
@@ -324,6 +322,32 @@ def build_confirmatory_job_plan(study: StudyManifest, *, output_root: str):
         caps,
         confirmatory_job_context(study, output_root=output_root),
     )
+
+
+def _paired_auc_estimand(
+    *,
+    estimand_id: str,
+    treatment_arm_ids: list[str],
+    control_arm_ids: list[str],
+    confirmatory_family: str,
+) -> dict[str, Any]:
+    """One Holm paired difference of the post-floor QD-score AUC."""
+    return {
+        "estimand_id": estimand_id,
+        "endpoint": "qd_score_anytime_auc",
+        "form": "anytime_auc",
+        "budget_axis": "proposal",
+        "treatment_arm_ids": treatment_arm_ids,
+        "control_arm_ids": control_arm_ids,
+        "paired_by": ["seed", "domain_instance_id"],
+        "alternative": "two_sided",
+        "margin": None,
+        "interaction_formula": None,
+        "confirmatory_family": confirmatory_family,
+        "multiplicity_rule": "holm",
+        "missing_policy": "complete_pairs_only",
+        "minimum_complete_pairs": 20,
+    }
 
 
 def _study(

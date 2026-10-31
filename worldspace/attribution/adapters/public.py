@@ -129,7 +129,9 @@ def normalize_public_run(
         study_manifest_hash=manifest.study_manifest_hash,
         run_manifest_hash=manifest.run_manifest_hash,
         treatment_hash=manifest.treatment_hash,
-        event_completeness="summary_only",
+        event_completeness="partial",
+        qd_score_anytime_auc=_optional_float(summary.get("qd_score_anytime_auc")),
+        floor_proposals=_optional_int(summary.get("floor_random")),
         final_counters=counters,
         counter_completeness=counter_completeness,
         final_archive=final_state,
@@ -156,7 +158,7 @@ def normalize_public_run(
     issues = (
         NormalizationIssue(
             "public.events_summary_only",
-            "public runner writes summary/trace; prospective capture is optional later",
+            "public runner writes a QD trace; prospective proposal events are not captured",
         ),
     )
     return NormalizedRunBundle(

@@ -8,6 +8,12 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
+from worldspace.attribution.analysis import (
+    _endpoint_value,
+    descriptive_contrast,
+    family_holm,
+    holm_step_down,
+)
 from worldspace.attribution.adapters import (
     Nas201NormalizationAdapter,
     NativeRunInputs,
@@ -27,6 +33,7 @@ from worldspace.attribution.confirmatory_studies import (
 from worldspace.attribution.hashing import canonical_sha256
 from worldspace.attribution.manifest import (
     ArmManifest,
+    EstimandSpec,
     RunManifest,
     arm_treatment_hash,
     freeze_run_manifest,
@@ -37,8 +44,15 @@ from worldspace.attribution.public_loop import (
     SUMMARY_SCHEMA,
     TRACE_FILENAME,
     append_jsonl,
+    search_curve_auc,
     should_use_llm,
     write_json,
+)
+from worldspace.attribution.records import (
+    ArchiveState,
+    BudgetCheckpoint,
+    BudgetCounters,
+    RunSummary,
 )
 from worldspace.attribution.validation import AttributionAdmissionError
 from worldspace.nas201.descriptors import Nas201BinEdges
@@ -289,7 +303,9 @@ class TestNas201AdapterLoop(unittest.TestCase):
             self.assertEqual(
                 bundle.summary.final_archive.occupied_cells, result.filled_cells
             )
-            self.assertEqual(bundle.summary.event_completeness, "summary_only")
+            self.assertEqual(bundle.summary.event_completeness, "partial")
+            self.assertEqual(bundle.summary.floor_proposals, config.floor_random)
+            self.assertEqual(bundle.summary.qd_score_anytime_auc, result.anytime_auc)
             self.assertEqual(
                 bundle.summary.final_counters.evaluator_attempts,
                 result.summary["evaluations"],
@@ -493,6 +509,245 @@ class TestConfirmatoryAdmission(unittest.TestCase):
             )
         with self.assertRaises(AttributionAdmissionError):
             refuse_mixed_evidence_tier(["confirmatory", "feasibility"])
+
+
+class TestSearchCurveFamilies(unittest.TestCase):
+    def test_search_curve_auc_drops_floor(self) -> None:
+        curve = [10.0, 10.0, 1.0, 3.0, 5.0]
+        self.assertEqual(search_curve_auc(curve, 2), 3.0)
+
+    def test_contrast_uses_post_floor_auc(self) -> None:
+        estimand = EstimandSpec.model_validate(
+            {
+                "estimand_id": "channel_at_uniform",
+                "endpoint": "qd_score_anytime_auc",
+                "form": "anytime_auc",
+                "budget_axis": "proposal",
+                "treatment_arm_ids": ["live"],
+                "control_arm_ids": ["constant"],
+                "paired_by": ["seed"],
+                "alternative": "two_sided",
+                "margin": None,
+                "missing_policy": "complete_pairs_only",
+                "minimum_complete_pairs": 1,
+            }
+        )
+        live = _auc_summary("live-run", "live", [10.0, 10.0, 1.0, 3.0, 5.0])
+        constant = _auc_summary("constant-run", "constant", [10.0, 10.0, 1.0, 1.0, 1.0])
+        contrast = descriptive_contrast(
+            [live, constant],
+            estimand=estimand,
+            checkpoints_by_run={
+                live.run_id: _qd_trace(live.run_id, [10.0, 10.0, 1.0, 3.0, 5.0]),
+                constant.run_id: _qd_trace(
+                    constant.run_id, [10.0, 10.0, 1.0, 1.0, 1.0]
+                ),
+            },
+        )
+        self.assertAlmostEqual(contrast.mean_difference or 0.0, 2.0, places=9)
+        self.assertEqual(_endpoint_value(live, "qd_score_anytime_auc"), 3.0)
+
+    def test_families_split_holm_contrasts(self) -> None:
+        for domain in ("nas201", "pcg_sokoban"):
+            selector = selector_channel_study(domain)  # type: ignore[arg-type]
+            by_id = {item.estimand_id: item for item in selector.estimands}
+            self.assertEqual(
+                [item.estimand_id for item in selector.estimands if item.multiplicity_rule == "holm"],
+                ["selector_at_constant", "channel_at_uniform"],
+            )
+            self.assertEqual(
+                by_id["selector_at_constant"].treatment_arm_ids, ("A-const-minfit",)
+            )
+            self.assertEqual(
+                by_id["selector_at_constant"].control_arm_ids, ("A-const-uniform",)
+            )
+            self.assertEqual(
+                by_id["channel_at_uniform"].treatment_arm_ids, ("A-live-uniform",)
+            )
+            self.assertEqual(
+                by_id["channel_at_uniform"].control_arm_ids, ("A-const-uniform",)
+            )
+            self.assertEqual(by_id["channel_x_selector"].form, "interaction")
+            self.assertIsNone(by_id["channel_x_selector"].confirmatory_family)
+            self.assertEqual(by_id["channel_x_selector"].multiplicity_rule, "descriptive")
+
+            generator = generator_study(domain)  # type: ignore[arg-type]
+            generated = {item.estimand_id: item for item in generator.estimands}
+            self.assertEqual(
+                generated["llm_minus_genetic"].treatment_arm_ids, ("B-llm",)
+            )
+            self.assertEqual(
+                generated["llm_minus_genetic"].control_arm_ids, ("B-genetic",)
+            )
+            self.assertEqual(
+                generated["llm_minus_random"].treatment_arm_ids, ("B-llm",)
+            )
+            self.assertEqual(
+                generated["llm_minus_random"].control_arm_ids, ("B-random",)
+            )
+            self.assertTrue(
+                all(item.confirmatory_family == "F-B" for item in generator.estimands)
+            )
+
+            allocation = allocation_study(domain)  # type: ignore[arg-type]
+            self.assertEqual(len(allocation.estimands), 1)
+            only = allocation.estimands[0]
+            self.assertEqual(only.estimand_id, "allocation")
+            self.assertEqual(only.confirmatory_family, "F-C")
+            self.assertEqual(only.treatment_arm_ids, ("C-state-aware-median",))
+            self.assertEqual(only.control_arm_ids, ("C-static",))
+
+    def test_holm_excludes_interaction(self) -> None:
+        study = selector_channel_study("nas201")
+        decisions = family_holm(
+            study.estimands,
+            {
+                "selector_at_constant": [1.0] * 10,
+                "channel_at_uniform": [1.0, -1.0] * 5,
+                "channel_x_selector": [5.0] * 10,
+            },
+            family="F-A",
+        )
+        self.assertEqual(
+            [item.estimand_id for item in decisions],
+            ["selector_at_constant", "channel_at_uniform"],
+        )
+        by_id = {item.estimand_id: item for item in decisions}
+        self.assertTrue(by_id["selector_at_constant"].reject)
+        self.assertFalse(by_id["channel_at_uniform"].reject)
+        self.assertTrue(holm_step_down({"channel": 0.03})["channel"])
+        self.assertFalse(
+            holm_step_down({"channel": 0.03, "interaction": 0.9})["channel"]
+        )
+
+
+def _auc_summary(run_id: str, arm_id: str, curve: list[float]) -> RunSummary:
+    observed = {axis: "observed" for axis in (
+        "proposal",
+        "valid_proposal",
+        "evaluation",
+        "llm_call_attempted",
+        "llm_call_completed",
+        "prompt_token",
+        "completion_token",
+        "token",
+        "evaluator_wall_time",
+        "llm_latency",
+        "wall_time",
+        "monetary",
+    )}
+    return RunSummary(
+        run_id=run_id,
+        study_id="auc-study",
+        arm_id=arm_id,
+        pair_id="pair-1",
+        evidence_tier="confirmatory",
+        domain_id="nas201",
+        domain_version="test",
+        adapter_id="nas201-native",
+        adapter_version="0.1",
+        evaluator_hash=HASH_A,
+        seed=1,
+        domain_instance_id="nas201-default",
+        initial_archive_hash=HASH_A,
+        protocol_hash=HASH_A,
+        study_manifest_hash=HASH_A,
+        run_manifest_hash=HASH_B,
+        treatment_hash=HASH_A,
+        event_completeness="partial",
+        final_counters=BudgetCounters(
+            proposal_slots=len(curve),
+            valid_proposals=len(curve),
+            evaluator_attempts=len(curve),
+            evaluator_completions=len(curve),
+            llm_attempts=0,
+            llm_completions=0,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            evaluator_seconds=1.0,
+            llm_latency_seconds=0.0,
+            wall_seconds=1.0,
+            monetary_cost=0.0,
+        ),
+        counter_completeness=observed,  # type: ignore[arg-type]
+        final_archive=ArchiveState(
+            occupied_cells=1,
+            capacity=10,
+            coverage=0.1,
+            raw_qd_score=curve[-1],
+            normalized_qd_score=curve[-1] / 10.0,
+            maximum_elite_quality=curve[-1],
+            occupied_mean_quality=curve[-1],
+        ),
+        archive_metric_completeness={
+            "coverage": "observed",
+            "raw_qd_score": "observed",
+            "normalized_qd_score": "derived",
+            "maximum_elite_quality": "observed",
+            "occupied_mean_quality": "observed",
+        },
+        completed=True,
+        failure_reason=None,
+        qd_score_anytime_auc=search_curve_auc(curve, 2),
+        floor_proposals=2,
+    )
+
+
+def _qd_trace(run_id: str, curve: list[float]) -> tuple[BudgetCheckpoint, ...]:
+    completeness = {
+        "proposal": "observed",
+        "valid_proposal": "unavailable",
+        "evaluation": "unavailable",
+        "llm_call_attempted": "unavailable",
+        "llm_call_completed": "unavailable",
+        "prompt_token": "unavailable",
+        "completion_token": "unavailable",
+        "token": "unavailable",
+        "evaluator_wall_time": "unavailable",
+        "llm_latency": "unavailable",
+        "wall_time": "unavailable",
+        "monetary": "unavailable",
+    }
+    checkpoints: list[BudgetCheckpoint] = []
+    for index, qd in enumerate(curve, start=1):
+        checkpoints.append(
+            BudgetCheckpoint(
+                run_id=run_id,
+                checkpoint_index=index - 1,
+                indexed_by="proposal",
+                counters=BudgetCounters(
+                    proposal_slots=index,
+                    valid_proposals=None,
+                    evaluator_attempts=None,
+                    evaluator_completions=None,
+                    llm_attempts=None,
+                    llm_completions=None,
+                    prompt_tokens=None,
+                    completion_tokens=None,
+                    total_tokens=None,
+                    evaluator_seconds=None,
+                    llm_latency_seconds=None,
+                    wall_seconds=None,
+                    monetary_cost=None,
+                ),
+                source_completeness=completeness,  # type: ignore[arg-type]
+                calls_allocated_by_operator={},
+                calls_used_by_operator={},
+                calls_remaining_by_operator={},
+                calls_forfeited_by_operator={},
+                archive=ArchiveState(
+                    occupied_cells=1,
+                    capacity=10,
+                    coverage=0.1,
+                    raw_qd_score=qd,
+                    normalized_qd_score=qd / 10.0,
+                    maximum_elite_quality=qd,
+                    occupied_mean_quality=qd,
+                ),
+            )
+        )
+    return tuple(checkpoints)
 
 
 if __name__ == "__main__":

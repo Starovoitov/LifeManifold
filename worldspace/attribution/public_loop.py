@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -73,16 +74,30 @@ def append_jsonl(path: Path, payload: object) -> None:
         handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
 
 
-def anytime_auc(values: list[float]) -> float:
-    """Trapezoidal AUC over equal-spaced proposal indices 1..n, / n."""
+def anytime_auc(values: Sequence[float]) -> float:
+    """Mean trapezoid of an equal-spaced QD curve: area / (n − 1).
+
+    One point returns that point. An empty curve returns 0. This is the only
+    QD-score anytime AUC used by the public runners and by confirmatory
+    analysis of ``qd_score_anytime_auc``.
+    """
     if not values:
         return 0.0
     if len(values) == 1:
         return float(values[0])
     area = 0.0
     for left, right in zip(values[:-1], values[1:], strict=True):
-        area += 0.5 * (left + right)
+        area += 0.5 * (float(left) + float(right))
     return area / float(len(values) - 1)
+
+
+def search_curve_auc(values: Sequence[float], floor_proposals: int) -> float:
+    """AUC of the curve after the random floor, via :func:`anytime_auc`."""
+    if floor_proposals < 0:
+        raise ValueError("floor_proposals cannot be negative")
+    if floor_proposals > len(values):
+        raise ValueError("floor_proposals exceeds the recorded curve")
+    return anytime_auc(values[floor_proposals:])
 
 
 def mean_or_none(values: list[float]) -> float | None:

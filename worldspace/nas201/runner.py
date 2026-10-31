@@ -15,8 +15,8 @@ from worldspace.attribution.public_loop import (
     TRACE_FILENAME,
     PublicRunConfig,
     append_jsonl,
-    anytime_auc,
     mean_or_none,
+    search_curve_auc,
     should_use_llm,
     write_json,
 )
@@ -175,8 +175,7 @@ def run_nas201_qd(
         _trace()
 
     wall_s = time.perf_counter() - wall_started
-    search_curve = qd_curve[config.floor_random :]
-    auc = anytime_auc(search_curve)
+    auc = search_curve_auc(qd_curve, config.floor_random)
     for elite in archive.elites():
         append_jsonl(
             output_dir / ARCHIVE_FILENAME,

@@ -323,6 +323,8 @@ class RunSummary(AttributionModel):
     archive_metric_completeness: dict[ArchiveMetric, SourceCompleteness]
     completed: bool
     failure_reason: NonEmptyStr | None
+    qd_score_anytime_auc: float | None = None
+    floor_proposals: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _validate_completion(self) -> Self:

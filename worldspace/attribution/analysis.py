@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+
+from scipy.stats import wilcoxon
 
 from worldspace.attribution.design import (
     ArmAnatomy,
@@ -20,6 +23,7 @@ from worldspace.attribution.manifest import (
     StudyManifest,
     study_manifest_hash,
 )
+from worldspace.attribution.public_loop import search_curve_auc
 from worldspace.attribution.records import BudgetCheckpoint, ProposalEvent, RunSummary
 from worldspace.attribution.validation import (
     AdmissionIssue,
@@ -223,7 +227,13 @@ def descriptive_contrast(
     rows = tuple(summaries)
     values_by_run: dict[str, float] = {}
     for row in rows:
-        if estimand.form == "anytime_auc":
+        if estimand.endpoint == "qd_score_anytime_auc":
+            values_by_run[row.run_id] = _search_qd_auc_for_row(
+                row,
+                estimand=estimand,
+                checkpoints_by_run=checkpoints_by_run,
+            )
+        elif estimand.form == "anytime_auc":
             values_by_run[row.run_id] = _anytime_auc_for_row(
                 row,
                 estimand=estimand,
@@ -330,6 +340,107 @@ def parse_interaction_formula(
             ]
         )
     return match.group(1), match.group(2), match.group(3), match.group(4)
+
+
+def _search_qd_auc_for_row(
+    row: RunSummary,
+    *,
+    estimand: EstimandSpec,
+    checkpoints_by_run: Mapping[str, Sequence[BudgetCheckpoint]] | None,
+) -> float:
+    """Post-floor QD-score AUC, the same number the public runners store."""
+    if row.event_completeness == "summary_only":
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.anytime_summary_only",
+                    message=(
+                        f"run {row.run_id!r} is summary_only; "
+                        "qd_score_anytime_auc requires the proposal trace"
+                    ),
+                )
+            ]
+        )
+    if row.floor_proposals is None:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.search_floor_missing",
+                    message=(
+                        f"run {row.run_id!r} has no floor_proposals; "
+                        "cannot drop the random floor from the QD curve"
+                    ),
+                )
+            ]
+        )
+    if not checkpoints_by_run or row.run_id not in checkpoints_by_run:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.anytime_missing_trace",
+                    message=f"run {row.run_id!r} has no checkpoints for qd_score_anytime_auc",
+                )
+            ]
+        )
+    series = _proposal_qd_series(
+        checkpoints_by_run[row.run_id],
+        run_id=row.run_id,
+        budget_axis=estimand.budget_axis,
+    )
+    if row.floor_proposals > len(series):
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.search_floor_exceeds_trace",
+                    message=(
+                        f"run {row.run_id!r} floor_proposals={row.floor_proposals} "
+                        f"exceeds {len(series)} proposal checkpoints"
+                    ),
+                )
+            ]
+        )
+    return search_curve_auc(series, row.floor_proposals)
+
+
+def _proposal_qd_series(
+    checkpoints: Sequence[BudgetCheckpoint],
+    *,
+    run_id: str,
+    budget_axis: BudgetAxis,
+) -> list[float]:
+    counter_field = _BUDGET_COUNTER_FIELDS[budget_axis]
+    points: dict[float, float] = {}
+    for checkpoint in checkpoints:
+        if checkpoint.indexed_by != budget_axis:
+            continue
+        x_raw = getattr(checkpoint.counters, counter_field)
+        y_raw = checkpoint.archive.raw_qd_score
+        if x_raw is None or y_raw is None:
+            raise AttributionAdmissionError(
+                [
+                    AdmissionIssue(
+                        code="analysis.anytime_incomplete_point",
+                        message=(
+                            f"run {run_id!r} checkpoint {checkpoint.checkpoint_index} "
+                            "is missing a proposal index or raw QD-score"
+                        ),
+                    )
+                ]
+            )
+        points[float(x_raw)] = float(y_raw)
+    if not points:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.anytime_insufficient_trace",
+                    message=(
+                        f"run {run_id!r} needs at least one {budget_axis} "
+                        "checkpoint for qd_score_anytime_auc"
+                    ),
+                )
+            ]
+        )
+    return [points[key] for key in sorted(points)]
 
 
 def _anytime_auc_for_row(
@@ -571,6 +682,17 @@ def _arm_anatomy(
 
 
 def _endpoint_value(row: RunSummary, endpoint: str) -> float | None:
+    if endpoint == "qd_score_anytime_auc":
+        if row.qd_score_anytime_auc is None:
+            raise AttributionAdmissionError(
+                [
+                    AdmissionIssue(
+                        code="analysis.missing_qd_score_anytime_auc",
+                        message=f"run {row.run_id!r} has no qd_score_anytime_auc",
+                    )
+                ]
+            )
+        return float(row.qd_score_anytime_auc)
     archive_field = _ENDPOINT_GETTERS.get(endpoint)
     if archive_field is not None:
         value = getattr(row.final_archive, archive_field)
@@ -595,3 +717,93 @@ def _endpoint_value(row: RunSummary, endpoint: str) -> float | None:
         )
     value = counters[endpoint]
     return None if value is None else float(value)
+
+
+@dataclass(frozen=True)
+class HolmDecision:
+    """One within-family Holm step for a predeclared estimand."""
+
+    estimand_id: str
+    p_value: float
+    reject: bool
+
+
+def holm_step_down(
+    p_by_name: Mapping[str, float], alpha: float = 0.05
+) -> dict[str, bool]:
+    """Holm step-down. A later test is not rejected after an earlier miss."""
+    names = list(p_by_name.keys())
+    ordered = sorted(names, key=lambda key: p_by_name[key])
+    reject: dict[str, bool] = {}
+    previous_miss = False
+    family_size = len(names)
+    for rank, name in enumerate(ordered):
+        threshold = alpha / (family_size - rank)
+        rejected = p_by_name[name] < threshold and not previous_miss
+        reject[name] = rejected
+        if not rejected:
+            previous_miss = True
+    return reject
+
+
+def paired_wilcoxon_p(differences: Sequence[float]) -> float:
+    """Two-sided Wilcoxon signed-rank p-value. An all-zero vector has p = 1."""
+    values = [float(item) for item in differences]
+    if not values:
+        raise ValueError("Wilcoxon requires at least one paired difference")
+    if all(abs(item) <= 1e-15 for item in values):
+        return 1.0
+    result = wilcoxon(values, alternative="two-sided")
+    return float(result.pvalue)
+
+
+def family_holm(
+    estimands: Sequence[EstimandSpec],
+    differences_by_estimand: Mapping[str, Sequence[float]],
+    *,
+    family: str,
+    alpha: float = 0.05,
+) -> tuple[HolmDecision, ...]:
+    """Holm over estimands whose multiplicity rule is ``holm``.
+
+    Interaction estimands stay out of the vector even if they carry the same
+    family id. Callers pass paired differences, not runs.
+    """
+    members = [
+        item.estimand_id
+        for item in estimands
+        if item.confirmatory_family == family
+        and item.multiplicity_rule == "holm"
+        and item.form != "interaction"
+    ]
+    if not members:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.holm_family_empty",
+                    message=f"family {family!r} has no Holm estimands",
+                )
+            ]
+        )
+    missing = [item for item in members if item not in differences_by_estimand]
+    if missing:
+        raise AttributionAdmissionError(
+            [
+                AdmissionIssue(
+                    code="analysis.holm_missing_differences",
+                    message=f"missing paired differences for {missing}",
+                )
+            ]
+        )
+    p_by_name = {
+        item: paired_wilcoxon_p(differences_by_estimand[item]) for item in members
+    }
+    rejected = holm_step_down(p_by_name, alpha=alpha)
+    return tuple(
+        HolmDecision(
+            estimand_id=item,
+            p_value=p_by_name[item],
+            reject=rejected[item],
+        )
+        for item in members
+    )
