@@ -169,7 +169,9 @@ def admit_design_matrix_cohort(
             ("domain_instance_id", row.domain_instance_id, cell.domain_instance_id),
             (
                 "initial_archive_hash",
-                row.initial_archive_hash,
+                row.floor_recipe_hash
+                if row.floor_recipe_hash is not None
+                else row.initial_archive_hash,
                 cell.initial_archive_hash,
             ),
             ("treatment_hash", row.treatment_hash, cell.treatment_hash),

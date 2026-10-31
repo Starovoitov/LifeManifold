@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +56,7 @@ class JobBuildContext:
     reserved_pilot_archive_hashes: frozenset[str] = frozenset()
     aliased_arm_groups: tuple[frozenset[str], ...] = ()
     seed_api_blocks: Mapping[int, str] | None = None
+    archive_for_run: Callable[[int, str, ArmManifest], InitialArchiveRef] | None = None
 
 
 def build_factorial_job_plan(
@@ -89,7 +90,10 @@ def build_factorial_job_plan(
         for seed in study.replication.seeds:
             block_id = seed_blocks[seed]
             for domain_instance_id in study.replication.domain_instance_ids:
-                archive = context.initial_archives[domain_instance_id]
+                if context.archive_for_run is not None:
+                    archive = context.archive_for_run(seed, domain_instance_id, arm)
+                else:
+                    archive = context.initial_archives[domain_instance_id]
                 pair_id = _pair_id(
                     study, seed=seed, domain_instance_id=domain_instance_id
                 )
@@ -375,6 +379,13 @@ def _pilot_contamination_issues(
             )
         )
     archive_hashes = {ref.archive_hash for ref in context.initial_archives.values()}
+    if context.archive_for_run is not None:
+        for arm in study.arms:
+            for seed in study.replication.seeds:
+                for instance_id in study.replication.domain_instance_ids:
+                    archive_hashes.add(
+                        context.archive_for_run(seed, instance_id, arm).archive_hash
+                    )
     contaminated_archives = sorted(
         archive_hashes & set(context.reserved_pilot_archive_hashes)
     )

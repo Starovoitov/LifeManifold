@@ -87,6 +87,41 @@ def refuse_mixed_evidence_tier(tiers: Iterable[str]) -> None:
         pass
 
 
+def refuse_missing_llm_usage(
+    summaries: Iterable[Mapping[str, Any]],
+    *,
+    missing_usage_policy: str,
+) -> None:
+    """Reject LLM arms that spent a call and did not report tokens.
+
+    ``reject`` does not apply to random or genetic arms, and it does not apply
+    to an LLM arm that never left the slot (no completed call and no HTTP).
+    """
+    if missing_usage_policy != "reject":
+        return
+    issues: list[AdmissionIssue] = []
+    for index, summary in enumerate(summaries):
+        generator = summary.get("generator")
+        llm_arm = generator == "llm" or summary.get("llm_enabled") is True
+        if not llm_arm:
+            continue
+        completed = int(summary.get("llm_calls_completed") or 0)
+        http_calls = int(summary.get("llm_http_calls") or 0)
+        if completed == 0 and http_calls == 0:
+            continue
+        if summary.get("total_tokens") is None:
+            issues.append(
+                AdmissionIssue(
+                    code="confirmatory.missing_llm_usage",
+                    message=(
+                        f"summary {index} is an LLM arm with empty token usage"
+                    ),
+                )
+            )
+    if issues:
+        raise AttributionAdmissionError(issues)
+
+
 def refuse_response_model_mismatch(
     summaries: Iterable[Mapping[str, Any]],
 ) -> None:

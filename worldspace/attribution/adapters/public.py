@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 from worldspace.attribution.adapters.base import (
     NativeRunInputs,
@@ -23,7 +23,7 @@ from worldspace.attribution.adapters.io import (
     read_json_object,
     read_jsonl_objects,
 )
-from worldspace.attribution.hashing import canonical_sha256
+from worldspace.attribution.hashing import canonical_sha256, is_sha256
 from worldspace.attribution.manifest import (
     AdapterCapabilities,
     BudgetAxis,
@@ -81,6 +81,7 @@ def normalize_public_run(
         run_id=manifest.run_id,
         capacity=capacity,
     )
+    realized_floor, recipe_hash = _floor_hashes(summary, manifest.initial_archive_hash)
     counters = BudgetCounters(
         proposal_slots=int(summary["proposals"]),
         valid_proposals=int(summary["valid_proposals"]),
@@ -89,9 +90,9 @@ def normalize_public_run(
         evaluator_completions=int(summary["evaluations"]),
         llm_attempts=_optional_int(summary.get("llm_calls_attempted")),
         llm_completions=_optional_int(summary.get("llm_calls_completed")),
-        prompt_tokens=None,
-        completion_tokens=None,
-        total_tokens=None,
+        prompt_tokens=_optional_int(summary.get("prompt_tokens")),
+        completion_tokens=_optional_int(summary.get("completion_tokens")),
+        total_tokens=_optional_int(summary.get("total_tokens")),
         evaluator_seconds=None,
         llm_latency_seconds=None,
         wall_seconds=_optional_float(summary.get("wall_seconds")),
@@ -103,9 +104,9 @@ def normalize_public_run(
         "evaluation": "observed",
         "llm_call_attempted": "observed",
         "llm_call_completed": "observed",
-        "prompt_token": "unavailable",
-        "completion_token": "unavailable",
-        "token": "unavailable",
+        "prompt_token": _token_completeness(summary.get("prompt_tokens")),
+        "completion_token": _token_completeness(summary.get("completion_tokens")),
+        "token": _token_completeness(summary.get("total_tokens")),
         "evaluator_wall_time": "unavailable",
         "llm_latency": "unavailable",
         "wall_time": "observed",
@@ -124,7 +125,7 @@ def normalize_public_run(
         evaluator_hash=canonical_sha256(manifest.evaluator),
         seed=manifest.seed,
         domain_instance_id=manifest.domain_instance_id,
-        initial_archive_hash=manifest.initial_archive_hash,
+        initial_archive_hash=realized_floor,
         protocol_hash=manifest.protocol_hash,
         study_manifest_hash=manifest.study_manifest_hash,
         run_manifest_hash=manifest.run_manifest_hash,
@@ -132,6 +133,7 @@ def normalize_public_run(
         event_completeness="partial",
         qd_score_anytime_auc=_optional_float(summary.get("qd_score_anytime_auc")),
         floor_proposals=_optional_int(summary.get("floor_random")),
+        floor_recipe_hash=recipe_hash,
         final_counters=counters,
         counter_completeness=counter_completeness,
         final_archive=final_state,
@@ -221,12 +223,32 @@ def _validate_summary_identity(
         raise NormalizationError("native prompt_channel does not match treatment")
     repair = summary.get("repair")
     expected_repair = manifest.treatment.repair_fallback.kind
-    if expected_repair == "genetic_fallback":
-        # genetic_fallback is parse-path; realized repair remains identity/counts.
-        if repair not in {"identity", "structural_counts"}:
-            raise NormalizationError("native repair does not match treatment")
-    elif repair != expected_repair:
+    if repair != expected_repair:
         raise NormalizationError("native repair does not match treatment")
+
+
+def _floor_hashes(
+    summary: Mapping[str, Any],
+    manifest_hash: str,
+) -> tuple[str, str | None]:
+    """Return the realized floor hash and the planned recipe, when the run has one.
+
+    Summaries written before the floor hash existed keep the manifest hash and
+    no recipe. A run that records ``floor_random`` must also record the
+    occupied-genotype hash.
+    """
+    if "floor_random" not in summary and "initial_archive_hash" not in summary:
+        return manifest_hash, None
+    realized = summary.get("initial_archive_hash")
+    if not isinstance(realized, str) or not is_sha256(realized):
+        raise NormalizationError("public summary is missing the realized floor hash")
+    return realized, manifest_hash
+
+
+def _token_completeness(value: object) -> Literal["observed", "unavailable"]:
+    if value is None:
+        return "unavailable"
+    return "observed"
 
 
 def _optional_int(value: object) -> int | None:

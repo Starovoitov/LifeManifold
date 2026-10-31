@@ -325,6 +325,7 @@ class RunSummary(AttributionModel):
     failure_reason: NonEmptyStr | None
     qd_score_anytime_auc: float | None = None
     floor_proposals: int | None = Field(default=None, ge=0)
+    floor_recipe_hash: Sha256 | None = None
 
     @model_validator(mode="after")
     def _validate_completion(self) -> Self:

@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from worldspace.attribution.hashing import canonical_sha256
+
 AllocationKind = Literal["static", "state_aware_median"]
 SUMMARY_SCHEMA = "public-qd-1.0"
 SUMMARY_FILENAME = "nightly_run_summary.json"
@@ -32,7 +34,6 @@ class PublicRunConfig:
     floor_random: int = 20
     search_horizon: int = 200
     llm_call_cap: int = 200
-    capture_events: bool = True
     expected_response_model: str | None = None
 
 
@@ -117,6 +118,33 @@ def _median(values: list[float]) -> float:
 
 def is_close(a: float, b: float, *, tol: float = 1e-9) -> bool:
     return math.isclose(a, b, rel_tol=tol, abs_tol=tol)
+
+
+def occupied_genotype_hash(genotypes: Sequence[str]) -> str:
+    """Hash occupied genotypes. Order does not change the digest."""
+    return canonical_sha256(sorted(genotypes))
+
+
+def floor_recipe_hash(
+    *,
+    seed: int,
+    floor_random: int,
+    repair: str,
+    bin_edges: Mapping[str, Any],
+) -> str:
+    """Identity of a generated floor before any genotype is drawn.
+
+    The digest is the recipe (seed, floor length, repair, bin edges), not the
+    archive that the recipe later produces.
+    """
+    return canonical_sha256(
+        {
+            "seed": seed,
+            "floor_random": floor_random,
+            "repair": repair,
+            "bin_edges": dict(bin_edges),
+        }
+    )
 
 
 @dataclass

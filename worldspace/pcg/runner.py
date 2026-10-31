@@ -18,6 +18,7 @@ from worldspace.attribution.public_loop import (
     append_jsonl,
     llm_summary_fields,
     mean_or_none,
+    occupied_genotype_hash,
     record_llm_meta,
     search_curve_auc,
     should_use_llm,
@@ -70,12 +71,9 @@ def run_pcg_sokoban_qd(
         raise ValueError("llm generator requires llm_emit callback")
     if config.prompt_channel == "live" and config.generator != "llm":
         raise ValueError("live prompt channel requires llm generator")
-    repair_kind: RepairKind
-    if config.repair_kind not in {"identity", "structural_counts", "genetic_fallback"}:
+    if config.repair_kind not in {"identity", "structural_counts"}:
         raise ValueError(f"unsupported PCG repair {config.repair_kind!r}")
-    repair_kind = (
-        "identity" if config.repair_kind == "genetic_fallback" else config.repair_kind  # type: ignore[assignment]
-    )
+    repair_kind: RepairKind = config.repair_kind  # type: ignore[assignment]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for name in (SUMMARY_FILENAME, ARCHIVE_FILENAME, TRACE_FILENAME):
@@ -153,6 +151,9 @@ def run_pcg_sokoban_qd(
         qd_curve.append(archive.qd_score())
         _trace()
 
+    initial_archive_hash = occupied_genotype_hash(
+        [elite.spec.genotype_sha256() for elite in archive.elites()]
+    )
     selector: PcgTargetSelection = config.selector  # type: ignore[assignment]
     for _slot in range(config.search_horizon):
         proposals += 1
@@ -223,11 +224,8 @@ def run_pcg_sokoban_qd(
         "target_selection": config.selector,
         "allocation": config.allocation,
         "prompt_channel": config.prompt_channel,
-        "repair": (
-            config.repair_kind
-            if config.repair_kind != "genetic_fallback"
-            else repair_kind
-        ),
+        "repair": repair_kind,
+        "initial_archive_hash": initial_archive_hash,
         "archive_type": "grid",
         "n_cells": archive.n_cells,
         "floor_random": config.floor_random,

@@ -24,12 +24,14 @@ from worldspace.attribution.adapters import (
 from worldspace.attribution.capabilities import current_domain_capabilities
 from worldspace.attribution.confirmatory_admission import (
     refuse_contaminated_artifact_paths,
+    refuse_missing_llm_usage,
     refuse_mixed_evidence_tier,
     refuse_response_model_mismatch,
 )
 from worldspace.attribution.confirmatory_studies import (
     allocation_study,
     build_confirmatory_job_plan,
+    confirmatory_bin_edges,
     generator_study,
     selector_channel_study,
 )
@@ -47,6 +49,8 @@ from worldspace.attribution.public_loop import (
     SUMMARY_SCHEMA,
     TRACE_FILENAME,
     append_jsonl,
+    floor_recipe_hash,
+    occupied_genotype_hash,
     search_curve_auc,
     should_use_llm,
     write_json,
@@ -57,7 +61,10 @@ from worldspace.attribution.records import (
     BudgetCounters,
     RunSummary,
 )
-from worldspace.attribution.validation import AttributionAdmissionError
+from worldspace.attribution.validation import (
+    AttributionAdmissionError,
+    admit_analysis_cohort,
+)
 from worldspace.nas201.descriptors import Nas201BinEdges
 from worldspace.nas201.live_prompt_scan import assert_live_prompt_templates
 from worldspace.nas201.llm_emitter import Nas201LlmEmitter, bind_nas201_llm
@@ -192,6 +199,11 @@ class TestPublicTaskCapabilities(unittest.TestCase):
             declarations["pcg_sokoban"].repair_fallback_kinds,
         )
         self.assertIn("generated_floor", declarations["nas201"].initialization_kinds)
+        self.assertEqual(declarations["nas201"].repair_fallback_kinds, ("identity",))
+        self.assertNotIn(
+            "genetic_fallback",
+            declarations["pcg_sokoban"].repair_fallback_kinds,
+        )
 
 
 class TestStateAwareAllocation(unittest.TestCase):
@@ -274,7 +286,6 @@ class TestNas201AdapterLoop(unittest.TestCase):
                 selector="uniform_frontier",
                 floor_random=5,
                 search_horizon=8,
-                capture_events=False,
             )
             result = run_nas201_qd(
                 _AlwaysHitNasLookup(),
@@ -379,13 +390,39 @@ class TestNas201AdapterLoop(unittest.TestCase):
             self.assertEqual(counters.evaluator_attempts, 5)
             self.assertEqual(counters.evaluator_completions, 5)
 
-    def test_genetic_fallback_summary_records_identity_repair(self) -> None:
+    def test_runner_rejects_genetic_fallback_repair(self) -> None:
         edges = Nas201BinEdges(
             resolution=4,
-            log_params_min=4.0,
-            log_params_max=5.0,
-            log_flops_min=6.0,
-            log_flops_max=7.0,
+            log_params_min=0.0,
+            log_params_max=8.0,
+            log_flops_min=0.0,
+            log_flops_max=10.0,
+            n_architectures=1,
+            source_sha256="a" * 64,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                run_nas201_qd(
+                    _AlwaysHitNasLookup(),
+                    edges,
+                    PublicRunConfig(
+                        seed=11,
+                        generator="genetic",
+                        selector="uniform_frontier",
+                        repair_kind="genetic_fallback",
+                        floor_random=1,
+                        search_horizon=1,
+                    ),
+                    output_dir=Path(tmp),
+                )
+
+    def test_floor_hash_is_the_occupied_genotypes(self) -> None:
+        edges = Nas201BinEdges(
+            resolution=4,
+            log_params_min=0.0,
+            log_params_max=8.0,
+            log_flops_min=0.0,
+            log_flops_max=10.0,
             n_architectures=1,
             source_sha256="a" * 64,
         )
@@ -398,25 +435,40 @@ class TestNas201AdapterLoop(unittest.TestCase):
                     seed=11,
                     generator="genetic",
                     selector="uniform_frontier",
-                    repair_kind="genetic_fallback",
-                    floor_random=5,
-                    search_horizon=8,
-                    capture_events=False,
+                    floor_random=2,
+                    search_horizon=0,
                 ),
                 output_dir=run_dir,
             )
-            self.assertEqual(result.summary["repair"], "identity")
+            genotypes = [
+                json.loads(line)["genotype_hash"]
+                for line in (run_dir / ARCHIVE_FILENAME).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            realized = occupied_genotype_hash(genotypes)
+            self.assertEqual(result.summary["initial_archive_hash"], realized)
+            self.assertNotEqual(realized, canonical_sha256([]))
             bundle = Nas201NormalizationAdapter().normalize(
                 _public_run_manifest(
                     "nas201",
                     seed=11,
                     selector="uniform_frontier",
                     generator="genetic",
-                    repair="genetic_fallback",
+                    repair="identity",
                 ),
                 NativeRunInputs(run_dir),
             )
-            self.assertEqual(bundle.summary.domain_id, "nas201")
+            self.assertEqual(bundle.summary.initial_archive_hash, realized)
+            self.assertEqual(
+                bundle.summary.floor_recipe_hash,
+                _public_run_manifest(
+                    "nas201",
+                    seed=11,
+                    selector="uniform_frontier",
+                    generator="genetic",
+                    repair="identity",
+                ).initial_archive_hash,
+            )
 
 
 class TestPcgSokobanAdapterLoop(unittest.TestCase):
@@ -485,6 +537,23 @@ class TestConfirmatoryJobBuilder(unittest.TestCase):
                 self.assertFalse(plan.launched)
                 self.assertEqual(len(plan.runs), len(study.arms) * 20)
                 self.assertTrue(study.study_id.startswith(f"confirmatory-{domain}-"))
+                empty_floor = canonical_sha256([])
+                repair = "identity" if domain == "nas201" else "structural_counts"
+                by_seed: dict[int, set[str]] = {}
+                for run in plan.runs:
+                    self.assertNotEqual(run.initial_archive_hash, empty_floor)
+                    by_seed.setdefault(run.seed, set()).add(run.initial_archive_hash)
+                    self.assertEqual(
+                        run.initial_archive_hash,
+                        floor_recipe_hash(
+                            seed=run.seed,
+                            floor_random=20,
+                            repair=repair,
+                            bin_edges=confirmatory_bin_edges(domain),
+                        ),
+                    )
+                self.assertTrue(all(len(group) == 1 for group in by_seed.values()))
+                self.assertGreater(len(by_seed), 1)
 
 
 class TestConfirmatoryAdmission(unittest.TestCase):
@@ -545,6 +614,81 @@ class TestConfirmatoryAdmission(unittest.TestCase):
             ]
         )
 
+    def test_missing_tokens_reject_only_llm_arms(self) -> None:
+        refuse_missing_llm_usage(
+            [
+                {
+                    "generator": "genetic",
+                    "llm_enabled": False,
+                    "total_tokens": None,
+                },
+                {
+                    "generator": "random",
+                    "total_tokens": None,
+                },
+                {
+                    "generator": "llm",
+                    "llm_calls_completed": 0,
+                    "llm_http_calls": 0,
+                    "total_tokens": None,
+                },
+            ],
+            missing_usage_policy="reject",
+        )
+        refuse_missing_llm_usage(
+            [
+                {
+                    "generator": "llm",
+                    "llm_calls_attempted": 1,
+                    "llm_calls_completed": 1,
+                    "llm_http_calls": 2,
+                    "total_tokens": 12,
+                }
+            ],
+            missing_usage_policy="reject",
+        )
+        with self.assertRaises(AttributionAdmissionError) as caught:
+            refuse_missing_llm_usage(
+                [
+                    {
+                        "generator": "llm",
+                        "llm_calls_attempted": 1,
+                        "llm_calls_completed": 1,
+                        "llm_http_calls": 2,
+                        "total_tokens": None,
+                    }
+                ],
+                missing_usage_policy="reject",
+            )
+        self.assertEqual(
+            caught.exception.issues[0].code,
+            "confirmatory.missing_llm_usage",
+        )
+
+    def test_same_seed_with_different_floors_does_not_pair(self) -> None:
+        left = _auc_summary("run-a", "live", [1.0, 2.0])
+        right = _auc_summary("run-b", "constant", [1.0, 2.0])
+        with self.assertRaises(AttributionAdmissionError) as caught:
+            admit_analysis_cohort(
+                (
+                    left,
+                    right.model_copy(update={"initial_archive_hash": HASH_B}),
+                ),
+                expected_arm_ids=("live", "constant"),
+                minimum_complete_pairs=1,
+            )
+        self.assertTrue(
+            any(
+                issue.code == "cohort.unpaired_initial_archive_hash"
+                for issue in caught.exception.issues
+            )
+        )
+        admit_analysis_cohort(
+            (left, right),
+            expected_arm_ids=("live", "constant"),
+            minimum_complete_pairs=1,
+        )
+
 
 class TestLiveChannelSummary(unittest.TestCase):
     def test_nas_summary_records_rendered_channel_and_http_retries(self) -> None:
@@ -601,6 +745,7 @@ class TestLiveChannelSummary(unittest.TestCase):
         self.assertEqual(result.summary["llm_calls_completed"], 1)
         self.assertEqual(on_disk["prompt_channel"], "live")
         self.assertEqual(on_disk["prompt_template_sha256"], emitter.prompt_template_sha256)
+        self.assertEqual(on_disk["llm_calls_attempted"], 1)
         self.assertEqual(on_disk["llm_http_calls"], 2)
         self.assertEqual(on_disk["prompt_tokens"], 10)
         self.assertEqual(on_disk["completion_tokens"], 2)

@@ -14,7 +14,8 @@ from worldspace.attribution.job_builder import (
     JobBuildContext,
     build_factorial_job_plan,
 )
-from worldspace.attribution.manifest import StudyManifest
+from worldspace.attribution.manifest import ArmManifest, StudyManifest
+from worldspace.attribution.public_loop import floor_recipe_hash
 
 DomainId = Literal["nas201", "pcg_sokoban"]
 
@@ -282,15 +283,50 @@ def allocation_study(domain: DomainId) -> StudyManifest:
     )
 
 
+def confirmatory_bin_edges(domain: str) -> dict[str, Any]:
+    """Declared bin identity for the floor recipe. Not a table recompute."""
+    if domain == "nas201":
+        return {
+            "resolution": 20,
+            "axes": ["log10_params", "log10_flops"],
+        }
+    if domain == "pcg_sokoban":
+        return {
+            "resolution": 10,
+            "measure_names": ["solution_length", "crates"],
+            "axis0": [0, 34],
+            "axis1": [1, 3],
+        }
+    raise ValueError(f"no confirmatory bin edges for {domain!r}")
+
+
 def confirmatory_job_context(
     study: StudyManifest, *, output_root: str
 ) -> JobBuildContext:
-    empty_hash = canonical_sha256([])
-    archives = {
-        instance_id: InitialArchiveRef(
-            archive_id=f"generated-floor-{instance_id}",
-            archive_hash=empty_hash,
+    edges = confirmatory_bin_edges(study.domain_id)
+
+    def archive_for_run(
+        seed: int,
+        domain_instance_id: str,
+        arm: ArmManifest,
+    ) -> InitialArchiveRef:
+        floor_random = int(arm.treatment.initialization.parameters.get("floor_random", 0))
+        repair = arm.treatment.repair_fallback.kind
+        digest = floor_recipe_hash(
+            seed=seed,
+            floor_random=floor_random,
+            repair=repair,
+            bin_edges=edges,
         )
+        return InitialArchiveRef(
+            archive_id=f"floor-recipe-{domain_instance_id}-{seed}",
+            archive_hash=digest,
+        )
+
+    first_seed = study.replication.seeds[0]
+    first_arm = study.arms[0]
+    archives = {
+        instance_id: archive_for_run(first_seed, instance_id, first_arm)
         for instance_id in study.replication.domain_instance_ids
     }
     archive_name = (
@@ -299,7 +335,8 @@ def confirmatory_job_context(
     return JobBuildContext(
         output_root=output_root,
         initial_archives=archives,
-        dependency_hashes={"lock": empty_hash},
+        dependency_hashes={"lock": canonical_sha256([])},
+        archive_for_run=archive_for_run,
         expected_artifacts=(
             "nightly_run_summary.json",
             archive_name,
