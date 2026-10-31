@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -17,6 +18,12 @@ from worldspace.generators.llm_call_log import get_llm_call_record
 from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
 from worldspace.pcg.copy_audit import copy_readme_example
 from worldspace.pcg.emitters import PcgEmitterResult, mutate_one_tile
+from worldspace.pcg.live_prompt_scan import (
+    ALLOWED_PLACEHOLDERS,
+    DEFAULT_LIVE_USER_PROMPT,
+    assert_live_prompt_templates,
+    assert_live_user_prompt,
+)
 from worldspace.pcg.prompt_scan import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
@@ -84,8 +91,21 @@ class PcgLlmProposal:
     response_model: str | None
 
 
+@dataclass(frozen=True)
+class PcgLiveParent:
+    """Metrics already stored on the archive elite. Not a fresh environment read."""
+
+    fitness: float
+    measure_0: float
+    measure_1: float
+    playable: bool
+
+
 class PcgSokobanLlmEmitter:
-    """Constant-grammar prompt channel. Repair is identity (no tile rewriting)."""
+    """Constant or live prompt channel. Tile repair happens after emit.
+
+    Live numbers come from ``PcgLiveParent`` supplied by the caller.
+    """
 
     def __init__(
         self,
@@ -94,9 +114,21 @@ class PcgSokobanLlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         system_prompt_path: Path = DEFAULT_SYSTEM_PROMPT,
         user_prompt_path: Path = DEFAULT_USER_PROMPT,
+        channel: Literal["constant", "live"] = "constant",
         max_retries: int = 2,
     ) -> None:
-        templates = assert_prompt_templates(system_prompt_path, user_prompt_path)
+        if channel not in ("constant", "live"):
+            raise ValueError(f"unknown prompt channel {channel!r}")
+        user_path = Path(user_prompt_path)
+        if channel == "live" and user_path == Path(DEFAULT_USER_PROMPT):
+            user_path = DEFAULT_LIVE_USER_PROMPT
+        if channel == "live":
+            templates = assert_live_prompt_templates(system_prompt_path, user_path)
+            _require_placeholders(templates["user"], ALLOWED_PLACEHOLDERS)
+        else:
+            templates = assert_prompt_templates(system_prompt_path, user_path)
+        self.channel: Literal["constant", "live"] = channel
+        self.user_prompt_path = user_path
         self.llm_spec_path = Path(llm_spec_path)
         self.config = load_llm_config(self.llm_spec_path)
         self.call_llm_text = call_llm_text
@@ -104,9 +136,11 @@ class PcgSokobanLlmEmitter:
         self.user_prompt = templates["user"]
         self.max_retries = max(0, max_retries)
         self.audit = PcgLlmAudit()
-        self.prompt_version = hashlib.sha256(
+        digest = hashlib.sha256(
             f"{self.system_prompt}\n---\n{self.user_prompt}".encode()
-        ).hexdigest()[:16]
+        ).hexdigest()
+        self.prompt_template_sha256 = digest
+        self.prompt_version = digest[:16]
         self.last_response_model: str | None = None
 
     def emit(
@@ -115,14 +149,13 @@ class PcgSokobanLlmEmitter:
         rng: np.random.Generator,
         *,
         proposal_index: int = 0,
+        live: PcgLiveParent | None = None,
     ) -> PcgLlmProposal:
         if parent.problem_name != SOKOBAN_V0.problem_name:
             raise ValueError("sokoban LLM emitter is sokoban-v0 only")
-        parent_json = json.dumps(
-            {"grid": parent.to_nested_list()}, separators=(",", ":")
+        prompt = self._render_user_prompt(
+            parent, proposal_index=proposal_index, live=live
         )
-        prompt = self.user_prompt.format(parent_json=parent_json)
-        assert_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
         self.audit.attempts += 1
         started = time.perf_counter()
         child: PcgSpec | None = None
@@ -214,6 +247,33 @@ class PcgSokobanLlmEmitter:
             response_model=response_model,
         )
 
+    def _render_user_prompt(
+        self,
+        parent: PcgSpec,
+        *,
+        proposal_index: int,
+        live: PcgLiveParent | None,
+    ) -> str:
+        parent_json = json.dumps(
+            {"grid": parent.to_nested_list()}, separators=(",", ":")
+        )
+        source = f"proposal {proposal_index}"
+        if self.channel == "constant":
+            prompt = self.user_prompt.format(parent_json=parent_json)
+            assert_runtime_user_prompt(prompt, source=source)
+            return prompt
+        if live is None:
+            raise ValueError("live prompt channel requires parent archive metrics")
+        prompt = self.user_prompt.format(
+            parent_json=parent_json,
+            parent_fitness=_format_metric(live.fitness),
+            parent_measure_0=_format_metric(live.measure_0),
+            parent_measure_1=_format_metric(live.measure_1),
+            parent_playable="true" if live.playable else "false",
+        )
+        assert_live_user_prompt(prompt, source=source)
+        return prompt
+
     def _request(self, prompt: str, *, call_id: str) -> str:
         if self.call_llm_text is None:
             from worldspace.generators import call_llm
@@ -269,6 +329,53 @@ def to_emitter_result(proposal: PcgLlmProposal) -> PcgEmitterResult:
         parent_id=proposal.parent.candidate_hash(),
         emitter_type=proposal.emitter_type,
     )
+
+
+def bind_pcg_llm(emitter: PcgSokobanLlmEmitter):
+    """Runner callback: ``(spec, rng, proposal_index, elite) -> (child, meta)``.
+
+    ``elite`` is the archive parent. Fitness, measures, and playable are the
+    live fields. The runner applies repair after this returns.
+    """
+
+    def emit(
+        parent: PcgSpec,
+        rng: np.random.Generator,
+        proposal_index: int,
+        elite: Any,
+    ) -> tuple[PcgSpec, dict[str, Any]]:
+        live = PcgLiveParent(
+            fitness=float(elite.fitness),
+            measure_0=float(elite.measures[0]),
+            measure_1=float(elite.measures[1]),
+            playable=bool(elite.playable),
+        )
+        proposal = emitter.emit(parent, rng, proposal_index=proposal_index, live=live)
+        return proposal.child, {
+            "used_fallback": proposal.used_fallback,
+            "prompt_channel": emitter.channel,
+            "prompt_template_sha256": emitter.prompt_template_sha256,
+            "response_model": proposal.response_model,
+            "prompt_tokens": proposal.prompt_tokens,
+            "completion_tokens": proposal.completion_tokens,
+            "total_tokens": proposal.total_tokens,
+            "http_calls": proposal.api_calls,
+        }
+
+    return emit
+
+
+def _format_metric(value: float) -> str:
+    return format(float(value), ".8g")
+
+
+def _require_placeholders(text: str, required: frozenset[str]) -> None:
+    found = set(re.findall(r"\{([a-z0-9_]+)\}", text))
+    missing = sorted(required - found)
+    if missing:
+        raise ValueError(
+            "live user prompt is missing placeholders: " + ", ".join(missing)
+        )
 
 
 def _usage_and_model_from_call_id(

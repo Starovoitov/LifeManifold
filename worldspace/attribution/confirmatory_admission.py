@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 from worldspace.attribution.validation import AdmissionIssue, AttributionAdmissionError
 
@@ -84,3 +85,34 @@ def refuse_mixed_evidence_tier(tiers: Iterable[str]) -> None:
         # Allow a single non-confirmatory tier for non-confirmatory analyses.
         # Confirmatory callers must pass confirmatory explicitly.
         pass
+
+
+def refuse_response_model_mismatch(
+    summaries: Iterable[Mapping[str, Any]],
+) -> None:
+    """Reject an LLM arm whose observed response model is not the pinned snapshot."""
+    issues: list[AdmissionIssue] = []
+    for index, summary in enumerate(summaries):
+        expected = summary.get("expected_response_model")
+        actual = summary.get("response_model")
+        flagged = summary.get("response_model_mismatch") is True
+        differs = (
+            isinstance(expected, str)
+            and bool(expected)
+            and isinstance(actual, str)
+            and bool(actual)
+            and actual != expected
+        )
+        if not flagged and not differs:
+            continue
+        issues.append(
+            AdmissionIssue(
+                code="confirmatory.response_model_mismatch",
+                message=(
+                    f"summary {index} response_model {actual!r} "
+                    f"does not match expected {expected!r}"
+                ),
+            )
+        )
+    if issues:
+        raise AttributionAdmissionError(issues)

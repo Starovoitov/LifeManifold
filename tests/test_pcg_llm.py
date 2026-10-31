@@ -15,7 +15,12 @@ from worldspace.pcg.copy_audit import README_SOKOBAN_V0_GRIDS, copy_readme_examp
 from worldspace.pcg.descriptors import PcgBinEdges
 from worldspace.pcg.emitters import random_spec
 from worldspace.pcg.isolated import run_isolated_batch
-from worldspace.pcg.llm_emitter import PcgSokobanLlmEmitter, parse_sokoban_response
+from worldspace.pcg.llm_emitter import (
+    PcgLiveParent,
+    PcgSokobanLlmEmitter,
+    bind_pcg_llm,
+    parse_sokoban_response,
+)
 from worldspace.pcg.prompt_scan import (
     SokobanPromptError,
     assert_prompt_templates,
@@ -284,6 +289,99 @@ class TestPcgIsolatedGates(unittest.TestCase):
         self.assertGreater(hamming, 0.0)
         self.assertTrue(summary["gates"]["parse"])  # type: ignore[index]
         self.assertTrue(summary["gates"]["emitter_not_fallback"])  # type: ignore[index]
+
+
+class TestPcgLiveChannel(unittest.TestCase):
+    def test_live_prompt_fills_archive_metrics(self) -> None:
+        parent = _parent()
+        child = _child_from_parent(parent)
+        caller = _Caller(json.dumps({"grid": child.to_nested_list()}))
+        emitter = PcgSokobanLlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        self.assertEqual(len(emitter.prompt_template_sha256), 64)
+        live = PcgLiveParent(
+            fitness=0.25,
+            measure_0=4.0,
+            measure_1=1.0,
+            playable=False,
+        )
+        proposal = emitter.emit(
+            parent,
+            np.random.default_rng(1),
+            proposal_index=0,
+            live=live,
+        )
+        self.assertFalse(proposal.used_fallback)
+        prompt = caller.prompts[0]
+        self.assertIn("parent_fitness=0.25", prompt)
+        self.assertIn("parent_measure_0=4", prompt)
+        self.assertIn("parent_measure_1=1", prompt)
+        self.assertIn("parent_playable=false", prompt)
+        self.assertNotRegex(prompt, r"\barchive\b")
+        self.assertNotRegex(prompt, r"\bsolution\b")
+
+        class _Elite:
+            fitness = 0.25
+            measures = (4.0, 1.0)
+            playable = False
+
+        _child, meta = bind_pcg_llm(emitter)(
+            parent,
+            np.random.default_rng(2),
+            1,
+            _Elite(),
+        )
+        self.assertEqual(meta["prompt_channel"], "live")
+        self.assertEqual(meta["prompt_template_sha256"], emitter.prompt_template_sha256)
+        self.assertEqual(meta["http_calls"], 1)
+        self.assertEqual(_child, child)
+
+    def test_constant_prompt_omits_live_metrics(self) -> None:
+        parent = _parent()
+        child = _child_from_parent(parent)
+        caller = _Caller(json.dumps({"grid": child.to_nested_list()}))
+        emitter = PcgSokobanLlmEmitter(call_llm_text=caller, max_retries=0)
+        emitter.emit(parent, np.random.default_rng(1), proposal_index=0)
+        self.assertNotIn("parent_fitness", caller.prompts[0])
+        self.assertEqual(emitter.channel, "constant")
+
+    def test_rendered_live_text_is_scanned_before_the_call(self) -> None:
+        parent = _parent()
+        caller = _Caller(json.dumps({"grid": parent.to_nested_list()}))
+        emitter = PcgSokobanLlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        emitter.user_prompt += "\narchive\n"
+        with self.assertRaises(SokobanPromptError):
+            emitter.emit(
+                parent,
+                np.random.default_rng(1),
+                proposal_index=0,
+                live=PcgLiveParent(
+                    fitness=0.0,
+                    measure_0=0.0,
+                    measure_1=0.0,
+                    playable=False,
+                ),
+            )
+        self.assertEqual(caller.prompts, [])
+
+    def test_live_without_metrics_does_not_call(self) -> None:
+        parent = _parent()
+        caller = _Caller(json.dumps({"grid": parent.to_nested_list()}))
+        emitter = PcgSokobanLlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        with self.assertRaises(ValueError):
+            emitter.emit(parent, np.random.default_rng(1), proposal_index=0)
+        self.assertEqual(caller.prompts, [])
 
 
 if __name__ == "__main__":

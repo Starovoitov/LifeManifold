@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 from worldspace.attribution.analysis import (
     _endpoint_value,
@@ -23,6 +25,7 @@ from worldspace.attribution.capabilities import current_domain_capabilities
 from worldspace.attribution.confirmatory_admission import (
     refuse_contaminated_artifact_paths,
     refuse_mixed_evidence_tier,
+    refuse_response_model_mismatch,
 )
 from worldspace.attribution.confirmatory_studies import (
     allocation_study,
@@ -57,12 +60,14 @@ from worldspace.attribution.records import (
 from worldspace.attribution.validation import AttributionAdmissionError
 from worldspace.nas201.descriptors import Nas201BinEdges
 from worldspace.nas201.live_prompt_scan import assert_live_prompt_templates
+from worldspace.nas201.llm_emitter import Nas201LlmEmitter, bind_nas201_llm
 from worldspace.nas201.runner import ARCHIVE_FILENAME, run_nas201_qd
 from worldspace.nas201.table import Nas201SearchRecord
 from worldspace.pcg.descriptors import bin_edges_from_measures
 from worldspace.pcg.live_prompt_scan import (
     assert_live_prompt_templates as assert_pcg_live,
 )
+from worldspace.pcg.llm_emitter import PcgSokobanLlmEmitter, bind_pcg_llm
 from worldspace.pcg.runner import run_pcg_sokoban_qd
 from worldspace.pcg.spec import SOKOBAN_V0
 
@@ -509,6 +514,198 @@ class TestConfirmatoryAdmission(unittest.TestCase):
             )
         with self.assertRaises(AttributionAdmissionError):
             refuse_mixed_evidence_tier(["confirmatory", "feasibility"])
+
+    def test_response_model_mismatch_rejects_the_arm(self) -> None:
+        pinned = "gpt-4o-mini-2024-07-18"
+        mismatch = {
+            "expected_response_model": pinned,
+            "response_model": "other-snapshot",
+            "response_model_mismatch": True,
+        }
+        with self.assertRaises(AttributionAdmissionError) as caught:
+            refuse_response_model_mismatch([mismatch])
+        self.assertEqual(
+            caught.exception.issues[0].code,
+            "confirmatory.response_model_mismatch",
+        )
+        hidden = {
+            "expected_response_model": pinned,
+            "response_model": "other-snapshot",
+            "response_model_mismatch": False,
+        }
+        with self.assertRaises(AttributionAdmissionError):
+            refuse_response_model_mismatch([hidden])
+        refuse_response_model_mismatch(
+            [
+                {
+                    "expected_response_model": pinned,
+                    "response_model": pinned,
+                    "response_model_mismatch": False,
+                }
+            ]
+        )
+
+
+class TestLiveChannelSummary(unittest.TestCase):
+    def test_nas_summary_records_rendered_channel_and_http_retries(self) -> None:
+        edges = Nas201BinEdges(
+            resolution=4,
+            log_params_min=0.0,
+            log_params_max=8.0,
+            log_flops_min=0.0,
+            log_flops_max=10.0,
+            n_architectures=1,
+            source_sha256="a" * 64,
+        )
+        caller = _RetryCaller('{"ops":["none","none","none","none","none","none"]}')
+        emitter = Nas201LlmEmitter(
+            call_llm_text=caller,
+            max_retries=1,
+            channel="live",
+        )
+        seen: list[Any] = []
+        inner = bind_nas201_llm(emitter)
+
+        def emit(parent: Any, rng: Any, index: int, elite: Any) -> Any:
+            seen.append(elite)
+            return inner(parent, rng, index, elite)
+
+        usage = {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
+        pinned = "gpt-4o-mini-2024-07-18"
+        config = PublicRunConfig(
+            seed=11,
+            generator="llm",
+            selector="uniform_frontier",
+            prompt_channel="constant",
+            floor_random=1,
+            search_horizon=1,
+            expected_response_model=pinned,
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "worldspace.nas201.llm_emitter._usage_from_call_id",
+            return_value=usage,
+        ), patch(
+            "worldspace.nas201.llm_emitter._response_model_from_call_id",
+            return_value="other-snapshot",
+        ), patch("worldspace.nas201.llm_emitter.time.sleep"):
+            result = run_nas201_qd(
+                _AlwaysHitNasLookup(),
+                edges,
+                config,
+                output_dir=Path(tmp),
+                llm_emit=emit,
+            )
+            on_disk = json.loads(
+                (Path(tmp) / SUMMARY_FILENAME).read_text(encoding="utf-8")
+            )
+        self.assertEqual(result.summary["llm_calls_completed"], 1)
+        self.assertEqual(on_disk["prompt_channel"], "live")
+        self.assertEqual(on_disk["prompt_template_sha256"], emitter.prompt_template_sha256)
+        self.assertEqual(on_disk["llm_http_calls"], 2)
+        self.assertEqual(on_disk["prompt_tokens"], 10)
+        self.assertEqual(on_disk["completion_tokens"], 2)
+        self.assertEqual(on_disk["total_tokens"], 12)
+        self.assertEqual(on_disk["response_model"], "other-snapshot")
+        self.assertTrue(on_disk["response_model_mismatch"])
+        self.assertEqual(len(seen), 1)
+        prompt = caller.prompts[-1]
+        self.assertIn(
+            f"parent_valid_accuracy={format(seen[0].fitness, '.8g')}",
+            prompt,
+        )
+        self.assertIn(
+            f"parent_log_params={format(seen[0].measures[0], '.8g')}",
+            prompt,
+        )
+        self.assertIn(
+            f"parent_log_flops={format(seen[0].measures[1], '.8g')}",
+            prompt,
+        )
+        self.assertNotIn("test", prompt.lower())
+        with self.assertRaises(AttributionAdmissionError):
+            refuse_response_model_mismatch([on_disk])
+
+    def test_pcg_summary_records_rendered_channel_and_http_retries(self) -> None:
+        edges = bin_edges_from_measures(
+            [(0.0, 0.0), (30.0, 30.0)],
+            measure_names=("solution_length", "crates"),
+            problem_name=SOKOBAN_V0.problem_name,
+        )
+        grid = json.dumps({"grid": [[0, 0, 0, 0, 0]] * 5})
+        caller = _RetryCaller(grid)
+        emitter = PcgSokobanLlmEmitter(
+            call_llm_text=caller,
+            max_retries=1,
+            channel="live",
+        )
+        seen: list[Any] = []
+        inner = bind_pcg_llm(emitter)
+
+        def emit(parent: Any, rng: Any, index: int, elite: Any) -> Any:
+            seen.append(elite)
+            return inner(parent, rng, index, elite)
+
+        usage = {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}
+        pinned = "gpt-4o-mini-2024-07-18"
+        config = PublicRunConfig(
+            seed=13,
+            generator="llm",
+            selector="uniform_frontier",
+            prompt_channel="constant",
+            repair_kind="identity",
+            floor_random=1,
+            search_horizon=1,
+            expected_response_model=pinned,
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "worldspace.pcg.llm_emitter._usage_and_model_from_call_id",
+            return_value=(usage, "other-snapshot"),
+        ), patch("worldspace.pcg.llm_emitter.time.sleep"):
+            result = run_pcg_sokoban_qd(
+                _ToyPcgEnv(),
+                edges,
+                config,
+                output_dir=Path(tmp),
+                llm_emit=emit,
+            )
+        self.assertEqual(result.summary["llm_calls_completed"], 1)
+        self.assertEqual(result.summary["prompt_channel"], "live")
+        self.assertEqual(
+            result.summary["prompt_template_sha256"],
+            emitter.prompt_template_sha256,
+        )
+        self.assertEqual(result.summary["llm_http_calls"], 2)
+        self.assertEqual(result.summary["prompt_tokens"], 8)
+        self.assertEqual(result.summary["total_tokens"], 11)
+        self.assertTrue(result.summary["response_model_mismatch"])
+        prompt = caller.prompts[-1]
+        elite = seen[0]
+        self.assertIn(f"parent_fitness={format(elite.fitness, '.8g')}", prompt)
+        self.assertIn(
+            f"parent_measure_0={format(elite.measures[0], '.8g')}",
+            prompt,
+        )
+        self.assertIn(
+            "parent_playable=" + ("true" if elite.playable else "false"),
+            prompt,
+        )
+        self.assertNotRegex(prompt, r"\barchive\b")
+        with self.assertRaises(AttributionAdmissionError):
+            refuse_response_model_mismatch([result.summary])
+
+
+class _RetryCaller:
+    def __init__(self, good: str) -> None:
+        self.good = good
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    def __call__(self, **kwargs: object) -> str:
+        self.prompts.append(str(kwargs["prompt"]))
+        self.calls += 1
+        if self.calls == 1:
+            return "not json"
+        return self.good
 
 
 class TestSearchCurveFamilies(unittest.TestCase):

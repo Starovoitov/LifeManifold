@@ -12,7 +12,12 @@ import numpy as np
 
 from worldspace.nas201.descriptors import Nas201BinEdges, load_frozen_bin_edges
 from worldspace.nas201.isolated import run_isolated_batch
-from worldspace.nas201.llm_emitter import Nas201LlmEmitter, parse_nas201_response
+from worldspace.nas201.llm_emitter import (
+    Nas201LiveParent,
+    Nas201LlmEmitter,
+    bind_nas201_llm,
+    parse_nas201_response,
+)
 from worldspace.nas201.prompt_scan import (
     Nas201PromptError,
     assert_prompt_templates,
@@ -227,6 +232,88 @@ class TestNas201IsolatedGates(unittest.TestCase):
             edges = load_frozen_bin_edges(path)
         self.assertEqual(edges.log_params_min, -1.1)
         self.assertEqual(edges.source_sha256, "b" * 64)
+
+
+class TestNas201LiveChannel(unittest.TestCase):
+    def test_live_prompt_fills_archive_metrics(self) -> None:
+        parent = _parent()
+        child = Nas201Spec(ops=("skip_connect",) + parent.ops[1:])
+        caller = _Caller(child.canonical_json())
+        emitter = Nas201LlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        self.assertEqual(len(emitter.prompt_template_sha256), 64)
+        self.assertEqual(emitter.prompt_version, emitter.prompt_template_sha256[:16])
+        live = Nas201LiveParent(valid_accuracy=12.5, log_params=1.25, log_flops=2.5)
+        proposal = emitter.emit(
+            parent,
+            np.random.default_rng(1),
+            proposal_index=0,
+            live=live,
+        )
+        self.assertFalse(proposal.used_fallback)
+        prompt = caller.prompts[0]
+        self.assertIn("parent_valid_accuracy=12.5", prompt)
+        self.assertIn("parent_log_params=1.25", prompt)
+        self.assertIn("parent_log_flops=2.5", prompt)
+        self.assertNotIn("test", prompt.lower())
+        self.assertNotRegex(prompt, r"\barchive\b")
+
+        class _Elite:
+            fitness = 12.5
+            measures = (1.25, 2.5)
+
+        _child, meta = bind_nas201_llm(emitter)(
+            parent,
+            np.random.default_rng(2),
+            1,
+            _Elite(),
+        )
+        self.assertEqual(meta["prompt_channel"], "live")
+        self.assertEqual(meta["prompt_template_sha256"], emitter.prompt_template_sha256)
+        self.assertEqual(meta["http_calls"], 1)
+        self.assertEqual(_child, child)
+
+    def test_constant_prompt_omits_live_metrics(self) -> None:
+        parent = _parent()
+        child = Nas201Spec(ops=("skip_connect",) + parent.ops[1:])
+        caller = _Caller(child.canonical_json())
+        emitter = Nas201LlmEmitter(call_llm_text=caller, max_retries=0)
+        emitter.emit(parent, np.random.default_rng(1), proposal_index=0)
+        self.assertNotIn("parent_valid_accuracy", caller.prompts[0])
+        self.assertEqual(emitter.channel, "constant")
+
+    def test_rendered_live_text_is_scanned_before_the_call(self) -> None:
+        parent = _parent()
+        caller = _Caller('{"ops":["none","none","none","none","none","none"]}')
+        emitter = Nas201LlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        emitter.user_prompt += "\narchive\n"
+        with self.assertRaises(Nas201PromptError):
+            emitter.emit(
+                parent,
+                np.random.default_rng(1),
+                proposal_index=0,
+                live=Nas201LiveParent(valid_accuracy=1.0, log_params=0.0, log_flops=0.0),
+            )
+        self.assertEqual(caller.prompts, [])
+
+    def test_live_without_metrics_does_not_call(self) -> None:
+        parent = _parent()
+        caller = _Caller('{"ops":["none","none","none","none","none","none"]}')
+        emitter = Nas201LlmEmitter(
+            call_llm_text=caller,
+            max_retries=0,
+            channel="live",
+        )
+        with self.assertRaises(ValueError):
+            emitter.emit(parent, np.random.default_rng(1), proposal_index=0)
+        self.assertEqual(caller.prompts, [])
 
 
 if __name__ == "__main__":

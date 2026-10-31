@@ -13,9 +13,12 @@ from worldspace.attribution.public_loop import (
     SUMMARY_FILENAME,
     SUMMARY_SCHEMA,
     TRACE_FILENAME,
+    LlmCallLedger,
     PublicRunConfig,
     append_jsonl,
+    llm_summary_fields,
     mean_or_none,
+    record_llm_meta,
     search_curve_auc,
     should_use_llm,
     write_json,
@@ -35,7 +38,7 @@ from worldspace.pcg.spec import SOKOBAN_V0, PcgSpec
 ARCHIVE_FILENAME = "pcg_archive.jsonl"
 
 LlmEmitFn = Callable[
-    [PcgSpec, np.random.Generator, int],
+    [PcgSpec, np.random.Generator, int, PcgElite],
     tuple[PcgSpec, dict[str, Any]],
 ]
 
@@ -90,6 +93,7 @@ def run_pcg_sokoban_qd(
     llm_completed = 0
     llm_forfeited = 0
     fallbacks = 0
+    ledger = LlmCallLedger()
     repair_tiles = 0
     wall_started = time.perf_counter()
     qd_curve: list[float] = []
@@ -178,7 +182,8 @@ def run_pcg_sokoban_qd(
             assert llm_emit is not None
             assert target.parent is not None
             llm_attempted += 1
-            child, meta = llm_emit(target.parent.spec, rng, proposals)
+            child, meta = llm_emit(target.parent.spec, rng, proposals, target.parent)
+            record_llm_meta(ledger, meta)
             if bool(meta.get("used_fallback")):
                 fallbacks += 1
                 emitter_type = "llm_fallback_genetic"
@@ -249,6 +254,8 @@ def run_pcg_sokoban_qd(
         "wall_seconds": wall_s,
         "completed": True,
     }
+    if config.generator == "llm":
+        summary.update(llm_summary_fields(ledger, config))
     write_json(output_dir / SUMMARY_FILENAME, summary)
     return PcgRunResult(
         output_dir=output_dir,

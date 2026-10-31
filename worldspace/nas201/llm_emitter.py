@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from worldspace.generators import llm_retry_backoff_seconds
-from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
 from worldspace.generators.llm_call_log import get_llm_call_record
+from worldspace.generators.llm_config import LlmTextCaller, load_llm_config
 from worldspace.nas201.emitters import Nas201EmitterResult, mutate_one_edge
+from worldspace.nas201.live_prompt_scan import (
+    ALLOWED_PLACEHOLDERS,
+    DEFAULT_LIVE_USER_PROMPT,
+    assert_live_prompt_templates,
+    assert_live_user_prompt,
+)
 from worldspace.nas201.prompt_scan import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
@@ -77,10 +84,24 @@ class Nas201LlmProposal:
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    response_model: str | None = None
+
+
+@dataclass(frozen=True)
+class Nas201LiveParent:
+    """Search metrics already stored on the archive elite. Not a table lookup."""
+
+    valid_accuracy: float
+    log_params: float
+    log_flops: float
 
 
 class Nas201LlmEmitter:
-    """Constant-grammar prompt channel. Repair is identity (no op rewriting)."""
+    """Constant or live prompt channel. Repair is identity (no op rewriting).
+
+    Live numbers come from ``Nas201LiveParent`` supplied by the caller. This
+    emitter does not read the NAS table and does not see a test split.
+    """
 
     def __init__(
         self,
@@ -89,9 +110,21 @@ class Nas201LlmEmitter:
         call_llm_text: LlmTextCaller | None = None,
         system_prompt_path: Path = DEFAULT_SYSTEM_PROMPT,
         user_prompt_path: Path = DEFAULT_USER_PROMPT,
+        channel: Literal["constant", "live"] = "constant",
         max_retries: int = 2,
     ) -> None:
-        templates = assert_prompt_templates(system_prompt_path, user_prompt_path)
+        if channel not in ("constant", "live"):
+            raise ValueError(f"unknown prompt channel {channel!r}")
+        user_path = Path(user_prompt_path)
+        if channel == "live" and user_path == Path(DEFAULT_USER_PROMPT):
+            user_path = DEFAULT_LIVE_USER_PROMPT
+        if channel == "live":
+            templates = assert_live_prompt_templates(system_prompt_path, user_path)
+            _require_placeholders(templates["user"], ALLOWED_PLACEHOLDERS)
+        else:
+            templates = assert_prompt_templates(system_prompt_path, user_path)
+        self.channel: Literal["constant", "live"] = channel
+        self.user_prompt_path = user_path
         self.llm_spec_path = Path(llm_spec_path)
         self.config = load_llm_config(self.llm_spec_path)
         self.call_llm_text = call_llm_text
@@ -99,9 +132,11 @@ class Nas201LlmEmitter:
         self.user_prompt = templates["user"]
         self.max_retries = max(0, max_retries)
         self.audit = Nas201LlmAudit()
-        self.prompt_version = hashlib.sha256(
+        digest = hashlib.sha256(
             f"{self.system_prompt}\n---\n{self.user_prompt}".encode()
-        ).hexdigest()[:16]
+        ).hexdigest()
+        self.prompt_template_sha256 = digest
+        self.prompt_version = digest[:16]
 
     def emit(
         self,
@@ -109,9 +144,11 @@ class Nas201LlmEmitter:
         rng: np.random.Generator,
         *,
         proposal_index: int = 0,
+        live: Nas201LiveParent | None = None,
     ) -> Nas201LlmProposal:
-        prompt = self.user_prompt.format(parent_json=parent.canonical_json())
-        assert_runtime_user_prompt(prompt, source=f"proposal {proposal_index}")
+        prompt = self._render_user_prompt(
+            parent, proposal_index=proposal_index, live=live
+        )
         self.audit.attempts += 1
         started = time.perf_counter()
         child: Nas201Spec | None = None
@@ -122,6 +159,7 @@ class Nas201LlmEmitter:
         prompt_tokens: int | None = None
         completion_tokens: int | None = None
         total_tokens: int | None = None
+        response_model: str | None = None
         for request_index in range(self.max_retries + 1):
             if request_index:
                 retries += 1
@@ -134,6 +172,7 @@ class Nas201LlmEmitter:
                 raw = self._request(prompt, call_id=call_id)
                 child = parse_nas201_response(raw)
                 usage = _usage_from_call_id(call_id)
+                response_model = _response_model_from_call_id(call_id)
                 if usage is not None:
                     prompt_tokens = int(usage.get("prompt_tokens") or 0)
                     completion_tokens = int(usage.get("completion_tokens") or 0)
@@ -168,6 +207,7 @@ class Nas201LlmEmitter:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
+                response_model=response_model,
             )
         hamming = hamming_ops(parent, child)
         duplicate = hamming == 0
@@ -190,7 +230,32 @@ class Nas201LlmEmitter:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            response_model=response_model,
         )
+
+    def _render_user_prompt(
+        self,
+        parent: Nas201Spec,
+        *,
+        proposal_index: int,
+        live: Nas201LiveParent | None,
+    ) -> str:
+        parent_json = parent.canonical_json()
+        source = f"proposal {proposal_index}"
+        if self.channel == "constant":
+            prompt = self.user_prompt.format(parent_json=parent_json)
+            assert_runtime_user_prompt(prompt, source=source)
+            return prompt
+        if live is None:
+            raise ValueError("live prompt channel requires parent archive metrics")
+        prompt = self.user_prompt.format(
+            parent_json=parent_json,
+            parent_valid_accuracy=_format_metric(live.valid_accuracy),
+            parent_log_params=_format_metric(live.log_params),
+            parent_log_flops=_format_metric(live.log_flops),
+        )
+        assert_live_user_prompt(prompt, source=source)
+        return prompt
 
     def _request(self, prompt: str, *, call_id: str) -> str:
         if self.call_llm_text is None:
@@ -237,12 +302,66 @@ def to_emitter_result(proposal: Nas201LlmProposal) -> Nas201EmitterResult:
     )
 
 
+def bind_nas201_llm(emitter: Nas201LlmEmitter):
+    """Runner callback: ``(spec, rng, proposal_index, elite) -> (child, meta)``.
+
+    ``elite`` is the archive parent. Its fitness and measures are the live
+    fields. No second table lookup.
+    """
+
+    def emit(
+        parent: Nas201Spec,
+        rng: np.random.Generator,
+        proposal_index: int,
+        elite: Any,
+    ) -> tuple[Nas201Spec, dict[str, Any]]:
+        live = Nas201LiveParent(
+            valid_accuracy=float(elite.fitness),
+            log_params=float(elite.measures[0]),
+            log_flops=float(elite.measures[1]),
+        )
+        proposal = emitter.emit(parent, rng, proposal_index=proposal_index, live=live)
+        return proposal.child, {
+            "used_fallback": proposal.used_fallback,
+            "prompt_channel": emitter.channel,
+            "prompt_template_sha256": emitter.prompt_template_sha256,
+            "response_model": proposal.response_model,
+            "prompt_tokens": proposal.prompt_tokens,
+            "completion_tokens": proposal.completion_tokens,
+            "total_tokens": proposal.total_tokens,
+            "http_calls": proposal.api_calls,
+        }
+
+    return emit
+
+
+def _format_metric(value: float) -> str:
+    return format(float(value), ".8g")
+
+
+def _require_placeholders(text: str, required: frozenset[str]) -> None:
+    found = set(re.findall(r"\{([a-z0-9_]+)\}", text))
+    missing = sorted(required - found)
+    if missing:
+        raise ValueError(
+            "live user prompt is missing placeholders: " + ", ".join(missing)
+        )
+
+
 def _usage_from_call_id(call_id: str) -> dict[str, Any] | None:
     record = get_llm_call_record(call_id)
     if record is None:
         return None
     usage = record.get("usage")
     return usage if isinstance(usage, dict) else None
+
+
+def _response_model_from_call_id(call_id: str) -> str | None:
+    record = get_llm_call_record(call_id)
+    if record is None:
+        return None
+    model = record.get("response_model")
+    return model if isinstance(model, str) and model else None
 
 
 def _failure_reason(error: Exception) -> str:

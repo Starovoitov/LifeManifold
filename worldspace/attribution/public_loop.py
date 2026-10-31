@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 AllocationKind = Literal["static", "state_aware_median"]
 SUMMARY_SCHEMA = "public-qd-1.0"
@@ -33,6 +33,7 @@ class PublicRunConfig:
     search_horizon: int = 200
     llm_call_cap: int = 200
     capture_events: bool = True
+    expected_response_model: str | None = None
 
 
 def should_use_llm(
@@ -116,3 +117,86 @@ def _median(values: list[float]) -> float:
 
 def is_close(a: float, b: float, *, tol: float = 1e-9) -> bool:
     return math.isclose(a, b, rel_tol=tol, abs_tol=tol)
+
+
+@dataclass
+class LlmCallLedger:
+    """HTTP and token totals for one LLM arm, including failed retries."""
+
+    http_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    tokens_complete: bool = True
+    calls: int = 0
+    channels: set[str] = field(default_factory=set)
+    template_hashes: set[str] = field(default_factory=set)
+    response_models: set[str] = field(default_factory=set)
+
+
+def record_llm_meta(ledger: LlmCallLedger, meta: Mapping[str, Any]) -> None:
+    """Add one runner callback result. Missing token fields void the sum."""
+    ledger.calls += 1
+    http = meta.get("http_calls")
+    if http is not None:
+        ledger.http_calls += int(http)
+    channel = meta.get("prompt_channel")
+    if isinstance(channel, str) and channel:
+        ledger.channels.add(channel)
+    digest = meta.get("prompt_template_sha256")
+    if isinstance(digest, str) and digest:
+        ledger.template_hashes.add(digest)
+    model = meta.get("response_model")
+    if isinstance(model, str) and model:
+        ledger.response_models.add(model)
+    prompt = meta.get("prompt_tokens")
+    completion = meta.get("completion_tokens")
+    total = meta.get("total_tokens")
+    if prompt is None or completion is None or total is None:
+        ledger.tokens_complete = False
+        return
+    ledger.prompt_tokens += int(prompt)
+    ledger.completion_tokens += int(completion)
+    ledger.total_tokens += int(total)
+
+
+def llm_summary_fields(
+    ledger: LlmCallLedger,
+    config: PublicRunConfig,
+) -> dict[str, Any]:
+    """Summary slice for an LLM arm.
+
+    ``prompt_channel`` is the channel the emitter rendered. When an expected
+    response snapshot is set and the observed models are not exactly that
+    snapshot, ``response_model_mismatch`` is true.
+    """
+    if len(ledger.channels) == 1:
+        channel = next(iter(ledger.channels))
+    else:
+        channel = config.prompt_channel
+    template = (
+        next(iter(ledger.template_hashes)) if len(ledger.template_hashes) == 1 else None
+    )
+    if len(ledger.response_models) == 1:
+        response_model = next(iter(ledger.response_models))
+    else:
+        response_model = None
+    expected = config.expected_response_model
+    mismatch = (
+        bool(expected)
+        and ledger.calls > 0
+        and ledger.response_models != {expected}
+    )
+    tokens_ready = ledger.tokens_complete and ledger.calls > 0
+    return {
+        "prompt_channel": channel,
+        "prompt_template_sha256": template,
+        "response_model": response_model,
+        "response_models": sorted(ledger.response_models),
+        "expected_response_model": expected,
+        "response_model_mismatch": mismatch,
+        "llm_http_calls": ledger.http_calls,
+        "prompt_tokens": ledger.prompt_tokens if tokens_ready else None,
+        "completion_tokens": ledger.completion_tokens if tokens_ready else None,
+        "total_tokens": ledger.total_tokens if tokens_ready else None,
+    }
