@@ -7,7 +7,8 @@ Status: **complete for adapter surface**. Freeze still **not** in force (`freeze
 1. **Capabilities** (`worldspace/attribution/capabilities.py`)
    - `nas201` / `pcg_sokoban` registered in `current_domain_capabilities()`.
    - `allocation_kinds`: `static`, `state_aware_median`.
-   - PCG `repair_fallback_kinds` include `structural_counts`.
+   - NAS `repair_fallback_kinds` is `identity` only. Runners reject `genetic_fallback` as a repair kind.
+   - PCG `repair_fallback_kinds`: `identity`, `structural_counts`. Confirmatory arms use `structural_counts`.
    - Init: `generated_floor` (+ `loaded_archive`).
 
 2. **Native loops** (sidecar, not a universal QD kernel)
@@ -34,13 +35,13 @@ Status: **complete for adapter surface**. Freeze still **not** in force (`freeze
    Scanners: `worldspace/nas201/live_prompt_scan.py`, `worldspace/pcg/live_prompt_scan.py`.
 
 5. **Job builder cells without launch**
-   - `worldspace/attribution/phase3_studies.py` — Block A/B/C studies
-   - `scripts/build_phase3_jobs.py` — emit plans only (`launched=False`)
+   - `worldspace/attribution/confirmatory_studies.py` — Block A/B/C studies
+   - `scripts/build_confirmatory_jobs.py` — emit plans only (`launched=False`)
 
 6. **Admission**
-   - `worldspace/attribution/phase3_admission.py` — refuse Phase 2/feasibility JSONL, Q1 nightly summaries, mixed `evidence_tier`
+   - `worldspace/attribution/confirmatory_admission.py` — refuse Phase 2/feasibility JSONL, Q1 nightly summaries, mixed `evidence_tier`
 
-7. **Tests**: `tests/test_attribution_phase3_adapters.py`
+7. **Tests**: `tests/test_attribution_confirmatory.py`
 
 ## Explicitly not done (P3.2 / Phase 4)
 

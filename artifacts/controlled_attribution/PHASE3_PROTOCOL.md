@@ -23,7 +23,7 @@ Git history and filesystem mtimes are integrity aids, not registration. Content 
 
 | ID | Family | Task | Evaluator | Search metric | BC (frozen) | Repair |
 |---|---|---|---|---|---|---|
-| `nas201` | NAS-Bench-201 | TSS 15 625 cells | NATS-Bench TSS **simple** lookup | `cifar10-valid` accuracy (%), `hp="200"`, `is_random=False` | P2.1 20×20 `log10(params)` × `log10(flops)` | `identity` + genetic fallback |
+| `nas201` | NAS-Bench-201 | TSS 15 625 cells | NATS-Bench TSS **simple** lookup | `cifar10-valid` accuracy (%), `hp="200"`, `is_random=False` | P2.1 20×20 `log10(params)` × `log10(flops)` | `identity` only. A failed LLM parse mutates one edge inside the slot; that mutation is not a repair kind |
 | `pcg_sokoban` | PCG Benchmark | `sokoban-v0` 5×5 | `pcg_benchmark==0.1.0` @ `cd0f55b26c412a26e8797193e5417f5e651cf6cd` | scalar `quality` ∈ [0,1] | P2.5r `sokoban_v0_bin_edges_structural_counts.json` (solution_length 0…34 × crates 1…3, 10×10) | **`structural_counts` matched on every arm** |
 
 Pins (immutable unless dated amendment):
@@ -94,7 +94,7 @@ Prompt scan: constant templates keep the feasibility forbids (including the word
 | selector | cell-specific | cell-specific |
 | generator | cell-specific | cell-specific |
 | prompt_channel | `constant` or `live` | `constant` or `live` |
-| repair_fallback | `identity` + `genetic_fallback` (one edge) | **`structural_counts` after every emit**, including fallback; fallback is one-tile genetic then repair |
+| repair_fallback | `identity` only. A failed LLM parse mutates one edge inside the slot, then identity. `genetic_fallback` is not a repair kind | **`structural_counts` after every emit**, including a one-tile parse-fail mutation, then the same repair |
 | gate | `off` | `off` |
 | replacement | strict single elite, fitness maximize | same, fitness = quality |
 | allocation | `static` unless Block C | same |
@@ -222,7 +222,7 @@ Illustrative order (not a second freeze): Block A 2×4×20×200 = 32 000 calls
 
 ## 9. Quality gates and failure handling
 
-Per proposal: structurally invalid → no NAS lookup / no PCG A* (P8/N3). Parse fail → genetic fallback (then PCG repair). Fallback consumes the proposal slot and the LLM-call attempt.
+Per proposal: structurally invalid → no NAS lookup / no PCG A* (P8/N3). Parse fail → one-step genetic mutation inside the slot (NAS one edge, PCG one tile), then the arm repair (`identity` on NAS, `structural_counts` on PCG). That mutation is not a repair kind. It consumes the proposal slot and the LLM-call attempt.
 
 Per run (primary analysis is ITT): keep the run if 200 search slots completed. Log parse rate, fallback rate, repair Hamming (PCG). Sensitivity (pre-declared, not Holm): drop pairs where any paired arm has parse rate &lt; 0.50.
 
@@ -304,6 +304,10 @@ Do **not** set `freeze_in_force: true` or create the tag from a chat alone. Do n
 ### 13.3 Pre-data AUC formula (2026-11-01 amendment)
 
 Section 7 is the only QD-score anytime AUC: drop the floor, then trapezoidal area / (n − 1). The earlier wording "divided by H" is withdrawn, still pre-data. This amendment does not freeze the protocol and does not authorise Phase 4.
+
+### 13.4 Pre-data repair kind (2026-11-15 amendment)
+
+Sections 1 and 5 no longer name `genetic_fallback` as a NAS repair kind. That wording is withdrawn, still pre-data. Confirmatory repair is `identity` on NAS and `structural_counts` on PCG. A failed LLM parse mutates one edge (NAS) or one tile (PCG) inside the slot, then that same repair. This amendment does not freeze the protocol and does not authorise Phase 4.
 
 Price table: **attached** (§8). Prospective event capture on public runners remains optional.
 

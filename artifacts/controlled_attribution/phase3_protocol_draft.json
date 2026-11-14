@@ -3,7 +3,7 @@
   "stage": "p3_2_stamp_package_ready",
   "freeze_in_force": false,
   "protocol_file": "artifacts/controlled_attribution/PHASE3_PROTOCOL.md",
-  "protocol_sha256": "bcbd9f6376ff10364d37015d68fcde1ff9471e6140f9c4e99d05941031b8dc62",
+  "protocol_sha256": "0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91",
   "p3_1": {
     "adapters": true,
     "native_loops": true,

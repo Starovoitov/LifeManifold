@@ -18,7 +18,7 @@ This slice prepares (1)'s payload and (2)'s prerequisites. It does **not** inven
 |---|---|
 | File | `artifacts/controlled_attribution/PHASE3_PROTOCOL.md` |
 | Protocol ID | `ca-phase3-v0` |
-| SHA-256 | `bcbd9f6376ff10364d37015d68fcde1ff9471e6140f9c4e99d05941031b8dc62` |
+| SHA-256 | `0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91` |
 | Price table | `price_tables/2026-09-02/price_table.json` → `a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94` |
 
 ## Delivered in this slice

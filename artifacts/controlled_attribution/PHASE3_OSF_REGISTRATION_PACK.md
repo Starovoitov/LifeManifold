@@ -11,7 +11,7 @@ Controlled Attribution Phase 3 confirmatory protocol (`ca-phase3-v0`): NAS-Bench
 - Repository path: `artifacts/controlled_attribution/PHASE3_PROTOCOL.md`
 - Protocol ID: `ca-phase3-v0`
 - SHA-256 (UTF-8 file bytes):  
-  `bcbd9f6376ff10364d37015d68fcde1ff9471e6140f9c4e99d05941031b8dc62`
+  `0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91`
 - Companion machine card: `artifacts/controlled_attribution/phase3_protocol_draft.json` (draft until freeze)
 - Price table ID: `openai-public-list-2026-09-02`  
   (`price_table.json` SHA-256 `a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94`)
@@ -53,5 +53,5 @@ Stop new confirmatory LLM launches at first of: 90 000 completed LLM calls, 40
 
 ```bash
 sha256sum artifacts/controlled_attribution/PHASE3_PROTOCOL.md
-# expect: bcbd9f6376ff10364d37015d68fcde1ff9471e6140f9c4e99d05941031b8dc62
+# expect: 0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91
 ```
