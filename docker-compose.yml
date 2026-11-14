@@ -1,0 +1,22 @@
+name: lifemanifold
+
+services:
+  experiment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lifemanifold-experiment
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      # Hides the host .venv. Populated once from the image by the entrypoint.
+      - lifemanifold-venv:/workspace/.venv
+    environment:
+      PYTHONUNBUFFERED: "1"
+      UV_PROJECT_ENVIRONMENT: /workspace/.venv
+      UV_LINK_MODE: copy
+    stdin_open: true
+    tty: true
+
+volumes:
+  lifemanifold-venv:

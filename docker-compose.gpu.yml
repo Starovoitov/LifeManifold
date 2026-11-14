@@ -1,0 +1,5 @@
+# Optional overlay: docker compose -f docker-compose.yml -f docker-compose.gpu.yml
+# Requires an NVIDIA driver visible to Docker Desktop. CPU runs do not need this.
+services:
+  experiment:
+    gpus: all
