@@ -4,7 +4,7 @@
 
 Core loop: `WorldSpec` (rules + parameters) → `run_world` → behavioral metrics → archive or metrics JSONL.
 
-Requires **Python ≥ 3.11** and [`uv`](https://docs.astral.sh/uv/).
+Requires **Python ≥ 3.11** and [`uv`](https://docs.astral.sh/uv/), or Docker (the path below). The shell launchers in `scripts/` are bash, and `make install` builds a Linux virtualenv.
 
 ## Install
 
@@ -30,6 +30,29 @@ Writes `artifacts/map_elites_smoke/map_elites_archive.jsonl`. Same smoke as CI:
 
 ```bash
 make smoke-map-elites
+```
+
+## Run experiments in Docker
+
+Use this on Windows, or anywhere the bash launchers should run in Linux. Docker Desktop has to be running. The first run builds `lifemanifold-experiment` from `uv.lock`, including the CUDA PyTorch wheel, so the image is several GB. That environment is copied once into a Docker volume mounted at `/workspace/.venv`. The repo itself is bind-mounted at `/workspace`, so archives and logs stay in this tree, and the `.venv` on the host is left alone. A `.env` in the repo root is loaded when the file exists.
+
+From PowerShell:
+
+```powershell
+.\scripts\docker-experiment.ps1 scripts/run_cvt_baseline.sh
+.\scripts\docker-experiment.ps1 uv run python -m worldspace --illuminator mapelites --scheduler worldspace/specs/map_elites_scheduler_mini.yaml --output-dir artifacts/map_elites_smoke --seed 42 --steps 200 --grid 8
+.\scripts\docker-experiment.ps1 -Gpu uv run python scripts/train_surrogate.py
+.\scripts\docker-experiment.ps1
+```
+
+A path that ends in `.sh` is passed to `bash`. No arguments opens a shell in the container. `-Gpu` adds [`docker-compose.gpu.yml`](docker-compose.gpu.yml) and needs an NVIDIA GPU visible to Docker Desktop. Every other run stays on CPU.
+
+From a Unix shell the same service is:
+
+```bash
+docker compose run --rm experiment bash scripts/run_cvt_baseline.sh
+docker compose run --rm -it experiment bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm experiment uv run python scripts/train_surrogate.py
 ```
 
 ## Dashboard

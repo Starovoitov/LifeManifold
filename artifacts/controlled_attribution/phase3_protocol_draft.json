@@ -1,0 +1,93 @@
+{
+  "protocol_id": "ca-phase3-v0",
+  "stage": "p3_2_stamp_package_ready",
+  "freeze_in_force": false,
+  "protocol_file": "artifacts/controlled_attribution/PHASE3_PROTOCOL.md",
+  "protocol_sha256": "bcbd9f6376ff10364d37015d68fcde1ff9471e6140f9c4e99d05941031b8dc62",
+  "p3_1": {
+    "adapters": true,
+    "native_loops": true,
+    "live_prompts_hashed": true,
+    "job_builder_no_launch": true,
+    "admission_guards": true,
+    "llm_confirmatory": false,
+    "note": "See PHASE3_P3_1.md and PHASE3_PROTOCOL.md §13.1"
+  },
+  "p3_2": {
+    "price_table_attached": true,
+    "price_table_id": "openai-public-list-2026-09-02",
+    "price_table_sha256": "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94",
+    "claim_sentences_locked_in_text": true,
+    "registration_pack": "artifacts/controlled_attribution/PHASE3_OSF_REGISTRATION_PACK.md",
+    "external_stamp_completed": false,
+    "git_tag_created": false,
+    "note": "See PHASE3_P3_2.md. Do not set freeze_in_force until registry+tag."
+  },
+  "evidence_role": "protocol_stamp_package",
+  "llm_confirmatory": false,
+  "external_stamp": null,
+  "git_tag": null,
+  "one_family_not_two_public_tasks": true,
+  "zelda_is_not_a_second_family": true,
+  "phase2_not_pooled": true,
+  "q1_not_pooled": true,
+  "selected_tasks": [
+    {
+      "domain_id": "nas201",
+      "task": "nas-bench-201-tss",
+      "repair": "identity",
+      "search_split": "cifar10-valid",
+      "hp": "200",
+      "bc": "p2_1_log_params_log_flops_20x20",
+      "coverage_holmed": false
+    },
+    {
+      "domain_id": "pcg_sokoban",
+      "task": "sokoban-v0",
+      "repair": "structural_counts",
+      "repair_matched_all_arms": true,
+      "bc": "p2_5r_structural_counts_10x10"
+    }
+  ],
+  "replication": {
+    "n_paired_seeds": 20,
+    "seeds": [301001, 301002, 301003, 301004, 301005, 301006, 301007, 301008, 301009, 301010, 301011, 301012, 301013, 301014, 301015, 301016, 301017, 301018, 301019, 301020],
+    "overflow_seeds": [301021, 301022, 301023, 301024, 301025, 301026, 301027, 301028, 301029, 301030, 301031, 301032, 301033, 301034, 301035, 301036, 301037, 301038, 301039, 301040],
+    "floor_random": 20,
+    "search_horizon": 200
+  },
+  "model": {
+    "primary_request": "gpt-4o-mini",
+    "primary_response_pin": "gpt-4o-mini-2024-07-18",
+    "temperature": 0.2,
+    "max_tokens": 350,
+    "robustness_request": "gpt-4o",
+    "robustness_role": "robustness_not_holm",
+    "robustness_seeds": [303001, 303002, 303003, 303004, 303005, 303006, 303007, 303008, 303009, 303010]
+  },
+  "primary_endpoint": "qd_score_anytime_auc_proposal_indexed",
+  "alpha": 0.05,
+  "test": "paired_wilcoxon_signed_rank",
+  "sesoi_tost": false,
+  "paper_wide_holm": false,
+  "families": {
+    "F-A-nas": {"m": 2, "contrasts": ["minfit_minus_uniform_at_constant", "live_minus_constant_at_uniform"]},
+    "F-A-pcg": {"m": 2, "contrasts": ["minfit_minus_uniform_at_constant", "live_minus_constant_at_uniform"]},
+    "F-B-nas": {"m": 2, "contrasts": ["llm_minus_genetic", "llm_minus_random"]},
+    "F-B-pcg": {"m": 2, "contrasts": ["llm_minus_genetic", "llm_minus_random"]},
+    "F-C-nas": {"m": 1, "contrasts": ["state_aware_median_minus_static"]},
+    "F-C-pcg": {"m": 1, "contrasts": ["state_aware_median_minus_static"]}
+  },
+  "block_a_interaction": "descriptive_not_holm",
+  "c_early_identified": false,
+  "state_aware_rule": "llm_iff_target_empty_or_fitness_leq_occupied_median",
+  "cap": {
+    "llm_calls": 90000,
+    "total_tokens": 40000000,
+    "calendar_days": 14,
+    "monetary_usd_upper_bound_mini_all_output": 24.0,
+    "price_table_id": "openai-public-list-2026-09-02",
+    "price_table_sha256": "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94"
+  },
+  "next_slice": "external_stamp_then_tag_phase3-protocol-v0"
+}

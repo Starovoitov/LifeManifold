@@ -1,0 +1,10 @@
+{
+  "files": {
+    "openai_gpt-4o-mini.md": "6685868cf5e31ed39492380b2e3b8b7b430437971ed0c3d742319d54f8284d78",
+    "openai_gpt-4o.md": "a0bd691d562c3af1dcf8c8e795ea400c05f53a8ca1feccaa632f803a8dbcdd6d",
+    "openai_pricing.md": "14ad7ca4328a97587487626a637a60b59235632d6b8d6cbb864bf371120367ae",
+    "price_table.json": "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94",
+    "source_sha256.json": "121e4a7080aecbaed0f0c479792a11477fa93db441e5ab1673c1c04162abb7b4"
+  },
+  "price_table_id": "openai-public-list-2026-09-02"
+}

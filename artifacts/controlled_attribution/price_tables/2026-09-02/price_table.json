@@ -1,0 +1,45 @@
+{
+  "price_table_id": "openai-public-list-2026-09-02",
+  "currency": "USD",
+  "retrieved_utc_date": "2026-09-02",
+  "provider": "OpenAI",
+  "basis": "public list price on developers.openai.com model pages (Standard, not Batch/Flex/Fast)",
+  "billing_unit": "USD per 1M tokens",
+  "models": {
+    "gpt-4o-mini": {
+      "request_alias": "gpt-4o-mini",
+      "response_pin": "gpt-4o-mini-2024-07-18",
+      "role": "primary_confirmatory",
+      "input_per_1m": 0.15,
+      "cached_input_per_1m": 0.075,
+      "output_per_1m": 0.6,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+      "source_snapshot": "openai_gpt-4o-mini.md",
+      "source_sha256": "6685868cf5e31ed39492380b2e3b8b7b430437971ed0c3d742319d54f8284d78"
+    },
+    "gpt-4o": {
+      "request_alias": "gpt-4o",
+      "response_pin": null,
+      "role": "robustness_not_holm",
+      "note": "Robustness arm uses request alias gpt-4o; stop family and dated-amend if response_model drifts from accepted OpenAI gpt-4o snapshots.",
+      "input_per_1m": 2.5,
+      "cached_input_per_1m": 1.25,
+      "output_per_1m": 10.0,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4o",
+      "source_snapshot": "openai_gpt-4o.md",
+      "source_sha256": "a0bd691d562c3af1dcf8c8e795ea400c05f53a8ca1feccaa632f803a8dbcdd6d"
+    }
+  },
+  "index_page": {
+    "url": "https://developers.openai.com/api/docs/pricing",
+    "source_snapshot": "openai_pricing.md",
+    "source_sha256": "14ad7ca4328a97587487626a637a60b59235632d6b8d6cbb864bf371120367ae"
+  },
+  "cap_binding": {
+    "llm_calls": 90000,
+    "total_tokens": 40000000,
+    "calendar_days": 14,
+    "monetary_usd_primary_worst_case_all_output_at_mini": 24.0,
+    "monetary_note": "Hard stop remains calls/tokens/days. Monetary figure is an upper bound if all 40M tokens were billed as gpt-4o-mini output; actual spend uses logged token splits at these list rates."
+  }
+}
