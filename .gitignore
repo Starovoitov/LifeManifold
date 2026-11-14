@@ -107,6 +107,20 @@ artifacts/**
 !artifacts/experiments/q1-rq1-sphere-factorial/ANALYSIS.md
 !artifacts/experiments/q1-sphere-genetic-policy/
 !artifacts/experiments/q1-sphere-genetic-policy/ANALYSIS.md
+# Controlled-attribution programme + Phase 3 stamp package (not run outputs).
+!artifacts/CONTROLLED_ATTRIBUTION_RESEARCH_PROGRAM.md
+!artifacts/controlled_attribution/
+artifacts/controlled_attribution/**
+!artifacts/controlled_attribution/PHASE3_PROTOCOL.md
+!artifacts/controlled_attribution/PHASE3_PROTOCOL.sha256
+!artifacts/controlled_attribution/PHASE3_FOUNDATION.md
+!artifacts/controlled_attribution/PHASE3_P3_1.md
+!artifacts/controlled_attribution/PHASE3_P3_2.md
+!artifacts/controlled_attribution/PHASE3_OSF_REGISTRATION_PACK.md
+!artifacts/controlled_attribution/phase3_protocol_draft.json
+!artifacts/controlled_attribution/price_tables/
+!artifacts/controlled_attribution/price_tables/2026-09-02/
+!artifacts/controlled_attribution/price_tables/2026-09-02/**
 
 # Environment / secrets (never commit)
 .env
