@@ -1,6 +1,6 @@
 # Phase 3.1 — public-task adapters (pre-stamp)
 
-Status: **complete for adapter surface**. Freeze still **not** in force (`freeze_in_force: false`). No confirmatory LLM. No git tag.
+Status: **complete for adapter surface**. Freeze is recorded in `phase3_protocol_draft.json` (`freeze_in_force: true`; tag `phase3-protocol-v0` at `197e2ef`). No confirmatory LLM yet.
 
 ## Delivered
 

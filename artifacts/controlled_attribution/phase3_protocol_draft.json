@@ -1,7 +1,7 @@
 {
   "protocol_id": "ca-phase3-v0",
-  "stage": "p3_2_stamp_package_ready",
-  "freeze_in_force": false,
+  "stage": "phase3-protocol-v0-frozen",
+  "freeze_in_force": true,
   "protocol_file": "artifacts/controlled_attribution/PHASE3_PROTOCOL.md",
   "protocol_sha256": "0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91",
   "p3_1": {
@@ -19,14 +19,21 @@
     "price_table_sha256": "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94",
     "claim_sentences_locked_in_text": true,
     "registration_pack": "artifacts/controlled_attribution/PHASE3_OSF_REGISTRATION_PACK.md",
-    "external_stamp_completed": false,
-    "git_tag_created": false,
-    "note": "See PHASE3_P3_2.md. Do not set freeze_in_force until registry+tag."
+    "external_stamp_completed": true,
+    "git_tag_created": true,
+    "note": "OSF https://osf.io/8jaxy and tag phase3-protocol-v0 at 197e2ef04419fb37ae9492d8c3bbaf4484cdf588 name the registered SHA. PHASE3_PROTOCOL.md was not edited for this record."
   },
   "evidence_role": "protocol_stamp_package",
   "llm_confirmatory": false,
-  "external_stamp": null,
-  "git_tag": null,
+  "external_stamp": {
+    "registry": "osf",
+    "url": "https://osf.io/8jaxy",
+    "doi": "10.17605/OSF.IO/8JAXY",
+    "date_registered": "2026-11-14T23:46:44.037884Z",
+    "protocol_sha256": "0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91"
+  },
+  "git_tag": "phase3-protocol-v0",
+  "git_tag_commit": "197e2ef04419fb37ae9492d8c3bbaf4484cdf588",
   "one_family_not_two_public_tasks": true,
   "zelda_is_not_a_second_family": true,
   "phase2_not_pooled": true,
@@ -89,5 +96,5 @@
     "price_table_id": "openai-public-list-2026-09-02",
     "price_table_sha256": "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94"
   },
-  "next_slice": "external_stamp_then_tag_phase3-protocol-v0"
+  "next_slice": "substitute_registered_hashes_then_F-A-nas"
 }

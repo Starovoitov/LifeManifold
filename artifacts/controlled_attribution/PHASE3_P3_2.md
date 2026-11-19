@@ -1,16 +1,20 @@
-# Phase 3.2 — stamp package (external registry still required)
+# Phase 3.2 — stamp package
 
 **Date:** 2026-09-02  
-**Status:** stamp **package ready**; `freeze_in_force` still **false**. No confirmatory LLM. No git tag yet.
+**Status:** `freeze_in_force` **true** as of 2026-11-20. No confirmatory LLM yet.
 
-## Why freeze is still false
+## Reporting line
+
+OSF registration [https://osf.io/8jaxy](https://osf.io/8jaxy), DOI `10.17605/OSF.IO/8JAXY`, registered 2026-11-14T23:46:44Z, names SHA-256 `0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91`. Git tag `phase3-protocol-v0` points at commit `197e2ef04419fb37ae9492d8c3bbaf4484cdf588`, which contains that byte-identical `PHASE3_PROTOCOL.md`. This record does not edit that file.
+
+## Why both were required
 
 Programme rule (Q1 lesson): git SHA / mtime ≠ registration. Freeze requires **both**:
 
 1. OSF or AsPredicted timestamp naming the protocol SHA below;
 2. git tag `phase3-protocol-v0` on the commit that contains that **byte-identical** `PHASE3_PROTOCOL.md`.
 
-This slice prepares (1)'s payload and (2)'s prerequisites. It does **not** invent an OSF ID or create the tag from chat.
+This slice prepared the payload. The registry entry and the tag now both exist; the reporting line above is the record.
 
 ## Protocol pin
 
@@ -30,18 +34,12 @@ This slice prepares (1)'s payload and (2)'s prerequisites. It does **not** inven
 5. Registration pack: `PHASE3_OSF_REGISTRATION_PACK.md`.
 6. `.gitignore` whitelist so the stamp package can enter git (7.9G Phase 2 trees stay ignored).
 
-## Operator checklist (you)
+## Operator checklist
 
-1. Confirm `sha256sum artifacts/controlled_attribution/PHASE3_PROTOCOL.md` equals the pin above.
-2. **Commit** the stamp-package files (ask the agent if you want the commit made for you). **Do not tag yet.**
-3. Paste `PHASE3_OSF_REGISTRATION_PACK.md` into OSF Registrations or AsPredicted **before any Phase 4 LLM**.
-4. Reply with registry URL/ID.
-5. Then: Reporting line + `git tag phase3-protocol-v0` on that commit; set `freeze_in_force: true`.
+Done. The SHA pin matched, the pack was registered, and the reporting line plus tag `phase3-protocol-v0` are recorded above. `freeze_in_force` is true in `phase3_protocol_draft.json`.
 
 ## Not done
 
-- External stamp itself
-- `phase3-protocol-v0` tag
 - Phase 4 runs
 - Prospective public-runner event capture (optional)
 
