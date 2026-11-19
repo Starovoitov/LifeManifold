@@ -24,6 +24,7 @@ from worldspace.attribution.public_loop import (
     should_use_llm,
     write_json,
 )
+from worldspace.generators.llm_call_log import private_llm_call_log
 from worldspace.pcg.archive import PcgArchive, PcgElite
 from worldspace.pcg.descriptors import PcgBinEdges
 from worldspace.pcg.emitters import (
@@ -81,6 +82,29 @@ def run_pcg_sokoban_qd(
         if path.exists():
             path.unlink()
 
+    with private_llm_call_log(
+        output_dir / "llm_call_log.jsonl",
+        enabled=config.generator == "llm",
+    ):
+        return _run_pcg_sokoban_qd_logged(
+            env,
+            edges,
+            config,
+            output_dir=output_dir,
+            llm_emit=llm_emit,
+            repair_kind=repair_kind,
+        )
+
+
+def _run_pcg_sokoban_qd_logged(
+    env: PcgEnvLike,
+    edges: PcgBinEdges,
+    config: PublicRunConfig,
+    *,
+    output_dir: Path,
+    llm_emit: LlmEmitFn | None,
+    repair_kind: RepairKind,
+) -> PcgRunResult:
     rng = np.random.default_rng(config.seed)
     archive = PcgArchive(edges)
     proposals = 0

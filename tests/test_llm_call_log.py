@@ -11,8 +11,11 @@ from unittest.mock import MagicMock, patch
 
 from worldspace.generators import call_llm_messages
 from worldspace.generators.llm_call_log import (
+    append_llm_call_record,
     configure_llm_call_log,
+    force_llm_call_log,
     messages_for_log,
+    private_llm_call_log,
     resolve_llm_call_log_path,
 )
 from worldspace.generators.llm_config import load_llm_generator_yaml
@@ -20,6 +23,7 @@ from worldspace.generators.llm_config import load_llm_generator_yaml
 
 class LlmCallLogTests(unittest.TestCase):
     def tearDown(self) -> None:
+        force_llm_call_log(None)
         configure_llm_call_log(None)
 
     def test_messages_for_log_redacts_images(self) -> None:
@@ -105,6 +109,42 @@ class LlmCallLogTests(unittest.TestCase):
                 "fixed-call",
             )
             self.assertNotIn("Authorization", json.dumps(row))
+
+    def test_private_log_keeps_prompt_and_scrubs_secrets_when_env_disables(self) -> None:
+        secret = "sk-" + ("a" * 20)
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "llm_call_log.jsonl"
+            with patch.dict(
+                os.environ,
+                {
+                    "LIFEMANIFOLD_LLM_CALL_LOG": "0",
+                    "OPENAI_API_KEY": secret,
+                },
+                clear=False,
+            ):
+                with private_llm_call_log(log_path, enabled=True):
+                    self.assertEqual(resolve_llm_call_log_path(), log_path)
+                    append_llm_call_record(
+                        {
+                            "call_id": "probe",
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": f"header Bearer {secret} and {secret}",
+                                }
+                            ],
+                            "response_content": "ops-json",
+                            "ok": True,
+                        }
+                    )
+                self.assertIsNone(resolve_llm_call_log_path(output_dir=tmp))
+            text = log_path.read_text(encoding="utf-8")
+            self.assertNotIn(secret, text)
+            row = json.loads(text)
+            self.assertEqual(row["messages"][0]["content"].count("[redacted]"), 2)
+            self.assertIn("Bearer [redacted]", row["messages"][0]["content"])
+            self.assertEqual(row["response_content"], "ops-json")
+            self.assertEqual(row["call_id"], "probe")
 
 
 if __name__ == "__main__":

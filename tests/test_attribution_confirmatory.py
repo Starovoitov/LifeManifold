@@ -535,6 +535,8 @@ class TestConfirmatoryJobBuilder(unittest.TestCase):
                     output_root=f"artifacts/attribution-jobs/{study.study_id}",
                 )
                 self.assertFalse(plan.launched)
+                self.assertEqual(study.privacy_policy.raw_prompts, "private")
+                self.assertEqual(study.privacy_policy.raw_responses, "private")
                 self.assertEqual(len(plan.runs), len(study.arms) * 20)
                 self.assertTrue(study.study_id.startswith(f"confirmatory-{domain}-"))
                 empty_floor = canonical_sha256([])

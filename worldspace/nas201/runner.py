@@ -34,6 +34,7 @@ from worldspace.nas201.emitters import (
 )
 from worldspace.nas201.evaluation import evaluate_spec
 from worldspace.nas201.spec import Nas201Spec
+from worldspace.generators.llm_call_log import private_llm_call_log
 from worldspace.nas201.table import Nas201Lookup
 
 ARCHIVE_FILENAME = "nas201_archive.jsonl"
@@ -76,6 +77,27 @@ def run_nas201_qd(
         if path.exists():
             path.unlink()
 
+    with private_llm_call_log(
+        output_dir / "llm_call_log.jsonl",
+        enabled=config.generator == "llm",
+    ):
+        return _run_nas201_qd_logged(
+            table,
+            edges,
+            config,
+            output_dir=output_dir,
+            llm_emit=llm_emit,
+        )
+
+
+def _run_nas201_qd_logged(
+    table: Nas201Lookup,
+    edges: Nas201BinEdges,
+    config: PublicRunConfig,
+    *,
+    output_dir: Path,
+    llm_emit: LlmEmitFn | None,
+) -> Nas201RunResult:
     rng = np.random.default_rng(config.seed)
     archive = Nas201Archive(edges)
     proposals = 0

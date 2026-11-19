@@ -126,3 +126,6 @@ artifacts/controlled_attribution/**
 .env
 .env.*
 !.env.example
+
+# Raw provider prompts and responses. Private even outside artifacts/.
+llm_call_log.jsonl

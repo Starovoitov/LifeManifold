@@ -429,8 +429,8 @@ def _study(
             "incomplete_run": "exclude",
         },
         "privacy_policy": {
-            "raw_prompts": "discard",
-            "raw_responses": "discard",
+            "raw_prompts": "private",
+            "raw_responses": "private",
             "publish_sanitized_events": True,
         },
     }
