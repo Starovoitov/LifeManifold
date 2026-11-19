@@ -535,6 +535,22 @@ class TestConfirmatoryJobBuilder(unittest.TestCase):
                     output_root=f"artifacts/attribution-jobs/{study.study_id}",
                 )
                 self.assertFalse(plan.launched)
+                self.assertEqual(
+                    study.protocol_hash,
+                    "0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91",
+                )
+                self.assertEqual(
+                    study.cost_policy.price_table_id,
+                    "openai-public-list-2026-09-02",
+                )
+                self.assertEqual(
+                    study.cost_policy.price_table_hash,
+                    "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94",
+                )
+                self.assertEqual(
+                    plan.runs[0].protocol_hash,
+                    study.protocol_hash,
+                )
                 self.assertEqual(study.privacy_policy.raw_prompts, "private")
                 self.assertEqual(study.privacy_policy.raw_responses, "private")
                 self.assertEqual(len(plan.runs), len(study.arms) * 20)

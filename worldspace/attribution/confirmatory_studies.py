@@ -21,8 +21,15 @@ DomainId = Literal["nas201", "pcg_sokoban"]
 
 CONFIRMATORY_SEEDS = tuple(range(301001, 301021))
 CONFIRMATORY_PROTOCOL_ID = "ca-confirmatory-v0"
-# Placeholder until the protocol hash is stamped; builders refuse launch.
-PROTOCOL_HASH_PLACEHOLDER = "0" * 64
+# Registered ca-phase3-v0 bytes and the attached 2026-09-02 price table.
+# Plans stay unlaunched; these hashes only name the frozen protocol.
+REGISTERED_PROTOCOL_SHA256 = (
+    "0377685986abf4ce2c256f0d8c63732a6fd05a28e4080ec4bd3dc890540cce91"
+)
+REGISTERED_PRICE_TABLE_ID = "openai-public-list-2026-09-02"
+REGISTERED_PRICE_TABLE_SHA256 = (
+    "a60d1f99b89e7067b8fb2e1eac0c9a7f2b64c041f460101e864c2b413e549b94"
+)
 
 
 def _component(kind: str, **parameters: Any) -> dict[str, Any]:
@@ -400,7 +407,7 @@ def _study(
         "study_id": f"confirmatory-{domain}-{study_suffix}",
         "programme_id": "controlled-attribution",
         "protocol_id": CONFIRMATORY_PROTOCOL_ID,
-        "protocol_hash": PROTOCOL_HASH_PLACEHOLDER,
+        "protocol_hash": REGISTERED_PROTOCOL_SHA256,
         "evidence_tier": "confirmatory",
         "domain_id": domain,
         "domain_version": "confirmatory-draft-1",
@@ -417,8 +424,8 @@ def _study(
         },
         "cost_policy": {
             "currency": "USD",
-            "price_table_id": "confirmatory-draft-unset",
-            "price_table_hash": PROTOCOL_HASH_PLACEHOLDER,
+            "price_table_id": REGISTERED_PRICE_TABLE_ID,
+            "price_table_hash": REGISTERED_PRICE_TABLE_SHA256,
             "approved_total_cost": 0.0,
             "missing_usage_policy": "reject",
         },
