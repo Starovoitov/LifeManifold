@@ -20,6 +20,7 @@ from worldspace.attribution.public_loop import floor_recipe_hash
 DomainId = Literal["nas201", "pcg_sokoban"]
 
 CONFIRMATORY_SEEDS = tuple(range(301001, 301021))
+ROBUSTNESS_SEEDS = tuple(range(303001, 303011))
 CONFIRMATORY_PROTOCOL_ID = "ca-confirmatory-v0"
 # Registered ca-phase3-v0 bytes and the attached 2026-09-02 price table.
 # Plans stay unlaunched; these hashes only name the frozen protocol.
@@ -77,6 +78,7 @@ def _arm(
     repair: str | None = None,
     reference_arm_id: str | None = None,
     expected_differences: list[str] | None = None,
+    model_kind: str = "gpt-4o-mini",
 ) -> dict[str, Any]:
     if repair is None:
         repair = "structural_counts" if domain == "pcg_sokoban" else "identity"
@@ -105,11 +107,7 @@ def _arm(
             "budget": _budget(),
         },
         "representation": _component(f"{domain}_genotype"),
-        "model": (
-            _component("gpt-4o-mini", pinned_response="gpt-4o-mini-2024-07-18")
-            if llm
-            else _component("not_applicable")
-        ),
+        "model": _model_component(llm=llm, model_kind=model_kind),
         "evaluator": _component(f"{domain}_evaluator"),
         "reference_arm_id": reference_arm_id,
         "expected_differences": expected_differences or [],
@@ -195,6 +193,32 @@ def selector_channel_study(domain: DomainId) -> StudyManifest:
                 "minimum_complete_pairs": 20,
             },
         ],
+    )
+
+
+def robustness_study() -> StudyManifest:
+    """NAS Block A at n=10, request alias gpt-4o. Descriptive, not Holm."""
+    base = selector_channel_study("nas201")
+    arms = []
+    for arm in base.arms:
+        payload = arm.model_dump(mode="json")
+        payload["model"] = _model_component(llm=True, model_kind="gpt-4o")
+        arms.append(payload)
+    estimands = []
+    for estimand in base.estimands:
+        payload = estimand.model_dump(mode="json")
+        payload["confirmatory_family"] = None
+        payload["multiplicity_rule"] = "descriptive"
+        payload["minimum_complete_pairs"] = len(ROBUSTNESS_SEEDS)
+        estimands.append(payload)
+    return _study(
+        "nas201",
+        study_suffix="selector-channel",
+        arms=arms,
+        estimands=estimands,
+        seeds=ROBUSTNESS_SEEDS,
+        evidence_tier="robustness",
+        study_id="robustness-nas201-selector-channel",
     )
 
 
@@ -368,12 +392,25 @@ def build_confirmatory_job_plan(study: StudyManifest, *, output_root: str):
     )
 
 
+def _model_component(*, llm: bool, model_kind: str) -> dict[str, Any]:
+    if not llm:
+        return _component("not_applicable")
+    if model_kind == "gpt-4o-mini":
+        return _component("gpt-4o-mini", pinned_response="gpt-4o-mini-2024-07-18")
+    if model_kind == "gpt-4o":
+        # Request alias only. The stamped page lists snapshots; it does not pin one.
+        return _component("gpt-4o")
+    raise ValueError(f"unsupported confirmatory model {model_kind!r}")
+
+
 def _paired_auc_estimand(
     *,
     estimand_id: str,
     treatment_arm_ids: list[str],
     control_arm_ids: list[str],
-    confirmatory_family: str,
+    confirmatory_family: str | None,
+    multiplicity_rule: str = "holm",
+    minimum_complete_pairs: int = 20,
 ) -> dict[str, Any]:
     """One Holm paired difference of the post-floor QD-score AUC."""
     return {
@@ -388,9 +425,9 @@ def _paired_auc_estimand(
         "margin": None,
         "interaction_formula": None,
         "confirmatory_family": confirmatory_family,
-        "multiplicity_rule": "holm",
+        "multiplicity_rule": multiplicity_rule,
         "missing_policy": "complete_pairs_only",
-        "minimum_complete_pairs": 20,
+        "minimum_complete_pairs": minimum_complete_pairs,
     }
 
 
@@ -400,15 +437,18 @@ def _study(
     study_suffix: str,
     arms: list[dict[str, Any]],
     estimands: list[dict[str, Any]],
+    seeds: tuple[int, ...] = CONFIRMATORY_SEEDS,
+    evidence_tier: str = "confirmatory",
+    study_id: str | None = None,
 ) -> StudyManifest:
     caps = nas201_capabilities() if domain == "nas201" else pcg_sokoban_capabilities()
     payload = {
         "schema_version": "attribution-1.0",
-        "study_id": f"confirmatory-{domain}-{study_suffix}",
+        "study_id": study_id or f"confirmatory-{domain}-{study_suffix}",
         "programme_id": "controlled-attribution",
         "protocol_id": CONFIRMATORY_PROTOCOL_ID,
         "protocol_hash": REGISTERED_PROTOCOL_SHA256,
-        "evidence_tier": "confirmatory",
+        "evidence_tier": evidence_tier,
         "domain_id": domain,
         "domain_version": "confirmatory-draft-1",
         "adapter_id": caps.adapter_id,
@@ -417,7 +457,7 @@ def _study(
         "estimands": estimands,
         "arms": arms,
         "replication": {
-            "seeds": list(CONFIRMATORY_SEEDS),
+            "seeds": list(seeds),
             "domain_instance_ids": [f"{domain}-default"],
             "api_block_ids": [],
             "paired_by": ["seed", "domain_instance_id"],

@@ -10,10 +10,14 @@ from pathlib import Path
 from worldspace.attribution.confirmatory_launch import (
     EXECUTE_ACK,
     REGISTERED_RESPONSE_PIN,
+    ROBUSTNESS_ACK,
     ConfirmatoryLaunchError,
     build_confirmatory_plan,
+    build_robustness_plan,
     launch_plan,
+    launch_robustness_plan,
     ordered_runs,
+    public_config_from_robustness_run,
     public_config_from_run,
     run_disposition,
 )
@@ -157,6 +161,91 @@ class TestConfirmatoryLaunch(unittest.TestCase):
             self.assertEqual(clock_path.read_text(encoding="utf-8"), first_clock)
             payload = json.loads(first_clock)
             self.assertEqual(payload["protocol_id"], "ca-phase3-v0")
+
+
+class TestRobustnessLaunch(unittest.TestCase):
+    def test_dry_run_is_nas_block_a_on_the_robustness_seeds(self) -> None:
+        plan = build_robustness_plan(output_root="artifacts/phase4-robustness")
+        ordered = ordered_runs(plan)
+        self.assertEqual(len(ordered), 40)
+        self.assertFalse(plan.launched)
+        self.assertEqual(plan.evidence_tier, "robustness")
+        self.assertEqual({run.domain_id for run in ordered}, {"nas201"})
+        self.assertEqual(
+            {run.arm_id for run in ordered},
+            {"A-const-uniform", "A-live-uniform", "A-const-minfit", "A-live-minfit"},
+        )
+        self.assertEqual([run.seed for run in ordered], sorted(run.seed for run in ordered))
+        self.assertEqual(ordered[0].seed, 303001)
+        self.assertEqual(ordered[-1].seed, 303010)
+        self.assertTrue(all(run.model.kind == "gpt-4o" for run in ordered))
+        self.assertTrue(all(not run.model.parameters.get("pinned_response") for run in ordered))
+        config = public_config_from_robustness_run(ordered[0])
+        self.assertIsNone(config.expected_response_model)
+        self.assertEqual(config.floor_random, 20)
+        self.assertEqual(config.search_horizon, 200)
+        with self.assertRaises(ConfirmatoryLaunchError):
+            public_config_from_run(ordered[0])
+        with self.assertRaises(ConfirmatoryLaunchError):
+            build_confirmatory_plan("nas201", "robustness", output_root="artifacts/phase4")
+
+    def test_primary_ack_does_not_start_robustness(self) -> None:
+        plan = build_robustness_plan(output_root="artifacts/phase4-robustness-ack")
+        with self.assertRaises(ConfirmatoryLaunchError):
+            launch_robustness_plan(
+                plan,
+                execute=True,
+                ack=EXECUTE_ACK,
+                output_root="artifacts/phase4-robustness-ack",
+                executor=lambda run: None,
+            )
+
+    def test_snapshot_outside_the_stamped_list_stops_the_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "phase4"
+            plan = build_robustness_plan(output_root=str(root))
+            called: list[str] = []
+
+            def _finish(run):  # type: ignore[no-untyped-def]
+                called.append(run.run_id)
+                write_json(
+                    Path(run.output_paths["run_dir"]) / SUMMARY_FILENAME,
+                    {"completed": True, "response_model": "gpt-4o-mini-2024-07-18"},
+                )
+
+            with self.assertRaises(ConfirmatoryLaunchError):
+                launch_robustness_plan(
+                    plan,
+                    execute=True,
+                    ack=ROBUSTNESS_ACK,
+                    output_root=str(root),
+                    executor=_finish,
+                )
+            self.assertEqual(len(called), 1)
+
+    def test_accepted_snapshot_is_kept_for_the_next_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "phase4"
+            plan = build_robustness_plan(output_root=str(root))
+            calls = {"n": 0}
+
+            def _finish(run):  # type: ignore[no-untyped-def]
+                calls["n"] += 1
+                model = "gpt-4o-2024-08-06" if calls["n"] == 1 else "gpt-4o-2024-11-20"
+                write_json(
+                    Path(run.output_paths["run_dir"]) / SUMMARY_FILENAME,
+                    {"completed": True, "response_model": model},
+                )
+
+            with self.assertRaises(ConfirmatoryLaunchError):
+                launch_robustness_plan(
+                    plan,
+                    execute=True,
+                    ack=ROBUSTNESS_ACK,
+                    output_root=str(root),
+                    executor=_finish,
+                )
+            self.assertEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":

@@ -17,17 +17,29 @@ from worldspace.attribution.confirmatory_studies import (
     allocation_study,
     build_confirmatory_job_plan,
     generator_study,
+    robustness_study,
     selector_channel_study,
 )
 from worldspace.attribution.design import JobPlan
 from worldspace.attribution.job_builder import write_job_plan
-from worldspace.attribution.manifest import RunManifest
+from worldspace.attribution.manifest import ComponentSpec, RunManifest
 from worldspace.attribution.public_loop import (
     SUMMARY_FILENAME,
     PublicRunConfig,
 )
 
 EXECUTE_ACK = "ca-phase3-v0-confirmatory"
+ROBUSTNESS_ACK = "ca-phase3-v0-robustness"
+ROBUSTNESS_STUDY_ID = "robustness-nas201-selector-channel"
+ROBUSTNESS_REQUEST_MODEL = "gpt-4o"
+# Snapshots named by the stamped 2026-09-02 gpt-4o page. The request stays the alias.
+ACCEPTED_GPT4O_SNAPSHOTS = frozenset(
+    {
+        "gpt-4o-2024-11-20",
+        "gpt-4o-2024-08-06",
+        "gpt-4o-2024-05-13",
+    }
+)
 CLOCK_FILENAME = "confirmatory_clock.json"
 REGISTERED_RESPONSE_PIN = "gpt-4o-mini-2024-07-18"
 PARTIAL_ARTIFACTS = frozenset(
@@ -122,7 +134,7 @@ def public_config_from_run(run: RunManifest) -> PublicRunConfig:
         )
     pinned = run.model.parameters.get("pinned_response")
     if generator == "llm":
-        if pinned != REGISTERED_RESPONSE_PIN:
+        if run.model.kind != "gpt-4o-mini" or pinned != REGISTERED_RESPONSE_PIN:
             raise ConfirmatoryLaunchError(
                 f"LLM arm {run.arm_id!r} is not pinned to {REGISTERED_RESPONSE_PIN}"
             )
@@ -198,6 +210,131 @@ def launch_plan(
     return rows
 
 
+def build_robustness_plan(*, output_root: str) -> JobPlan:
+    """Build the unlaunched NAS Block A plan that requests gpt-4o."""
+    study = robustness_study()
+    plan = build_confirmatory_job_plan(study, output_root=output_root)
+    if plan.launched or plan.study_id != ROBUSTNESS_STUDY_ID:
+        raise ConfirmatoryLaunchError("refusing a launched or mis-identified robustness plan")
+    if plan.evidence_tier != "robustness":
+        raise ConfirmatoryLaunchError("robustness plan must stay outside the Holm tier")
+    return plan
+
+
+def public_config_from_robustness_run(run: RunManifest) -> PublicRunConfig:
+    """Same budget as Block A, but the request alias is gpt-4o and is not pinned."""
+    if run.evidence_tier != "robustness" or run.domain_id != "nas201":
+        raise ConfirmatoryLaunchError("robustness runs are NAS Block A only")
+    if run.model.kind != ROBUSTNESS_REQUEST_MODEL or run.model.parameters.get("pinned_response"):
+        raise ConfirmatoryLaunchError(
+            f"robustness arm {run.arm_id!r} must request {ROBUSTNESS_REQUEST_MODEL} without a snapshot pin"
+        )
+    disguised = run.model_copy(
+        update={
+            "model": ComponentSpec.model_validate(
+                {
+                    "kind": "gpt-4o-mini",
+                    "version": run.model.version,
+                    "parameters": {"pinned_response": REGISTERED_RESPONSE_PIN},
+                    "content_hashes": {},
+                }
+            )
+        }
+    )
+    config = public_config_from_run(disguised)
+    return PublicRunConfig(
+        seed=config.seed,
+        generator=config.generator,
+        selector=config.selector,
+        allocation=config.allocation,
+        prompt_channel=config.prompt_channel,
+        repair_kind=config.repair_kind,
+        floor_random=config.floor_random,
+        search_horizon=config.search_horizon,
+        llm_call_cap=config.llm_call_cap,
+        expected_response_model=None,
+    )
+
+
+def launch_robustness_plan(
+    plan: JobPlan,
+    *,
+    execute: bool,
+    ack: str | None,
+    output_root: str,
+    executor: RunExecutor | None = None,
+) -> list[dict[str, Any]]:
+    """List the robustness queue, or run it after its own ack.
+
+    A response snapshot outside the stamped gpt-4o list stops the queue.
+    The primary confirmatory ack cannot start this plan.
+    """
+    if plan.study_id != ROBUSTNESS_STUDY_ID:
+        raise ConfirmatoryLaunchError("this launcher only starts the NAS gpt-4o robustness plan")
+    ordered = ordered_runs(plan)
+    if not execute:
+        return [_describe(run, "dry-run") for run in ordered]
+    if ack != ROBUSTNESS_ACK:
+        raise ConfirmatoryLaunchError(
+            "refusing to start robustness runs without "
+            f"--execute --ack {ROBUSTNESS_ACK}"
+        )
+    incomplete = [run.run_id for run in ordered if run_disposition(run) == "incomplete"]
+    if incomplete:
+        raise ConfirmatoryLaunchError(
+            "incomplete robustness run(s) must be resolved before continuing: "
+            + ", ".join(incomplete)
+        )
+    write_job_plan(plan, study_root=Path(output_root) / plan.study_id)
+    observed: str | None = None
+    rows: list[dict[str, Any]] = []
+    for run in ordered:
+        if run_disposition(run) == "complete":
+            observed = _require_gpt4o_snapshot(run, observed)
+            rows.append(_describe(run, "skipped-complete"))
+            continue
+        if run.treatment.generator.kind == "llm":
+            _ensure_clock(plan, run, output_root=output_root)
+        if executor is None:
+            raise ConfirmatoryLaunchError("no run executor was provided")
+        executor(run)
+        observed = _require_gpt4o_snapshot(run, observed)
+        rows.append(_describe(run, "executed"))
+    return rows
+
+
+def execute_robustness_run(run: RunManifest, *, repo_root: Path) -> None:
+    """Run one robustness manifest. The request model is the gpt-4o alias."""
+    config = public_config_from_robustness_run(run)
+    output_dir = Path(run.output_paths["run_dir"])
+    if not output_dir.is_absolute():
+        output_dir = repo_root / output_dir
+    _execute_nas(
+        run,
+        config,
+        output_dir,
+        repo_root=repo_root,
+        request_model=ROBUSTNESS_REQUEST_MODEL,
+    )
+
+
+def _require_gpt4o_snapshot(run: RunManifest, observed: str | None) -> str:
+    summary_path = Path(run.output_paths["run_dir"]) / SUMMARY_FILENAME
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    response_model = payload.get("response_model")
+    if response_model not in ACCEPTED_GPT4O_SNAPSHOTS:
+        raise ConfirmatoryLaunchError(
+            f"run {run.run_id} returned response_model {response_model!r}; "
+            "stopping the robustness queue for a dated amendment"
+        )
+    if observed is not None and response_model != observed:
+        raise ConfirmatoryLaunchError(
+            f"run {run.run_id} returned {response_model}, after the queue had {observed}; "
+            "stopping the robustness queue"
+        )
+    return str(response_model)
+
+
 def execute_native_run(run: RunManifest, *, repo_root: Path) -> None:
     """Run one manifest with the native NAS or Sokoban loop."""
     config = public_config_from_run(run)
@@ -219,6 +356,7 @@ def _execute_nas(
     output_dir: Path,
     *,
     repo_root: Path,
+    request_model: str = REGISTERED_RESPONSE_PIN,
 ) -> None:
     from worldspace.nas201.descriptors import load_frozen_bin_edges
     from worldspace.nas201.llm_emitter import Nas201LlmEmitter, bind_nas201_llm
@@ -234,7 +372,7 @@ def _execute_nas(
     llm_emit = None
     if config.generator == "llm":
         emitter = Nas201LlmEmitter(channel=config.prompt_channel)  # type: ignore[arg-type]
-        _pin_request_model(emitter, REGISTERED_RESPONSE_PIN)
+        _pin_request_model(emitter, request_model)
         llm_emit = bind_nas201_llm(emitter)
     run_nas201_qd(table, edges, config, output_dir=output_dir, llm_emit=llm_emit)
 
