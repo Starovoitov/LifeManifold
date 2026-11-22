@@ -17,6 +17,7 @@ from worldspace.attribution.confirmatory_studies import (
     allocation_study,
     build_confirmatory_job_plan,
     generator_study,
+    occupancy_study,
     robustness_study,
     selector_channel_study,
 )
@@ -30,7 +31,10 @@ from worldspace.attribution.public_loop import (
 
 EXECUTE_ACK = "ca-phase3-v0-confirmatory"
 ROBUSTNESS_ACK = "ca-phase3-v0-robustness"
+BLOCK_D_ACK = "ca-phase3-v0-block-d"
 ROBUSTNESS_STUDY_ID = "robustness-nas201-selector-channel"
+BLOCK_D_STUDY_ID = "sensitivity-nas201-occupancy"
+BLOCK_D_GENETIC_FLOOR = 50
 ROBUSTNESS_REQUEST_MODEL = "gpt-4o"
 # Snapshots named by the stamped 2026-09-02 gpt-4o page. The request stays the alias.
 ACCEPTED_GPT4O_SNAPSHOTS = frozenset(
@@ -104,7 +108,11 @@ def ordered_runs(plan: JobPlan) -> list[RunManifest]:
 
 def public_config_from_run(run: RunManifest) -> PublicRunConfig:
     """Map one frozen manifest onto the native runner knobs."""
+    if run.evidence_tier == "sensitivity":
+        raise ConfirmatoryLaunchError("Block D runs use the sensitivity launcher")
     treatment = run.treatment
+    if int(treatment.initialization.parameters.get("floor_genetic") or 0) != 0:
+        raise ConfirmatoryLaunchError("primary runs use the 20-random floor")
     generator = treatment.generator.kind
     if generator not in {"random", "genetic", "llm"}:
         raise ConfirmatoryLaunchError(f"unsupported generator {generator!r}")
@@ -184,6 +192,8 @@ def launch_plan(
     ordered = ordered_runs(plan)
     if not execute:
         return [_describe(run, "dry-run") for run in ordered]
+    if plan.evidence_tier != "confirmatory":
+        raise ConfirmatoryLaunchError("this launcher only starts confirmatory plans")
     if ack != EXECUTE_ACK:
         raise ConfirmatoryLaunchError(
             "refusing to start confirmatory runs without "
@@ -301,6 +311,140 @@ def launch_robustness_plan(
         observed = _require_gpt4o_snapshot(run, observed)
         rows.append(_describe(run, "executed"))
     return rows
+
+
+def build_block_d_plan(*, output_root: str) -> JobPlan:
+    """Build the unlaunched NAS occupancy plan. Both arms request the mini pin."""
+    study = occupancy_study()
+    plan = build_confirmatory_job_plan(study, output_root=output_root)
+    if plan.launched or plan.study_id != BLOCK_D_STUDY_ID:
+        raise ConfirmatoryLaunchError("refusing a launched or mis-identified Block D plan")
+    if plan.evidence_tier != "sensitivity":
+        raise ConfirmatoryLaunchError("Block D must stay outside the Holm tier")
+    return plan
+
+
+def public_config_from_block_d_run(run: RunManifest) -> PublicRunConfig:
+    """A-const-uniform search after either the 20-random floor or the 50-genetic floor."""
+    if run.evidence_tier != "sensitivity" or run.domain_id != "nas201":
+        raise ConfirmatoryLaunchError("Block D runs are the NAS occupancy plan only")
+    if run.study_id != BLOCK_D_STUDY_ID:
+        raise ConfirmatoryLaunchError("Block D config refuses a different study")
+    treatment = run.treatment
+    if treatment.generator.kind != "llm":
+        raise ConfirmatoryLaunchError(f"Block D arm {run.arm_id!r} is not the LLM treatment")
+    if treatment.selector.kind != "uniform_frontier":
+        raise ConfirmatoryLaunchError(f"Block D arm {run.arm_id!r} is not uniform_frontier")
+    if treatment.allocation.kind != "static":
+        raise ConfirmatoryLaunchError(f"Block D arm {run.arm_id!r} is not static")
+    if treatment.prompt_channel.kind != "constant":
+        raise ConfirmatoryLaunchError(f"Block D arm {run.arm_id!r} is not the constant channel")
+    if treatment.repair_fallback.kind != "identity":
+        raise ConfirmatoryLaunchError(f"Block D arm {run.arm_id!r} is not identity repair")
+    pinned = run.model.parameters.get("pinned_response")
+    if run.model.kind != "gpt-4o-mini" or pinned != REGISTERED_RESPONSE_PIN:
+        raise ConfirmatoryLaunchError(
+            f"Block D arm {run.arm_id!r} is not pinned to {REGISTERED_RESPONSE_PIN}"
+        )
+    floor_random = int(treatment.initialization.parameters.get("floor_random") or 0)
+    floor_genetic = int(treatment.initialization.parameters.get("floor_genetic") or 0)
+    if run.arm_id == "D-floor-random" and (floor_random, floor_genetic) != (20, 0):
+        raise ConfirmatoryLaunchError("D-floor-random must be the primary 20-random floor")
+    if run.arm_id == "D-floor-genetic" and (floor_random, floor_genetic) != (0, BLOCK_D_GENETIC_FLOOR):
+        raise ConfirmatoryLaunchError("D-floor-genetic must be 50 one-step genetic proposals")
+    if run.arm_id not in {"D-floor-random", "D-floor-genetic"}:
+        raise ConfirmatoryLaunchError(f"unknown Block D arm {run.arm_id!r}")
+    slots = treatment.budget.caps.proposal_slots
+    if slots != floor_random + floor_genetic + 200:
+        raise ConfirmatoryLaunchError(
+            f"Block D arm {run.arm_id!r} proposal cap {slots} is not floor plus horizon 200"
+        )
+    return PublicRunConfig(
+        seed=run.seed,
+        generator="llm",
+        selector="uniform_frontier",
+        allocation="static",
+        prompt_channel="constant",
+        repair_kind="identity",
+        floor_random=floor_random,
+        floor_genetic=floor_genetic,
+        search_horizon=200,
+        llm_call_cap=200,
+        expected_response_model=REGISTERED_RESPONSE_PIN,
+    )
+
+
+def launch_block_d_plan(
+    plan: JobPlan,
+    *,
+    execute: bool,
+    ack: str | None,
+    output_root: str,
+    executor: RunExecutor | None = None,
+) -> list[dict[str, Any]]:
+    """List the Block D queue, or run it after its own ack.
+
+    The primary and robustness acks cannot start this plan. A response snapshot
+    other than the registered mini pin stops the queue. The shared clock file
+    is not rewritten.
+    """
+    if plan.study_id != BLOCK_D_STUDY_ID:
+        raise ConfirmatoryLaunchError("this launcher only starts the NAS Block D plan")
+    ordered = ordered_runs(plan)
+    if not execute:
+        return [_describe(run, "dry-run") for run in ordered]
+    if ack != BLOCK_D_ACK:
+        raise ConfirmatoryLaunchError(
+            "refusing to start Block D runs without "
+            f"--execute --ack {BLOCK_D_ACK}"
+        )
+    incomplete = [run.run_id for run in ordered if run_disposition(run) == "incomplete"]
+    if incomplete:
+        raise ConfirmatoryLaunchError(
+            "incomplete Block D run(s) must be resolved before continuing: "
+            + ", ".join(incomplete)
+        )
+    write_job_plan(plan, study_root=Path(output_root) / plan.study_id)
+    rows: list[dict[str, Any]] = []
+    for run in ordered:
+        if run_disposition(run) == "complete":
+            _require_registered_pin(run)
+            rows.append(_describe(run, "skipped-complete"))
+            continue
+        if run.treatment.generator.kind == "llm":
+            _ensure_clock(plan, run, output_root=output_root)
+        if executor is None:
+            raise ConfirmatoryLaunchError("no run executor was provided")
+        executor(run)
+        _require_registered_pin(run)
+        rows.append(_describe(run, "executed"))
+    return rows
+
+
+def execute_block_d_run(run: RunManifest, *, repo_root: Path) -> None:
+    """Run one Block D manifest on the pinned mini snapshot."""
+    config = public_config_from_block_d_run(run)
+    output_dir = Path(run.output_paths["run_dir"])
+    if not output_dir.is_absolute():
+        output_dir = repo_root / output_dir
+    _execute_nas(
+        run,
+        config,
+        output_dir,
+        repo_root=repo_root,
+        request_model=REGISTERED_RESPONSE_PIN,
+    )
+
+
+def _require_registered_pin(run: RunManifest) -> None:
+    summary_path = Path(run.output_paths["run_dir"]) / SUMMARY_FILENAME
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    response_model = payload.get("response_model")
+    if response_model != REGISTERED_RESPONSE_PIN:
+        raise ConfirmatoryLaunchError(
+            f"run {run.run_id} returned response_model {response_model!r}; "
+            "stopping the Block D queue for a dated amendment"
+        )
 
 
 def execute_robustness_run(run: RunManifest, *, repo_root: Path) -> None:

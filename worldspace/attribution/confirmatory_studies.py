@@ -21,6 +21,8 @@ DomainId = Literal["nas201", "pcg_sokoban"]
 
 CONFIRMATORY_SEEDS = tuple(range(301001, 301021))
 ROBUSTNESS_SEEDS = tuple(range(303001, 303011))
+BLOCK_D_SEEDS = tuple(range(304001, 304011))
+BLOCK_D_GENETIC_FLOOR = 50
 CONFIRMATORY_PROTOCOL_ID = "ca-confirmatory-v0"
 # Registered ca-phase3-v0 bytes and the attached 2026-09-02 price table.
 # Plans stay unlaunched; these hashes only name the frozen protocol.
@@ -79,20 +81,34 @@ def _arm(
     reference_arm_id: str | None = None,
     expected_differences: list[str] | None = None,
     model_kind: str = "gpt-4o-mini",
+    floor_random: int = 20,
+    floor_genetic: int = 0,
 ) -> dict[str, Any]:
     if repair is None:
         repair = "structural_counts" if domain == "pcg_sokoban" else "identity"
+    if floor_random < 0 or floor_genetic < 0:
+        raise ValueError("floor lengths cannot be negative")
+    if floor_random and floor_genetic:
+        raise ValueError("an arm has one floor")
+    if floor_random == 0 and floor_genetic == 0:
+        raise ValueError("an arm requires a floor")
     llm = generator == "llm"
+    slots = floor_random + floor_genetic + 200
+    budget = _budget()
+    budget["caps"]["proposal_slots"] = slots
+    budget["caps"]["evaluator_calls"] = slots
+    floor_parameters: dict[str, Any] = {
+        "floor_random": floor_random,
+        "archive_capacity": 400 if domain == "nas201" else 100,
+    }
+    if floor_genetic:
+        floor_parameters["floor_genetic"] = floor_genetic
     return {
         "arm_id": arm_id,
         "label": arm_id.replace("_", " "),
         "role": role,
         "treatment": {
-            "initialization": _component(
-                "generated_floor",
-                floor_random=20,
-                archive_capacity=400 if domain == "nas201" else 100,
-            ),
+            "initialization": _component("generated_floor", **floor_parameters),
             "selector": _component(selector),
             "generator": _component(generator),
             "prompt_channel": _component(prompt_channel),
@@ -104,7 +120,7 @@ def _arm(
                 strict=True,
             ),
             "allocation": _component(allocation),
-            "budget": _budget(),
+            "budget": budget,
         },
         "representation": _component(f"{domain}_genotype"),
         "model": _model_component(llm=llm, model_kind=model_kind),
@@ -219,6 +235,54 @@ def robustness_study() -> StudyManifest:
         seeds=ROBUSTNESS_SEEDS,
         evidence_tier="robustness",
         study_id="robustness-nas201-selector-channel",
+    )
+
+
+def occupancy_study() -> StudyManifest:
+    """NAS Block D. Same A-const-uniform search on two independent floors.
+
+    The floors do not share a recipe hash. The contrast is descriptive.
+    """
+    arms = [
+        _arm(
+            "nas201",
+            arm_id="D-floor-random",
+            role="baseline",
+            selector="uniform_frontier",
+            generator="llm",
+            prompt_channel="constant",
+            floor_random=20,
+        ),
+        _arm(
+            "nas201",
+            arm_id="D-floor-genetic",
+            role="sensitivity",
+            selector="uniform_frontier",
+            generator="llm",
+            prompt_channel="constant",
+            floor_random=0,
+            floor_genetic=BLOCK_D_GENETIC_FLOOR,
+            reference_arm_id="D-floor-random",
+            expected_differences=["initialization", "budget"],
+        ),
+    ]
+    return _study(
+        "nas201",
+        study_suffix="occupancy",
+        arms=arms,
+        estimands=[
+            _paired_auc_estimand(
+                estimand_id="occupancy",
+                treatment_arm_ids=["D-floor-genetic"],
+                control_arm_ids=["D-floor-random"],
+                confirmatory_family=None,
+                multiplicity_rule="descriptive",
+                minimum_complete_pairs=len(BLOCK_D_SEEDS),
+            ),
+        ],
+        seeds=BLOCK_D_SEEDS,
+        evidence_tier="sensitivity",
+        study_id="sensitivity-nas201-occupancy",
     )
 
 
@@ -341,13 +405,16 @@ def confirmatory_job_context(
         domain_instance_id: str,
         arm: ArmManifest,
     ) -> InitialArchiveRef:
-        floor_random = int(arm.treatment.initialization.parameters.get("floor_random", 0))
+        parameters = arm.treatment.initialization.parameters
+        floor_random = int(parameters.get("floor_random", 0))
+        floor_genetic = int(parameters.get("floor_genetic", 0))
         repair = arm.treatment.repair_fallback.kind
         digest = floor_recipe_hash(
             seed=seed,
             floor_random=floor_random,
             repair=repair,
             bin_edges=edges,
+            floor_genetic=floor_genetic,
         )
         return InitialArchiveRef(
             archive_id=f"floor-recipe-{domain_instance_id}-{seed}",

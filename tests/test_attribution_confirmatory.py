@@ -335,6 +335,78 @@ class TestNas201AdapterLoop(unittest.TestCase):
                 result.summary["valid_proposals"],
             )
 
+    def test_genetic_floor_drops_out_of_the_auc(self) -> None:
+        edges = Nas201BinEdges(
+            resolution=4,
+            log_params_min=4.0,
+            log_params_max=5.0,
+            log_flops_min=6.0,
+            log_flops_max=7.0,
+            n_architectures=1,
+            source_sha256="a" * 64,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "genetic"
+            config = PublicRunConfig(
+                seed=5,
+                generator="random",
+                selector="uniform_frontier",
+                floor_random=0,
+                floor_genetic=6,
+                search_horizon=0,
+            )
+            result = run_nas201_qd(
+                _AlwaysHitNasLookup(),
+                edges,
+                config,
+                output_dir=run_dir,
+            )
+            self.assertEqual(result.summary["floor_genetic"], 6)
+            self.assertEqual(result.summary["floor_random"], 0)
+            self.assertEqual(result.summary["proposals"], 6)
+            curve = [
+                json.loads(line)["qd_score"]
+                for line in (run_dir / TRACE_FILENAME).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(curve), 6)
+            self.assertEqual(result.anytime_auc, search_curve_auc(curve, 6))
+            elites = [
+                json.loads(line)
+                for line in (run_dir / ARCHIVE_FILENAME).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(elites)
+            self.assertTrue(all(row["emitter_type"] == "genetic_floor" for row in elites))
+            random_result = run_nas201_qd(
+                _AlwaysHitNasLookup(),
+                edges,
+                PublicRunConfig(
+                    seed=5,
+                    generator="random",
+                    selector="uniform_frontier",
+                    floor_random=6,
+                    search_horizon=0,
+                ),
+                output_dir=Path(tmp) / "random",
+            )
+            self.assertNotEqual(
+                result.summary["initial_archive_hash"],
+                random_result.summary["initial_archive_hash"],
+            )
+        with self.assertRaises(ValueError):
+            run_nas201_qd(
+                _AlwaysHitNasLookup(),
+                edges,
+                PublicRunConfig(
+                    seed=1,
+                    generator="random",
+                    selector="uniform_frontier",
+                    floor_random=2,
+                    floor_genetic=2,
+                    search_horizon=0,
+                ),
+                output_dir=Path("."),
+            )
+
     def test_evaluator_completions_count_failed_evaluations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
@@ -472,6 +544,22 @@ class TestNas201AdapterLoop(unittest.TestCase):
 
 
 class TestPcgSokobanAdapterLoop(unittest.TestCase):
+    def test_genetic_floor_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            run_pcg_sokoban_qd(
+                cast(Any, None),
+                cast(Any, None),
+                PublicRunConfig(
+                    seed=1,
+                    generator="random",
+                    selector="uniform_frontier",
+                    floor_random=0,
+                    floor_genetic=50,
+                    search_horizon=0,
+                ),
+                output_dir=Path("."),
+            )
+
     def test_genetic_structural_counts_normalizes(self) -> None:
         env = _ToyPcgEnv()
         edges = bin_edges_from_measures(

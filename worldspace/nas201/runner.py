@@ -30,6 +30,8 @@ from worldspace.nas201.emitters import (
     Nas201TargetSelection,
     emit_genetic,
     emit_random,
+    mutate_one_edge,
+    random_spec,
     select_target_cell,
 )
 from worldspace.nas201.evaluation import evaluate_spec
@@ -64,6 +66,10 @@ def run_nas201_qd(
     llm_emit: LlmEmitFn | None = None,
 ) -> Nas201RunResult:
     """Run one NAS MAP-Elites job and write normalizable artifacts."""
+    if config.floor_random < 0 or config.floor_genetic < 0:
+        raise ValueError("floor lengths cannot be negative")
+    if config.floor_random and config.floor_genetic:
+        raise ValueError("a NAS run has one floor")
     if config.generator == "llm" and llm_emit is None:
         raise ValueError("llm generator requires llm_emit callback")
     if config.prompt_channel == "live" and config.generator != "llm":
@@ -153,12 +159,21 @@ def _run_nas201_qd_logged(
         archive.try_insert(elite)
         return True
 
-    for _ in range(config.floor_random):
-        proposals += 1
-        emitted = emit_random(rng)
-        _insert(emitted.spec, None, "random_floor")
-        qd_curve.append(archive.qd_score())
-        _trace()
+    if config.floor_genetic:
+        for _ in range(config.floor_genetic):
+            proposals += 1
+            # Parent is drawn and discarded. The floor proposal is the one-edge mutant.
+            child = mutate_one_edge(random_spec(rng), rng)
+            _insert(child, None, "genetic_floor")
+            qd_curve.append(archive.qd_score())
+            _trace()
+    else:
+        for _ in range(config.floor_random):
+            proposals += 1
+            emitted = emit_random(rng)
+            _insert(emitted.spec, None, "random_floor")
+            qd_curve.append(archive.qd_score())
+            _trace()
 
     initial_archive_hash = occupied_genotype_hash(
         [elite.spec.genotype_sha256() for elite in archive.elites()]
@@ -202,7 +217,7 @@ def _run_nas201_qd_logged(
         _trace()
 
     wall_s = time.perf_counter() - wall_started
-    auc = search_curve_auc(qd_curve, config.floor_random)
+    auc = search_curve_auc(qd_curve, config.floor_random + config.floor_genetic)
     for elite in archive.elites():
         append_jsonl(
             output_dir / ARCHIVE_FILENAME,
@@ -233,6 +248,7 @@ def _run_nas201_qd_logged(
         "archive_type": "grid",
         "n_cells": archive.n_cells,
         "floor_random": config.floor_random,
+        "floor_genetic": config.floor_genetic,
         "search_horizon": config.search_horizon,
         "proposals": proposals,
         "evaluations": evaluations,

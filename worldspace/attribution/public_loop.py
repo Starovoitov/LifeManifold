@@ -32,6 +32,7 @@ class PublicRunConfig:
     prompt_channel: Literal["not_applicable", "constant", "live"] = "not_applicable"
     repair_kind: str = "identity"
     floor_random: int = 20
+    floor_genetic: int = 0
     search_horizon: int = 200
     llm_call_cap: int = 200
     expected_response_model: str | None = None
@@ -94,7 +95,7 @@ def anytime_auc(values: Sequence[float]) -> float:
 
 
 def search_curve_auc(values: Sequence[float], floor_proposals: int) -> float:
-    """AUC of the curve after the random floor, via :func:`anytime_auc`."""
+    """AUC of the curve after the floor, via :func:`anytime_auc`."""
     if floor_proposals < 0:
         raise ValueError("floor_proposals cannot be negative")
     if floor_proposals > len(values):
@@ -131,20 +132,23 @@ def floor_recipe_hash(
     floor_random: int,
     repair: str,
     bin_edges: Mapping[str, Any],
+    floor_genetic: int = 0,
 ) -> str:
     """Identity of a generated floor before any genotype is drawn.
 
     The digest is the recipe (seed, floor length, repair, bin edges), not the
-    archive that the recipe later produces.
+    archive that the recipe later produces. A zero ``floor_genetic`` is omitted
+    so the primary 20-random recipe keeps its digest.
     """
-    return canonical_sha256(
-        {
-            "seed": seed,
-            "floor_random": floor_random,
-            "repair": repair,
-            "bin_edges": dict(bin_edges),
-        }
-    )
+    payload: dict[str, Any] = {
+        "seed": seed,
+        "floor_random": floor_random,
+        "repair": repair,
+        "bin_edges": dict(bin_edges),
+    }
+    if floor_genetic:
+        payload["floor_genetic"] = floor_genetic
+    return canonical_sha256(payload)
 
 
 @dataclass

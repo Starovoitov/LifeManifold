@@ -8,6 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from worldspace.attribution.adapters.common import checkpoints_from_trace
+from worldspace.attribution.analysis import _proposal_qd_series
+from worldspace.attribution.public_loop import anytime_auc
 from worldspace.attribution.adapters import (
     CaNormalizationAdapter,
     MazeNormalizationAdapter,
@@ -97,6 +100,58 @@ def _snapshot_tree(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+class TestTraceCallIndex(unittest.TestCase):
+    def test_completed_calls_keep_the_last_archive_at_each_count(self) -> None:
+        rows = [
+            {
+                "proposals": 1,
+                "evaluations": 1,
+                "filled_cells": 0,
+                "coverage": 0.0,
+                "qd_score": 1.0,
+                "llm_calls_completed": 0,
+            },
+            {
+                "proposals": 2,
+                "evaluations": 2,
+                "filled_cells": 0,
+                "coverage": 0.0,
+                "qd_score": 4.0,
+                "llm_calls_completed": 0,
+            },
+            {
+                "proposals": 3,
+                "evaluations": 3,
+                "filled_cells": 1,
+                "coverage": 0.25,
+                "qd_score": 5.0,
+                "llm_calls_completed": 1,
+            },
+            {
+                "proposals": 4,
+                "evaluations": 4,
+                "filled_cells": 1,
+                "coverage": 0.25,
+                "qd_score": 9.0,
+                "llm_calls_completed": 1,
+            },
+        ]
+        checkpoints = checkpoints_from_trace(rows, run_id="trace-call", capacity=4)
+        series = _proposal_qd_series(
+            checkpoints,
+            run_id="trace-call",
+            budget_axis="llm_call_completed",
+        )
+        self.assertEqual(series, [4.0, 9.0])
+        self.assertEqual(anytime_auc(series[1:]), 9.0)
+        proposal = _proposal_qd_series(
+            checkpoints,
+            run_id="trace-call",
+            budget_axis="proposal",
+        )
+        self.assertEqual(proposal, [1.0, 4.0, 5.0, 9.0])
 
 
 class TestSyntheticNormalizationFixtures(unittest.TestCase):

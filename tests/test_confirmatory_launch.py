@@ -8,21 +8,26 @@ import unittest
 from pathlib import Path
 
 from worldspace.attribution.confirmatory_launch import (
+    BLOCK_D_ACK,
     EXECUTE_ACK,
     REGISTERED_RESPONSE_PIN,
     ROBUSTNESS_ACK,
     ConfirmatoryLaunchError,
+    build_block_d_plan,
     build_confirmatory_plan,
     build_robustness_plan,
+    launch_block_d_plan,
     launch_plan,
     launch_robustness_plan,
     ordered_runs,
+    public_config_from_block_d_run,
     public_config_from_robustness_run,
     public_config_from_run,
     run_disposition,
 )
+from worldspace.attribution.confirmatory_studies import confirmatory_bin_edges
 from worldspace.attribution.manifest import RunManifest
-from worldspace.attribution.public_loop import SUMMARY_FILENAME, write_json
+from worldspace.attribution.public_loop import SUMMARY_FILENAME, floor_recipe_hash, write_json
 
 
 class TestConfirmatoryLaunch(unittest.TestCase):
@@ -246,6 +251,120 @@ class TestRobustnessLaunch(unittest.TestCase):
                     executor=_finish,
                 )
             self.assertEqual(calls["n"], 2)
+
+
+class TestBlockDLaunch(unittest.TestCase):
+    def test_dry_run_is_two_nas_floors(self) -> None:
+        plan = build_block_d_plan(output_root="artifacts/phase4-block-d")
+        ordered = ordered_runs(plan)
+        self.assertEqual(len(ordered), 20)
+        self.assertFalse(plan.launched)
+        self.assertEqual(plan.evidence_tier, "sensitivity")
+        self.assertEqual(plan.study_id, "sensitivity-nas201-occupancy")
+        self.assertEqual({run.domain_id for run in ordered}, {"nas201"})
+        self.assertEqual({run.arm_id for run in ordered}, {"D-floor-random", "D-floor-genetic"})
+        self.assertEqual(ordered[0].seed, 304001)
+        self.assertEqual(ordered[-1].seed, 304010)
+        by_seed: dict[int, dict[str, object]] = {}
+        for run in ordered:
+            self.assertEqual(run.model.kind, "gpt-4o-mini")
+            self.assertEqual(run.model.parameters.get("pinned_response"), REGISTERED_RESPONSE_PIN)
+            self.assertEqual(run.treatment.generator.kind, "llm")
+            self.assertEqual(run.treatment.selector.kind, "uniform_frontier")
+            self.assertEqual(run.treatment.prompt_channel.kind, "constant")
+            self.assertEqual(run.treatment.repair_fallback.kind, "identity")
+            config = public_config_from_block_d_run(run)
+            self.assertEqual(config.search_horizon, 200)
+            self.assertEqual(config.llm_call_cap, 200)
+            self.assertEqual(config.expected_response_model, REGISTERED_RESPONSE_PIN)
+            by_seed.setdefault(run.seed, {})[run.arm_id] = (config, run.initial_archive_hash)
+            with self.assertRaises(ConfirmatoryLaunchError):
+                public_config_from_run(run)
+        self.assertEqual(set(by_seed), set(range(304001, 304011)))
+        for seed, arms in by_seed.items():
+            random_config, random_hash = arms["D-floor-random"]
+            genetic_config, genetic_hash = arms["D-floor-genetic"]
+            self.assertEqual(random_config.floor_random, 20)
+            self.assertEqual(random_config.floor_genetic, 0)
+            self.assertEqual(genetic_config.floor_random, 0)
+            self.assertEqual(genetic_config.floor_genetic, 50)
+            self.assertNotEqual(random_hash, genetic_hash)
+        contrast = plan.design.contrasts[0]
+        self.assertEqual(contrast.treatment_arm_id, "D-floor-genetic")
+        self.assertEqual(contrast.control_arm_id, "D-floor-random")
+        self.assertTrue(contrast.controlled_axes_match)
+        edges = confirmatory_bin_edges("nas201")
+        random_arm = next(run for run in ordered if run.seed == 304001 and run.arm_id == "D-floor-random")
+        genetic_arm = next(run for run in ordered if run.seed == 304001 and run.arm_id == "D-floor-genetic")
+        self.assertEqual(
+            random_arm.initial_archive_hash,
+            floor_recipe_hash(seed=304001, floor_random=20, repair="identity", bin_edges=edges),
+        )
+        self.assertEqual(
+            random_arm.initial_archive_hash,
+            floor_recipe_hash(
+                seed=304001,
+                floor_random=20,
+                repair="identity",
+                bin_edges=edges,
+                floor_genetic=0,
+            ),
+        )
+        self.assertEqual(
+            genetic_arm.initial_archive_hash,
+            floor_recipe_hash(
+                seed=304001,
+                floor_random=0,
+                repair="identity",
+                bin_edges=edges,
+                floor_genetic=50,
+            ),
+        )
+        with self.assertRaises(ConfirmatoryLaunchError):
+            build_confirmatory_plan("nas201", "occupancy", output_root="artifacts/phase4")
+
+    def test_other_acks_do_not_start_block_d(self) -> None:
+        plan = build_block_d_plan(output_root="artifacts/phase4-block-d-ack")
+        for ack in (EXECUTE_ACK, ROBUSTNESS_ACK):
+            with self.assertRaises(ConfirmatoryLaunchError):
+                launch_block_d_plan(
+                    plan,
+                    execute=True,
+                    ack=ack,
+                    output_root="artifacts/phase4-block-d-ack",
+                    executor=lambda run: None,
+                )
+        with self.assertRaises(ConfirmatoryLaunchError):
+            launch_plan(
+                plan,
+                execute=True,
+                ack=EXECUTE_ACK,
+                output_root="artifacts/phase4-block-d-ack",
+                executor=lambda run: None,
+            )
+
+    def test_wrong_snapshot_stops_the_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "phase4"
+            plan = build_block_d_plan(output_root=str(root))
+            called: list[str] = []
+
+            def _finish(run):  # type: ignore[no-untyped-def]
+                called.append(run.run_id)
+                write_json(
+                    Path(run.output_paths["run_dir"]) / SUMMARY_FILENAME,
+                    {"completed": True, "response_model": "gpt-4o-2024-08-06"},
+                )
+
+            with self.assertRaises(ConfirmatoryLaunchError):
+                launch_block_d_plan(
+                    plan,
+                    execute=True,
+                    ack=BLOCK_D_ACK,
+                    output_root=str(root),
+                    executor=_finish,
+                )
+            self.assertEqual(len(called), 1)
 
 
 if __name__ == "__main__":

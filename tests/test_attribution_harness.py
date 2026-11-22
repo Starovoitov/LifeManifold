@@ -28,7 +28,13 @@ from worldspace.attribution.schemas import attribution_schema_bundle
 HASH_A = "a" * 64
 HASH_B = "b" * 64
 DOMAINS = ("ca", "maze", "dungeon", "sphere")
-EvidenceTier = Literal["feasibility", "design_pilot", "confirmatory", "robustness"]
+EvidenceTier = Literal[
+    "feasibility",
+    "design_pilot",
+    "confirmatory",
+    "robustness",
+    "sensitivity",
+]
 
 
 def _component(kind: str, **parameters: Any) -> dict[str, Any]:

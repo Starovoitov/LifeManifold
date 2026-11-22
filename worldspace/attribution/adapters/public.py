@@ -132,7 +132,7 @@ def normalize_public_run(
         treatment_hash=manifest.treatment_hash,
         event_completeness="partial",
         qd_score_anytime_auc=_optional_float(summary.get("qd_score_anytime_auc")),
-        floor_proposals=_optional_int(summary.get("floor_random")),
+        floor_proposals=_floor_proposals(summary),
         floor_recipe_hash=recipe_hash,
         final_counters=counters,
         counter_completeness=counter_completeness,
@@ -255,6 +255,14 @@ def _optional_int(value: object) -> int | None:
     if value is None:
         return None
     return int(value)  # type: ignore[arg-type]
+
+
+def _floor_proposals(summary: Mapping[str, Any]) -> int | None:
+    """Points the anytime AUC drops. A genetic floor adds to the random floor."""
+    floor_random = _optional_int(summary.get("floor_random"))
+    if floor_random is None:
+        return None
+    return floor_random + (_optional_int(summary.get("floor_genetic")) or 0)
 
 
 def _optional_float(value: object) -> float | None:

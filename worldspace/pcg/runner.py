@@ -64,6 +64,8 @@ def run_pcg_sokoban_qd(
     llm_emit: LlmEmitFn | None = None,
 ) -> PcgRunResult:
     """Run one sokoban MAP-Elites job with named repair on every emit."""
+    if config.floor_genetic:
+        raise ValueError("PCG confirmatory runs do not use a genetic floor")
     if edges.problem_name != SOKOBAN_V0.problem_name:
         raise ValueError(
             f"edges problem {edges.problem_name!r} is not {SOKOBAN_V0.problem_name}"

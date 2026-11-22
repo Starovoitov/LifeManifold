@@ -71,17 +71,26 @@ def checkpoints_from_trace(
     run_id: str,
     capacity: int,
 ) -> tuple[BudgetCheckpoint, ...]:
-    """Convert native trace rows into proposal/evaluation-indexed checkpoints."""
+    """Convert native trace rows into proposal, evaluation, and LLM-call checkpoints.
+
+    A completed-call index is emitted only when the trace records
+    ``llm_calls_completed``. Rows that share a call count stay separate here;
+    analysis keeps the last archive state at each count.
+    """
     checkpoints: list[BudgetCheckpoint] = []
     previous_proposals: int | None = None
     previous_evaluations: int | None = None
+    previous_llm: int | None = None
     previous_occupied = 0
     for row in rows:
         proposals = _optional_int(row.get("proposals"))
         evaluations = _optional_int(row.get("evaluations"))
+        llm_completed = _optional_int(row.get("llm_calls_completed"))
         occupied = _required_int(row.get("filled_cells"), "filled_cells")
         _require_monotone(previous_proposals, proposals, "proposals")
         _require_monotone(previous_evaluations, evaluations, "evaluations")
+        _require_monotone(previous_llm, llm_completed, "llm_calls_completed")
+        previous_llm = llm_completed
         if occupied < previous_occupied:
             raise NormalizationError("trace filled_cells must be monotone")
         previous_proposals = proposals
@@ -109,7 +118,7 @@ def checkpoints_from_trace(
             evaluator_attempts=evaluations,
             evaluator_completions=evaluations,
             llm_attempts=None,
-            llm_completions=None,
+            llm_completions=llm_completed,
             prompt_tokens=None,
             completion_tokens=None,
             total_tokens=None,
@@ -123,7 +132,7 @@ def checkpoints_from_trace(
             "evaluation": "observed" if evaluations is not None else "unavailable",
             "valid_proposal": "unavailable",
             "llm_call_attempted": "unavailable",
-            "llm_call_completed": "unavailable",
+            "llm_call_completed": "observed" if llm_completed is not None else "unavailable",
             "prompt_token": "unavailable",
             "completion_token": "unavailable",
             "token": "unavailable",
@@ -137,6 +146,8 @@ def checkpoints_from_trace(
             available_axes.append("proposal")
         if evaluations is not None:
             available_axes.append("evaluation")
+        if llm_completed is not None:
+            available_axes.append("llm_call_completed")
         for axis in available_axes:
             checkpoints.append(
                 BudgetCheckpoint(

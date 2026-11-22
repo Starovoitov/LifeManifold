@@ -20,7 +20,13 @@ SCHEMA_VERSION = "attribution-1.0"
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-EvidenceTier = Literal["feasibility", "design_pilot", "confirmatory", "robustness"]
+EvidenceTier = Literal[
+    "feasibility",
+    "design_pilot",
+    "confirmatory",
+    "robustness",
+    "sensitivity",
+]
 ArmRole = Literal["focal", "baseline", "control", "sensitivity"]
 BudgetAxis = Literal[
     "proposal",
